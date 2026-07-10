@@ -1,0 +1,36 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# Test / coverage / type-checker caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ty_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# uv
+# (uv.lock is committed on purpose; do not ignore it)
+
+# IDE
+.idea/
+
+# Upstream references kept locally for comparison, NOT part of this project.
+# ruff/pytest/coverage all skip gitignored paths, so no tool-level exclude is needed.
+docopt-master/
+

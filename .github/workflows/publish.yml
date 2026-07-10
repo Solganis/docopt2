@@ -1,0 +1,74 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # PyPI Trusted Publishing (OIDC) + Sigstore build provenance
+      contents: write # upload artifacts to the GitHub Release
+      attestations: write # actions/attest-build-provenance
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.15"
+          allow-prereleases: true
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - name: Attest wheel provenance
+        id: attest-wheel
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: dist/*.whl
+
+      - name: Attest sdist provenance
+        id: attest-sdist
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: dist/*.tar.gz
+
+      - name: Collect provenance (sigstore bundles + in-toto)
+        env:
+          WHEEL_BUNDLE: ${{ steps.attest-wheel.outputs.bundle-path }}
+          SDIST_BUNDLE: ${{ steps.attest-sdist.outputs.bundle-path }}
+        run: |
+          mkdir -p provenance
+          cp "$WHEEL_BUNDLE" "provenance/$(basename dist/*.whl).sigstore.json"
+          cp "$SDIST_BUNDLE" "provenance/$(basename dist/*.tar.gz).sigstore.json"
+          jq -c '.dsseEnvelope' "$WHEEL_BUNDLE" > provenance/provenance.intoto.jsonl
+          jq -c '.dsseEnvelope' "$SDIST_BUNDLE" >> provenance/provenance.intoto.jsonl
+          test -s provenance/provenance.intoto.jsonl
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+
+      - name: Generate SBOM (CycloneDX)
+        run: syft scan dir:dist -o "cyclonedx-json=provenance/docopt2.sbom.cdx.json"
+
+      - name: Publish to PyPI (Trusted Publishing + PEP 740 attestations)
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+
+      - name: Upload artifacts and provenance to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG_NAME" dist/* provenance/*

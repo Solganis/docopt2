@@ -1,0 +1,54 @@
+docopt2
+=======
+
+A typed, maintained successor to docopt. The usage message is the parser spec.
+
+This project is a fork of and derivative work based on the original docopt,
+and additionally ports two concrete improvements from docopt-ng. Both upstream
+projects are MIT licensed; this project retains the MIT license (see LICENSE).
+
+
+Original docopt
+---------------
+Copyright (c) 2012-2013 Vladimir Keleshev <vladimir@keleshev.com>
+Repository: https://github.com/docopt/docopt
+
+The core parsing engine (the Pattern / LeafPattern / BranchPattern class
+hierarchy, the usage-pattern grammar, option parsing, and matching semantics)
+is derived directly from the original docopt and preserves its behavior.
+
+A verbatim copy of the original docopt is vendored at
+tests/_vendor/docopt_original.py and used only as an oracle for the differential
+property tests (it is never imported by the shipped package).
+
+
+Ported from docopt-ng
+---------------------
+Repository: https://github.com/jazzband/docopt-ng
+
+The following improvements are ported from docopt-ng, with thanks to its
+contributors:
+
+  * Flag spellcheck / de-abbreviation: Levenshtein-based suggestion when a
+    user mistypes a long option.
+  * `collected` / `left` attributes on `DocoptExit`, so callers can inspect
+    what was parsed and what was left over when a usage match fails.
+
+docopt-ng contributors (roughly chronological), per its source headers:
+
+  * Copyright (c) 2012 Andrew Kassen <atkassen@ucdavis.edu>
+  * Copyright (c) 2012 jeffrimko <jeffrimko@gmail.com>
+  * Copyright (c) 2012 Andrew Sutton <met48@met48.com>
+  * Copyright (c) 2012 Nima Johari <nimajohari@gmail.com>
+  * Copyright (c) 2012-2013 Vladimir Keleshev <vladimir@keleshev.com>
+  * Copyright (c) 2014-2018 Matt Boersma <matt@sprout.org>
+  * Copyright (c) 2016 amir <ladsgroup@gmail.com>
+  * Copyright (c) 2015 Benjamin Bach <benjaoming@gmail.com>
+  * Copyright (c) 2017 Oleg Bulkin <o.bulkin@gmail.com>
+  * Copyright (c) 2018 Iain Barnett <iainspeed@gmail.com>
+  * Copyright (c) 2019 itdaniher <itdaniher@gmail.com>
+
+
+docopt2
+-------
+Copyright (c) 2026 Solganis <solganis.dev@gmail.com>

@@ -1,0 +1,170 @@
+[project]
+name = "docopt2"
+version = "1.0.0"
+description = "Typed successor to docopt: the usage message is the parser spec."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.10"
+authors = [
+    { name = "Solganis", email = "solganis.dev@gmail.com" },
+]
+keywords = ["docopt", "cli", "command-line", "argument-parser", "usage", "posix", "typed"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: User Interfaces",
+    "Typing :: Typed",
+]
+
+# Zero runtime dependencies. This is a property people specifically value in the
+# original docopt; it is non-negotiable and must never regress.
+dependencies = []
+
+[project.optional-dependencies]
+# Reflective only: we never `import pydantic`. This extra is a convenience pin for
+# users who pass a pydantic model as `schema=`. The core stays zero-dependency.
+pydantic = ["pydantic>=2"]
+
+[project.scripts]
+docopt2 = "docopt2.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/Solganis/docopt2"
+Repository = "https://github.com/Solganis/docopt2"
+Issues = "https://github.com/Solganis/docopt2/issues"
+Changelog = "https://github.com/Solganis/docopt2/releases"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/docopt2"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.20",
+    "ty>=0.0.58",
+    # Dev-only. Does not affect the zero runtime-dependency guarantee (that concerns
+    # [project.dependencies]). Used to dogfood our own test modules; the ported
+    # compatibility suites stay on plain assert/pytest.raises on purpose.
+    "assertpy2>=2.15",
+    # Dev-only: verifies the reflective pydantic binding path against the real library.
+    "pydantic>=2",
+    # Dev-only: typing.assert_type / NotRequired backports for tests on Python 3.10.
+    "typing_extensions>=4.6",
+    # Dev-only: property-based tests (differential vs vanilla docopt, coercion round-trips).
+    "hypothesis>=6",
+]
+# Second and third type checkers: the library is consumed by people on different
+# checkers, so the code is kept clean under all three. `ty` is the gate; these run
+# locally on changed files, not in the deps/CI floor.
+typecheck = [
+    "mypy>=2.2.0",
+    "pyright>=1.1.411",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# --strict-markers: an unknown @pytest.mark.* is an error, not a silent typo.
+# Coverage is always measured and gated at 100% (line + branch).
+addopts = [
+    "--strict-markers",
+    "--cov=docopt2",
+    "--cov-branch",
+    "--cov-report=term-missing",
+    "--cov-fail-under=100",
+]
+xfail_strict = true  # an xfail that unexpectedly passes (xpass) fails the run
+# Warnings are errors: a deprecation or runtime warning fails the run instead of
+# scrolling past. Add targeted "ignore::<Category>" entries only if forced.
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["docopt2"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+]
+
+[tool.ruff]
+# 120 feeds both `ruff format` and the E501 lint. We do NOT disable E501 (see the
+# empty `ignore` below): line length is a hard rule, not just a formatter hint.
+line-length = 120
+target-version = "py310"  # lowest Python we support; UP rewrites target this floor
+src = ["src", "tests"]
+# Vendored copies of the original docopt, kept verbatim as a differential oracle and a
+# reference checkout; never linted (they are not our code and must not be modernized).
+extend-exclude = ["tests/_vendor", "docopt-master"]
+
+[tool.ruff.lint]
+# Enable preview rules, but ONLY the ones named explicitly in `select`
+# (explicit-preview-rules), so we opt into a single preview rule (E301) without
+# pulling in every unstable rule ruff ships behind the preview flag.
+preview = true
+explicit-preview-rules = true
+
+# Curated set, not "ALL": each prefix is here on purpose. Plugin name + why we keep it.
+select = [
+    "E",     # pycodestyle errors
+    "E301",  # pycodestyle, preview-gated: blank line between methods (not in stable "E")
+    "F",     # Pyflakes - unused imports/names, undefined names
+    "W",     # pycodestyle warnings
+    "N",     # pep8-naming - naming conventions across the Pattern hierarchy
+    "I",     # isort - import ordering (all imports at top of file)
+    "UP",    # pyupgrade - modernize syntax to our py310 floor
+    "B",     # flake8-bugbear - likely bugs and footguns
+    "A",     # flake8-builtins - don't shadow builtins (help= is an explained exception)
+    "C4",    # flake8-comprehensions - drop redundant list()/dict()/set() wrappers
+    "PIE",   # flake8-pie - small idiom simplifications
+    "PGH",   # pygrep-hooks - forbid blanket noqa/type: ignore (must name a rule code)
+    "PLE",   # Pylint errors - real-error subset (not style)
+    "SIM",   # flake8-simplify - collapse redundant constructs
+    "T10",   # flake8-debugger - no committed breakpoint()/pdb calls
+    "RUF",   # Ruff-specific rules
+    "ERA",   # eradicate - no commented-out code
+    "PERF",  # Perflint - performance anti-patterns
+    "TC",    # flake8-type-checking - keep typing-only imports under TYPE_CHECKING
+]
+
+# Intentionally empty: nothing is globally ignored. In particular E501 stays ON.
+# Per-file relaxations go in per-file-ignores, not here.
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+# The ported test suites trade a few style rules for fidelity to the upstream tests
+# (single-letter locals, lambda helpers, literal fixtures).
+"tests/*" = [
+    "E731",   # lambda helpers (TS = lambda ...) mirror the upstream test file
+    "E741",   # ambiguous one-letter names (l/I/O) are fine in throwaway test locals
+    "N806",   # upstream uses uppercase locals (TS) in tests
+    "N818",   # the docopt case-runner signal class mirrors the upstream conftest name
+    "A002",   # tests may take/accept args named like builtins
+    "SIM",    # keep test constructs verbatim where they read closer to the case
+    "ERA001", # some upstream tests keep example snippets as comments
+]
+
+[tool.ty.analysis]
+# Suppressions must be ty-native `# ty: ignore[rule]`. Make ty disregard mypy's
+# generic `# type: ignore` so a stray mypy-style comment can't silently mask a ty error.
+respect-type-ignore-comments = false

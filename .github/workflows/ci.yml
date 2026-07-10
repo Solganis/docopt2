@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
+        include:
+          # The coverage cell enforces 100% (line + branch) and uploads to Codecov. Other
+          # cells only assert pass/fail: on < 3.14 the `sys.version_info >= (3, 11)` import
+          # branch is unreachable, so 100% is only attainable on the primary version.
+          - os: ubuntu-latest
+            python-version: "3.14"
+            coverage: true
+          - os: windows-latest
+            python-version: "3.14"
+          - os: macos-latest
+            python-version: "3.14"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Test with coverage (100% gate)
+        if: matrix.coverage
+        run: uv run pytest --cov-report=xml
+
+      - name: Test
+        if: '!matrix.coverage'
+        run: uv run pytest -o addopts=
+
+      - name: Upload coverage to Codecov
+        if: matrix.coverage
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: uv sync --group typecheck
+
+      - name: Ruff check
+        run: uv run ruff check src tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests
+
+      - name: Type check (ty)
+        run: uv run ty check src/docopt2 tests/typing_surface/check_typed.py
+
+      - name: Type check (mypy --strict)
+        run: uv run mypy --strict src/docopt2 tests/typing_surface/check_typed.py
+
+      - name: Type check (mypy --strict, floor target 3.10)
+        run: uv run mypy --strict --python-version 3.10 src/docopt2
+
+      - name: Type check (pyright)
+        run: uv run pyright src/docopt2 tests/typing_surface/check_typed.py
+
+      - name: Type check (pyright, floor target 3.10)
+        run: uv run pyright --pythonversion 3.10 src/docopt2
+
+  ci-ok:
+    needs: [test, lint]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs succeeded
+        run: '[ "${{ needs.test.result }}" = "success" ] && [ "${{ needs.lint.result }}" = "success" ]'
