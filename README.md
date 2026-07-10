@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Solganis/docopt2/main/docs/assets/logo-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/Solganis/docopt2/main/docs/assets/logo.png">
-    <img src="https://raw.githubusercontent.com/Solganis/docopt2/main/docs/assets/logo.png" alt="docopt2" width="200">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo.png">
+    <img src="docs/assets/logo.png" alt="docopt2" width="200">
   </picture>
 </p>
 
@@ -93,7 +93,7 @@ Usage:
 **docopt2** points at it - in the argv *and* the usage that rejected it:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Solganis/docopt2/main/docs/assets/diagnostic.png" width="620" alt="A docopt2 error: 'unknown option --forcce' with a caret under the token in the argument vector and a second caret under --force in the usage, plus a 'did you mean --force?' hint">
+  <img src="docs/assets/diagnostic.png" width="620" alt="A docopt2 error: 'unknown option --forcce' with a caret under the token in the argument vector and a second caret under --force in the usage, plus a 'did you mean --force?' hint">
 </p>
 
 Malformed usage gets the same two carets, at import time - a broken spec fails loudly, not silently.
@@ -130,7 +130,7 @@ Add `--style=typeddict` or `--style=cli` for the other shapes. Widen a field by 
 `docopt2 check` (or `docopt2.check(doc)` in code) lints the usage grammar itself - catching defects the parser would otherwise accept in silence:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Solganis/docopt2/main/docs/assets/check.png" width="620" alt="A docopt2 check warning: option --verbose is declared but never used, with a caret under its declaration in the options section and a help line on how to fix it">
+  <img src="docs/assets/check.png" width="620" alt="A docopt2 check warning: option --verbose is declared but never used, with a caret under its declaration in the options section and a help line on how to fix it">
 </p>
 
 It flags dead `[default: ...]` values, options declared but never usable, ambiguous variadic
