@@ -43,18 +43,8 @@ Errors point at the mistake: colored carets in your argv and the usage, plus the
 </tr>
 <tr>
 <td valign="top">
-<a href="#schema-codegen"><b>Schema codegen</b></a><br>
-Never hand-write the schema - <code>docopt2 stub</code> generates it from your usage, in three styles.
-</td>
-<td valign="top">
-<a href="#usage-linter"><b>Static usage linter</b></a><br>
-Catch a broken usage before it ships - <code>docopt2 check</code> flags dead defaults and unusable options.
-</td>
-</tr>
-<tr>
-<td valign="top">
-<a href="#example-generation"><b>Example generation</b></a><br>
-Sample every argv your usage accepts - for drift detection, fuzzing, and a Hypothesis strategy.
+<a href="#subcommand-dispatch"><b>Subcommand dispatch</b></a><br>
+Route each subcommand to its own handler - no <code>if args[...]</code> ladder.
 </td>
 <td valign="top">
 <a href="#shell-completion"><b>Shell completion</b></a><br>
@@ -63,8 +53,8 @@ Tab-completion that knows your grammar: bash, zsh, fish, PowerShell.
 </tr>
 <tr>
 <td valign="top">
-<a href="#subcommand-dispatch"><b>Subcommand dispatch</b></a><br>
-Route each subcommand to its own handler - no <code>if args[...]</code> ladder.
+<a href="#schema-codegen"><b>Schema codegen</b></a><br>
+Never hand-write the schema - <code>docopt2 stub</code> generates it from your usage, in three styles.
 </td>
 <td valign="top">
 <a href="#layered-fallback"><b>Layered fallback</b></a><br>
@@ -75,6 +65,16 @@ Resolve an option from <code>[env: VAR]</code> or <code>[config: key]</code> - C
 <td valign="top">
 <a href="#rich-help"><b>Self-documenting <code>--help</code></b></a><br>
 Opt into a colored, scoped help that shows where each value resolves from - env, config, default.
+</td>
+<td valign="top">
+<a href="#usage-linter"><b>Static usage linter</b></a><br>
+Catch a broken usage before it ships - <code>docopt2 check</code> flags dead defaults and unusable options.
+</td>
+</tr>
+<tr>
+<td valign="top">
+<a href="#example-generation"><b>Example generation</b></a><br>
+Sample every argv your usage accepts - for drift detection, fuzzing, and a Hypothesis strategy.
 </td>
 <td valign="top">
 <a href="#round-trip"><b>Round-trip codec</b></a><br>
@@ -185,6 +185,52 @@ A value that will not coerce to its typed field gets them too:
 
 **[Closest usage line.](https://solganis.github.io/docopt2/guides/diagnostics/#the-usage-line-you-were-closest-to)** When several invocations are possible, docopt2 finds the one you got furthest into and carets the single element it still needs - not a generic "no match".
 
+<a name="subcommand-dispatch"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/dispatch/">Subcommand dispatch</a></h2>
+
+`Dispatch` routes each command to its own handler - no `if args["..."]` ladder:
+
+```python
+from docopt2 import Dispatch
+
+app = Dispatch("""Usage:
+  git add <path>...
+  git commit --message=<msg>
+""")
+
+@app.on("add")
+def add(args):
+    print(f"adding {args['<path>']}")
+
+@app.on("commit")
+def commit(args):
+    print(f"committing {args['--message']!r}")
+
+app.run()   # parse argv, call the matched command's handler
+```
+
+<a name="shell-completion"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/completion/">Shell completion</a></h2>
+
+<p align="center">
+  <a href="https://www.gnu.org/software/bash/"><img src="https://img.shields.io/badge/bash-4EAA25?logo=gnubash&logoColor=white" alt="bash"></a>
+  <a href="https://www.zsh.org/"><img src="https://img.shields.io/badge/zsh-F15A24?logo=zsh&logoColor=white" alt="zsh"></a>
+  <a href="https://fishshell.com/"><img src="https://img.shields.io/badge/fish-34C534?logo=fishshell&logoColor=white" alt="fish"></a>
+  <a href="https://learn.microsoft.com/powershell/"><img src="https://img.shields.io/badge/PowerShell-5391FE" alt="PowerShell"></a>
+</p>
+
+Generate the completion script for your shell; Tab then narrows to exactly what is valid at the cursor -<br>
+commands and options, never positional values - straight from the usage:
+
+```console
+$ naval <TAB>
+--help  --speed  ship
+$ naval ship <TAB>
+--speed  new
+$ naval ship titanic move 1 2 <TAB>
+--speed
+```
+
 <a name="schema-codegen"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/stub/">Generate the schema from the usage</a></h2>
 
@@ -209,83 +255,6 @@ class Args:
 
 Add `--style=typeddict` or `--style=cli` for the other shapes.<br>
 Widen a field by hand (`speed: int`) and the coercion is automatic.
-
-<a name="usage-linter"></a>
-<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/check/">Lint the usage before it ships</a></h2>
-
-`docopt2 check` (or `docopt2.check(doc)` in code) lints the usage grammar itself -<br>
-catching defects the parser would otherwise accept in silence:
-
-<p align="center">
-  <img src="docs/assets/check.png" width="857" alt="A docopt2 check warning: option --verbose is declared but never used, with a caret under its declaration in the options section and a help line on how to fix it">
-</p>
-
-It flags dead `[default: ...]` values, options declared but never usable,<br>
-ambiguous variadic positionals, and redundant alternatives.
-
-<a name="example-generation"></a>
-<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/examples/">Sample the invocations your usage accepts</a></h2>
-
-`docopt2 examples` (or `generate_examples`) walks the usage grammar into concrete invocations it accepts -<br>
-derived from the spec, so they cannot drift from what `docopt` parses:
-
-```console
-$ docopt2 examples naval.py --count=4 --seed=5
---help
-ship v1 move v2 v3
-ship new v4 v5
-ship new v6
-```
-
-Golden-file them to catch grammar drift, fuzz your parser with the accepted set, or add `--invalid` for the reject-set.
-
-**[Property-test with Hypothesis.](https://solganis.github.io/docopt2/guides/examples/#property-testing-with-hypothesis)** The same sampler is a shrinking [Hypothesis](https://hypothesis.readthedocs.io/) strategy - every draw is an argv your usage accepts.
-
-<a name="shell-completion"></a>
-<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/completion/">Shell completion</a></h2>
-
-<p align="center">
-  <a href="https://www.gnu.org/software/bash/"><img src="https://img.shields.io/badge/bash-4EAA25?logo=gnubash&logoColor=white" alt="bash"></a>
-  <a href="https://www.zsh.org/"><img src="https://img.shields.io/badge/zsh-F15A24?logo=zsh&logoColor=white" alt="zsh"></a>
-  <a href="https://fishshell.com/"><img src="https://img.shields.io/badge/fish-34C534?logo=fishshell&logoColor=white" alt="fish"></a>
-  <a href="https://learn.microsoft.com/powershell/"><img src="https://img.shields.io/badge/PowerShell-5391FE" alt="PowerShell"></a>
-</p>
-
-Generate the completion script for your shell; Tab then narrows to exactly what is valid at the cursor -<br>
-commands and options, never positional values - straight from the usage:
-
-```console
-$ naval <TAB>
---help  --speed  ship
-$ naval ship <TAB>
---speed  new
-$ naval ship titanic move 1 2 <TAB>
---speed
-```
-
-<a name="subcommand-dispatch"></a>
-<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/dispatch/">Subcommand dispatch</a></h2>
-
-`Dispatch` routes each command to its own handler - no `if args["..."]` ladder:
-
-```python
-from docopt2 import Dispatch
-
-app = Dispatch("""Usage:
-  git add <path>...
-  git commit --message=<msg>
-""")
-
-@app.on("add")
-def add(args):
-    print(f"adding {args['<path>']}")
-
-@app.on("commit")
-def commit(args):
-    print(f"committing {args['--message']!r}")
-
-app.run()   # parse argv, call the matched command's handler
-```
 
 <a name="layered-fallback"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/usage-dsl/#environment-and-config-fallback">Layered value resolution</a></h2>
@@ -329,6 +298,37 @@ documents **where each value resolves from** - the `[env, config, default]` chai
 </p>
 
 Because the sources are declared right in the usage text, the help writes itself. It also scopes to the subcommand the user typed - `git commit --help` shows only `commit`.
+
+<a name="usage-linter"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/check/">Lint the usage before it ships</a></h2>
+
+`docopt2 check` (or `docopt2.check(doc)` in code) lints the usage grammar itself -<br>
+catching defects the parser would otherwise accept in silence:
+
+<p align="center">
+  <img src="docs/assets/check.png" width="857" alt="A docopt2 check warning: option --verbose is declared but never used, with a caret under its declaration in the options section and a help line on how to fix it">
+</p>
+
+It flags dead `[default: ...]` values, options declared but never usable,<br>
+ambiguous variadic positionals, and redundant alternatives.
+
+<a name="example-generation"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/examples/">Sample the invocations your usage accepts</a></h2>
+
+`docopt2 examples` (or `generate_examples`) walks the usage grammar into concrete invocations it accepts -<br>
+derived from the spec, so they cannot drift from what `docopt` parses:
+
+```console
+$ docopt2 examples naval.py --count=4 --seed=5
+--help
+ship v1 move v2 v3
+ship new v4 v5
+ship new v6
+```
+
+Golden-file them to catch grammar drift, fuzz your parser with the accepted set, or add `--invalid` for the reject-set.
+
+**[Property-test with Hypothesis.](https://solganis.github.io/docopt2/guides/examples/#property-testing-with-hypothesis)** The same sampler is a shrinking [Hypothesis](https://hypothesis.readthedocs.io/) strategy - every draw is an argv your usage accepts.
 
 <a name="round-trip"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/round-trip/">Round-trip: results back to argv</a></h2>
