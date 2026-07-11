@@ -170,14 +170,13 @@ Usage:
   git push [--force] <remote>
 ```
 
-**docopt2** points at it - in the argv *and* the usage that rejected it:
+**docopt2** [points at it](https://solganis.github.io/docopt2/guides/diagnostics/#a-mismatch-at-parse-time) - in the argv *and* the usage that rejected it:
 
 <p align="center">
   <img src="docs/assets/diagnostic.png" width="620" alt="A docopt2 error: 'unknown option --forcce' with a caret under the token in the argument vector and a second caret under --force in the usage, plus a 'did you mean --force?' hint">
 </p>
 
-Malformed usage gets the same two carets, at import time - a broken spec fails loudly, not silently.<br>
-A value that will not coerce to its typed field gets them too:
+The same two carets flag a [malformed usage](https://solganis.github.io/docopt2/guides/diagnostics/#a-malformed-usage-at-import-time) at import time - a broken spec fails loudly, not silently - and [a value that will not coerce](https://solganis.github.io/docopt2/guides/diagnostics/#a-value-that-does-not-fit-its-type) to its typed field:
 
 <p align="center">
   <img src="docs/assets/coercion.png" width="511" alt="A docopt2 error: 'invalid value for --port' with a caret under abc in the argument vector and a second caret under --port=<n> in the usage, plus 'help: abc is not a valid int'">

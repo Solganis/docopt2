@@ -82,10 +82,19 @@ docopt(doc, "--fast --slow")
 
 ## The usage line you were closest to
 
-When the usage lists several alternative invocations and the arguments fall short of one of them, docopt2
-does not just say "no match" - it finds the line you got *furthest* into and points a caret at the one
-element still missing. A matched command is strong evidence of intent, so the line whose command you typed
-wins even when a later positional or option is absent:
+When the arguments fall short of a multi-line usage, most parsers - docopt included - meet the mismatch by
+reprinting the whole usage and leaving you to work out which line you meant and what is missing:
+
+```text
+Usage:
+  git push [--force] <remote>
+  git commit --message=<msg>
+  git add <path>...
+```
+
+docopt2 does better: it finds the line you got *furthest* into and points a caret at the one element still
+missing. A matched command is strong evidence of intent, so the line whose command you typed wins even when
+a later positional or option is absent:
 
 ```python
 doc = """Usage:
