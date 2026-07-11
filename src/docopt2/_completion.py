@@ -24,6 +24,7 @@ from docopt2._parser import (
     parse_argv,
     parse_defaults,
     parse_pattern,
+    parse_section,
     single_usage_section,
 )
 
@@ -138,17 +139,44 @@ def complete(doc: str, words: Sequence[str]) -> list[str]:
     return [name for name in candidates if name.startswith(incomplete)]
 
 
-def reply_to_completion_request(doc: str) -> str | None:
-    """If a completion request is in the environment, return its newline-joined reply, else None.
+def _describe(doc: str) -> dict[str, str]:
+    """Map each option name (long and short) to its help text from the ``Options:`` block(s).
 
-    The request var holds the completed tokens before the cursor (the partial word is left out and
-    filtered by the shell); only a :func:`generate_completion` script sets it, so a normal run gets None.
+    This is the same right-hand column ``Option.parse`` reads for ``[default: ...]``, kept here for
+    completion tooltips instead of discarded. Options with no description, and commands (which have no
+    description column), simply get no entry, so their completion candidate shows without a tooltip.
+    """
+    descriptions: dict[str, str] = {}
+    for section in parse_section("options:", doc):
+        _, _, body = section.partition(":")
+        split = re.split(r"\n[ \t]*(-\S+?)", "\n" + body)[1:]
+        for chunk in ("".join(pair) for pair in zip(split[::2], split[1::2], strict=False)):
+            option = Option.parse(chunk)
+            _, _, text = chunk.strip().partition("  ")
+            # Collapse wrapped continuation lines and stray tabs to single spaces: a newline or tab in
+            # the text would split the `name\tdescription` reply line the shells rely on, injecting a
+            # bogus candidate. join(split()) also trims the ends before the trailing period is dropped.
+            text = " ".join(text.split()).rstrip(".").strip()
+            for name in (option.long, option.short):
+                if name is not None:
+                    descriptions[name] = text
+    return descriptions
+
+
+def reply_to_completion_request(doc: str) -> str | None:
+    """If a completion request is in the environment, return its reply, else None.
+
+    Each reply line is ``name\\tdescription`` (the description may be empty). The request var holds the
+    completed tokens before the cursor; only a :func:`generate_completion` script sets it, so a normal
+    run returns None. Shells that show descriptions (zsh, fish, PowerShell) render the second column;
+    bash keeps the name only.
     """
     if os.environ.get(_TRIGGER_ENV) is None:
         return None
     raw = os.environ.get(_WORDS_ENV, "")
     words = raw.split("\n") if raw else []
-    return "\n".join(complete(doc, [*words, ""]))
+    descriptions = _describe(doc)
+    return "\n".join(f"{name}\t{descriptions.get(name, '')}" for name in complete(doc, [*words, ""]))
 
 
 # --- shell scripts: thin callbacks that ask the program at completion time ----------------------
@@ -160,11 +188,12 @@ def _function_name(prog: str) -> str:
 
 
 def _render_bash(prog: str, function: str) -> str:
+    # bash completion shows names only, so strip the tab-joined description column with `cut -f1`.
     return (
         f"{function}() {{\n"
         f"    local IFS=$'\\n'\n"
         f'    local words="${{COMP_WORDS[*]:1:COMP_CWORD-1}}"\n'  # completed tokens, not the current word
-        f'    local reply; reply="$({_TRIGGER_ENV}=1 {_WORDS_ENV}="$words" "${{COMP_WORDS[0]}}")"\n'
+        f'    local reply; reply="$({_TRIGGER_ENV}=1 {_WORDS_ENV}="$words" "${{COMP_WORDS[0]}}" | cut -f1)"\n'
         f'    COMPREPLY=( $(compgen -W "$reply" -- "${{COMP_WORDS[COMP_CWORD]}}") )\n'
         f"}}\n"
         f"complete -F {function} {prog}\n"
@@ -172,15 +201,28 @@ def _render_bash(prog: str, function: str) -> str:
 
 
 def _render_zsh(prog: str, function: str) -> str:
+    # Split each `name\tdescription` reply line and hand it to `_describe`, which renders the two-column
+    # name/description list and filters by the word being completed. Template, not an f-string, to keep
+    # the brace- and quote-heavy zsh readable.
+    template = (
+        "#compdef __PROG__\n"
+        "__FUNC__() {\n"
+        '    local joined="${(pj:\\n:)words[2,CURRENT-1]}"\n'  # completed tokens, not the current word
+        "    local -a lines described\n"
+        '    lines=("${(@f)$(__TRIGGER__=1 __WORDS__=$joined ${words[1]})}")\n'
+        "    local line\n"
+        "    for line in $lines; do\n"
+        "        described+=(\"${line%%$'\\t'*}:${line#*$'\\t'}\")\n"
+        "    done\n"
+        "    _describe -t candidates candidate described\n"
+        "}\n"
+        "compdef __FUNC__ __PROG__\n"
+    )
     return (
-        f"#compdef {prog}\n"
-        f"{function}() {{\n"
-        f'    local joined="${{(pj:\\n:)words[2,CURRENT-1]}}"\n'  # completed tokens, not the current word
-        f"    local -a candidates\n"
-        f'    candidates=("${{(@f)$({_TRIGGER_ENV}=1 {_WORDS_ENV}=$joined ${{words[1]}})}}")\n'
-        f"    compadd -- $candidates\n"  # compadd filters by the word being completed
-        f"}}\n"
-        f"compdef {function} {prog}\n"
+        template.replace("__PROG__", prog)
+        .replace("__FUNC__", function)
+        .replace("__TRIGGER__", _TRIGGER_ENV)
+        .replace("__WORDS__", _WORDS_ENV)
     )
 
 
@@ -207,9 +249,13 @@ def _render_powershell(prog: str, _function: str) -> str:
         "    $env:__TRIGGER__ = '1'\n"
         '    $env:__WORDS__ = ($words -join "`n")\n'
         "    try {\n"
-        "        & $commandAst.CommandElements[0].ToString()"
-        ' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {\n'
-        "            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)\n"
+        "        & $commandAst.CommandElements[0].ToString() | ForEach-Object {\n"
+        '            $parts = $_ -split "`t", 2\n'  # reply line is name`tdescription
+        "            $name = $parts[0]\n"
+        '            if ($name -like "$wordToComplete*") {\n'
+        "                $tip = if ($parts.Count -ge 2 -and $parts[1]) { $parts[1] } else { $name }\n"
+        "                [System.Management.Automation.CompletionResult]::new($name, $name, 'ParameterValue', $tip)\n"
+        "            }\n"
         "        }\n"
         "    } finally {\n"
         "        Remove-Item Env:__TRIGGER__ -ErrorAction SilentlyContinue\n"

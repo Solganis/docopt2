@@ -1,6 +1,9 @@
 import dataclasses
+import os
 
 from assertpy2 import assert_that
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from pytest import raises
 
 from docopt2 import (
@@ -14,7 +17,7 @@ from docopt2 import (
     docopt,
     generate_completion,
 )
-from docopt2._completion import _frontier, reply_to_completion_request
+from docopt2._completion import _describe, _frontier, reply_to_completion_request
 
 _TREE_DOC = """Usage:
   tool user create <name>
@@ -258,13 +261,15 @@ def test_reply_returns_none_without_a_request(monkeypatch):
 def test_reply_answers_a_completion_request(monkeypatch):
     monkeypatch.setenv("_DOCOPT2_COMPLETE", "1")
     monkeypatch.setenv("_DOCOPT2_WORDS", "remote")  # completed tokens; the reply lists every next token
-    assert_that(reply_to_completion_request(_GIT_DOC)).is_equal_to("add")
+    assert_that(reply_to_completion_request(_GIT_DOC)).is_equal_to("add\t")  # `add` is a command: no description
 
 
 def test_reply_with_no_words_completes_at_the_start(monkeypatch):
     monkeypatch.setenv("_DOCOPT2_COMPLETE", "1")
     monkeypatch.delenv("_DOCOPT2_WORDS", raising=False)
-    assert_that(reply_to_completion_request(_GIT_DOC)).is_equal_to("--amend\n--depth\n-m\nclone\ncommit\nremote")
+    assert_that(reply_to_completion_request(_GIT_DOC)).is_equal_to(
+        "--amend\tAmend commit\n--depth\tClone depth\n-m\tMessage\nclone\t\ncommit\t\nremote\t"
+    )
 
 
 def test_docopt_answers_a_completion_request_by_default(monkeypatch, capsys):
@@ -273,7 +278,9 @@ def test_docopt_answers_a_completion_request_by_default(monkeypatch, capsys):
     monkeypatch.setenv("_DOCOPT2_WORDS", "commit")
     with raises(SystemExit):
         docopt(_GIT_DOC, [])
-    assert_that(capsys.readouterr().out.split()).is_equal_to(["--amend", "-m"])
+    lines = capsys.readouterr().out.splitlines()
+    assert_that([line.split("\t")[0] for line in lines]).is_equal_to(["--amend", "-m"])
+    assert_that(lines).contains("--amend\tAmend commit")  # the description column travels with the name
 
 
 def test_completion_can_be_opted_out(monkeypatch):
@@ -287,6 +294,58 @@ def test_docopt_parses_normally_when_no_request_is_present(monkeypatch):
     # On by default, but with no request in the environment it falls through to a normal parse.
     monkeypatch.delenv("_DOCOPT2_COMPLETE", raising=False)
     assert_that(docopt(_GIT_DOC, "commit --amend")["--amend"]).is_true()
+
+
+# --- option descriptions (the tooltip column) ---------------------------------------------------
+
+
+def test_describe_maps_option_names_to_help_text_keeping_the_default():
+    doc = "Usage: p [options] <x>\n\nOptions:\n  -v, --verbose  Say more.\n  --port=<n>     Port [default: 80].\n"
+    described = _describe(doc)
+    assert_that(described["--verbose"]).is_equal_to("Say more")  # both forms map to the same text
+    assert_that(described["-v"]).is_equal_to("Say more")
+    assert_that(described["--port"]).is_equal_to("Port [default: 80]")  # the default is kept in the tooltip
+
+
+def test_describe_is_empty_without_an_options_section():
+    assert_that(_describe("Usage: p <x>")).is_empty()
+
+
+# Adversarial help text: quotes, command substitution, backticks, variable expansion, the zsh
+# `_describe` colon delimiter, pipes, brackets, and literal tabs. No `-` (would parse as an option)
+# and no newline - the wrapped continuation line supplies that structurally.
+_DESC_TEXT = st.text(st.sampled_from([*"abc XYZ 012 $`'\":|;%()[]{}&=", "\t"]), max_size=40)
+
+
+@given(first=_DESC_TEXT, wrapped=_DESC_TEXT)
+@settings(max_examples=200, deadline=None)  # deadline off: first draw folds in import/compile on CI
+def test_describe_value_is_always_single_line(first, wrapped):
+    # A wrapped, special-char description must collapse to one line: a newline or tab in the value
+    # would split the `name\tdescription` reply and inject a bogus completion candidate.
+    doc = f"Usage: prog [--opt]\n\nOptions:\n  --opt  {first}\n          {wrapped}\n"
+    for value in _describe(doc).values():
+        assert "\n" not in value
+        assert "\t" not in value
+
+
+@given(first=_DESC_TEXT, wrapped=_DESC_TEXT)
+@settings(max_examples=200, deadline=None)
+def test_completion_reply_name_column_is_never_corrupted(first, wrapped):
+    # End to end: every reply line has exactly one tab, and the name before it is a real candidate,
+    # never a leaked fragment of the description.
+    doc = f"Usage: prog [--opt]\n\nOptions:\n  --opt  {first}\n          {wrapped}\n"
+    os.environ["_DOCOPT2_COMPLETE"] = "1"
+    os.environ["_DOCOPT2_WORDS"] = ""
+    try:
+        reply = reply_to_completion_request(doc)
+    finally:
+        os.environ.pop("_DOCOPT2_COMPLETE", None)
+        os.environ.pop("_DOCOPT2_WORDS", None)
+    assert reply is not None
+    candidates = set(complete(doc, [""]))
+    for line in reply.split("\n"):
+        assert line.count("\t") == 1
+        assert line.split("\t", 1)[0] in candidates
 
 
 # --- generated callback scripts (bash/pwsh validated end-to-end; zsh/fish generated to spec) ----
