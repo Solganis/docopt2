@@ -4,7 +4,7 @@ This reference is generated from the source docstrings. It is grouped by API are
 exported names in `docopt2.__all__`.
 
 - [docopt & results](docopt.md) - the `docopt` entry point, the `Arguments` mapping, the `Source`
-  provenance enum, and `parse_tree`.
+  provenance enum, the inverse `format_argv`, and `parse_tree`.
 - [Cli base class](cli.md) - the class-first `Cli.parse(...)` API.
 - [Subcommand dispatch](dispatch.md) - `Dispatch`, routing a matched command path to a handler.
 - [Schema stubs](stub.md) - `generate_stub`, codegen for a typed schema.

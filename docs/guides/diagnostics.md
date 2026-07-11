@@ -73,12 +73,49 @@ docopt(doc, "--fast --slow")
 <span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog (--fast | --slow)</span>
 <span class="dt-fg">   |</span><span class="dt-fg">                          </span><span class="dt-caret">^^^^^^</span><span class="dt-label"> declared here</span>
 <span class="dt-fg">   |</span>
-<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: give it at most once, and not alongside a mutually exclusive option</span></div>
+<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: give it at most once, not with a mutually exclusive option</span></div>
 
 !!! note
     The diagnostic on the exception is plain text: `render()` defaults to color off, because the message
     travels on `str(exc)` and is often inspected as a string. ANSI color is applied at the print site,
     not baked into the exception.
+
+## The usage line you were closest to
+
+When the usage lists several alternative invocations and the arguments fall short of one of them, docopt2
+does not just say "no match" - it finds the line you got *furthest* into and points a caret at the one
+element still missing. A matched command is strong evidence of intent, so the line whose command you typed
+wins even when a later positional or option is absent:
+
+```python
+doc = """Usage:
+  git push [--force] <remote>
+  git commit --message=<msg>
+  git add <path>...
+
+Options:
+  --force          Force.
+  --message=<msg>  Message."""
+
+docopt(doc, "push")
+```
+
+<div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: missing required `&lt;remote&gt;`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">      git push [--force] &lt;remote&gt;</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                         </span><span class="dt-caret">^^^^^^^^</span><span class="dt-label"> required here</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: closest of 3 usage patterns</span></div>
+
+The snippet shows only the closest line - `git push`, not `commit` or `add` - because the caret is placed
+in *that* line. Typing `git commit` instead carets `--message=<msg>` on the second line; `git deploy prod`
+on a `deploy <env> <version>` line carets the missing `<version>`.
+
+The ranking fires only with real evidence. A leading word that matches no line's command (`git clone`) is
+not treated as a near-miss - there is nothing to be "closest" to - so docopt2 falls back to the plain
+mismatch message rather than guess a line at random. A single-line usage has no alternatives to rank, so
+it reports its missing element directly.
 
 ## A value that does not fit its type
 

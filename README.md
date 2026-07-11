@@ -38,7 +38,7 @@ Pass a schema, get a typed result back - fields coerced to their types, never a 
 </td>
 <td valign="top" width="50%">
 <a href="#diagnostics"><b>Rustc-style diagnostics</b></a><br>
-Errors point at the mistake: colored carets in your argv and the usage, plus a did-you-mean.
+Errors point at the mistake: colored carets in your argv and the usage, plus the closest usage line.
 </td>
 </tr>
 <tr>
@@ -72,9 +72,13 @@ Resolve an option from <code>[env: VAR]</code> or <code>[config: key]</code> - C
 </td>
 </tr>
 <tr>
-<td valign="top" colspan="2" align="center">
+<td valign="top">
 <a href="#rich-help"><b>Self-documenting <code>--help</code></b></a><br>
 Opt into a colored, scoped help that shows where each value resolves from - env, config, default.
+</td>
+<td valign="top">
+<a href="#round-trip"><b>Round-trip codec</b></a><br>
+Turn a parsed result back into an argv that parses to it - <code>format_argv</code>, the inverse of <code>docopt</code>.
 </td>
 </tr>
 </table>
@@ -178,6 +182,8 @@ A value that will not coerce to its typed field gets them too:
 <p align="center">
   <img src="docs/assets/coercion.png" width="511" alt="A docopt2 error: 'invalid value for --port' with a caret under abc in the argument vector and a second caret under --port=<n> in the usage, plus 'help: abc is not a valid int'">
 </p>
+
+**[Closest usage line.](https://solganis.github.io/docopt2/guides/diagnostics/#the-usage-line-you-were-closest-to)** When several invocations are possible, docopt2 finds the one you got furthest into and carets the single element it still needs - not a generic "no match".
 
 <a name="schema-codegen"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/stub/">Generate the schema from the usage</a></h2>
@@ -323,6 +329,20 @@ documents **where each value resolves from** - the `[env, config, default]` chai
 </p>
 
 Because the sources are declared right in the usage text, the help writes itself. It also scopes to the subcommand the user typed - `git commit --help` shows only `commit`.
+
+<a name="round-trip"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/round-trip/">Round-trip: results back to argv</a></h2>
+
+`docopt` parses an argv into a result; `format_argv` does the inverse - the same usage message drives *both* directions:
+
+```python
+doc = "Usage: prog <src> <dst> [--force]"
+args = docopt(doc, "a b --force")
+format_argv(args, doc)   # ['a', 'b', '--force'] - which docopt parses straight back to args
+```
+
+It emits exactly what was provided and verifies each candidate by re-parsing, so `docopt(format_argv(x)) == x` always holds -<br>
+a round-trip for reproducible commands, safe subprocess argv, and property tests.
 
 ---
 
