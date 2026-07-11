@@ -56,26 +56,22 @@ so switching over is a one-line import change, and everything below is opt-in.
 
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/usage-dsl/">Usage syntax</a></h2>
 
-docopt2 reads the same usage DSL as docopt - the `Usage:` and `Options:` blocks *are* the spec. Quick legend:
+docopt2 reads the same usage DSL as docopt - the `Usage:` and `Options:` blocks *are* the spec.
 
-<details>
-<summary><b>Symbol reference</b></summary>
-
-| Syntax | Meaning |
-| --- | --- |
-| `command` | A literal (sub)command, matched as-is. |
-| `<arg>`, `ARG` | A positional argument. |
-| `-o`, `--option` | An option (flag). |
-| `--option=<val>` | An option that takes a value. |
-| `[ ]` | Optional element(s). |
-| `( )` | Required group. |
-| `a \| b` | Mutually exclusive: choose one. |
-| `element...` | Repeatable: one or more. |
-| `[options]` | Stands in for every option listed under `Options:`. |
-| `--` | Ends option parsing; the rest is positional. |
-| `[default: <val>]` | An option's default value, declared under `Options:`. |
-
-</details>
+<table align="center">
+<tr><th>Syntax</th><th>Meaning</th></tr>
+<tr><td><code>command</code></td><td>A literal (sub)command, matched as-is.</td></tr>
+<tr><td><code>&lt;arg&gt;</code>, <code>ARG</code></td><td>A positional argument.</td></tr>
+<tr><td><code>-o</code>, <code>--option</code></td><td>An option (flag).</td></tr>
+<tr><td><code>--option=&lt;val&gt;</code></td><td>An option that takes a value.</td></tr>
+<tr><td><code>[ ]</code></td><td>Optional element(s).</td></tr>
+<tr><td><code>( )</code></td><td>Required group.</td></tr>
+<tr><td><code>a | b</code></td><td>Mutually exclusive: choose one.</td></tr>
+<tr><td><code>element...</code></td><td>Repeatable: one or more.</td></tr>
+<tr><td><code>[options]</code></td><td>Stands in for every option listed under <code>Options:</code>.</td></tr>
+<tr><td><code>--</code></td><td>Ends option parsing; the rest is positional.</td></tr>
+<tr><td><code>[default: &lt;val&gt;]</code></td><td>An option's default value, declared under <code>Options:</code>.</td></tr>
+</table>
 
 The legend covers the essentials; the [full usage grammar](https://solganis.github.io/docopt2/guides/usage-dsl/) - precedence, edge cases, and how each form maps to the parsed result - lives on the site.
 
