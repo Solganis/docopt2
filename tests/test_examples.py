@@ -1,0 +1,37 @@
+import runpy
+from pathlib import Path
+
+import pytest
+from assertpy2 import assert_that
+
+_EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
+
+# Each example script, a representative argv, and a stable marker its output must contain. Runs the
+# script as __main__ so an API change that breaks one fails here instead of silently rotting.
+_CASES = [
+    ("naval_fate.py", ["ship", "new", "Titanic"], "Titanic"),
+    ("typed.py", ["localhost", "8080"], "port=8080"),
+    ("cli.py", ["./data", "./backups"], "backing up"),
+    ("dispatch.py", ["commit", "--message=hi"], "committing"),
+    ("completion.py", [], "COMP_WORDS"),
+    ("layered.py", [], "from config"),
+    ("rich_help.py", ["./public"], "./public"),
+]
+
+
+@pytest.mark.parametrize(("filename", "argv", "expected"), _CASES)
+def test_example_runs_and_prints_expected(filename, argv, expected, capsys, monkeypatch):
+    monkeypatch.setattr("sys.argv", [filename, *argv])
+    for variable in ("APP_PORT", "APP_LOG", "PORT", "HOST"):
+        monkeypatch.delenv(variable, raising=False)  # keep [env:] fallbacks from perturbing the resolution
+    try:
+        runpy.run_path(str(_EXAMPLES_DIR / filename), run_name="__main__")
+    except SystemExit as exit_signal:
+        assert_that(exit_signal.code in (None, 0)).is_true()  # a clean exit (help/version) is fine, an error is not
+    assert_that(capsys.readouterr().out).contains(expected)
+
+
+def test_every_example_is_covered_by_a_case():
+    # A new examples/*.py without a smoke case would go unguarded - fail until it is added above.
+    scripts = {path.name for path in _EXAMPLES_DIR.glob("*.py")}
+    assert_that({filename for filename, _, _ in _CASES}).is_equal_to(scripts)
