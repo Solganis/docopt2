@@ -118,6 +118,7 @@ supported set is closed:
 | `bool` | truthiness of the flag | must map to a flag, not a value-bearing element |
 | `list[T]`, `list` | each item coerced to `T` | `T` defaults to `str` |
 | `T \| None` | `None` stays `None`, else coerce to `T` | for an optional element |
+| `Literal["a", "b"]` | the value, if it is one of the literals | a closed set of choices; validated |
 | `enum.Enum` subclass | `EnumType(value)` | matched by member value |
 | `pathlib.Path` | `Path(value)` | |
 | `decimal.Decimal` | `Decimal(value)` | |
@@ -172,7 +173,9 @@ A **user** value that cannot be coerced (say `int("eighty")`) raises `DocoptExit
 non-matching argv raises, rendered as the same
 [two-span diagnostic](diagnostics.md#a-value-that-does-not-fit-its-type): a caret under the value in the
 argv, cross-referenced to the usage element that typed it. It exits with the `exit_code` (`1` by default),
-so bad input is reported like any other command-line error.
+so bad input is reported like any other command-line error. For a closed set of choices - a `Literal[...]`
+or an `Enum` - the diagnostic lists the valid values (`expected one of debug, info, warn`), so the user
+sees exactly what is allowed rather than a bare type name.
 
 ```python
 @dataclasses.dataclass

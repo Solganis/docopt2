@@ -158,8 +158,9 @@ def format_argv(result: Arguments, doc: str) -> list[str]:
     Each candidate usage line is generated and then re-parsed to verify it round-trips, so the output is never
     a *wrong* argv - only ever a valid one or none. Raises :class:`ValueError` when no usage pattern reproduces
     ``result``: every result from a conventional grammar round-trips, so this fires only on a hand-built or
-    inconsistent mapping, or a degenerate alternation where one value is reachable through differently-shaped
-    branches (``(<name> | <name> ...)``, ``(-a | -b)...``) - constructs that do not arise in practice.
+    inconsistent mapping, or a degenerate grammar where one value is reachable through differently-shaped
+    positions (``(<name> | <name> ...)``, ``(-a | -b)...``, ``[<name>] <path> <name>``) - constructs that do
+    not arise in practice.
     """
     provided = result.provided
     candidates: list[list[str]] = []

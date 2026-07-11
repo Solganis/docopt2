@@ -81,6 +81,12 @@ Sample every argv your usage accepts - for drift detection, fuzzing, and a Hypot
 Turn a parsed result back into an argv that parses to it - <code>format_argv</code>, the inverse of <code>docopt</code>.
 </td>
 </tr>
+<tr>
+<td valign="top" colspan="2" align="center">
+<a href="#compat"><b>Compatibility checking</b></a><br>
+<code>docopt2 compat old new</code> reports the changes that would break callers - a breaking-change detector for your CLI.
+</td>
+</tr>
 </table>
 
 <h2 align="center"><a href="https://solganis.github.io/docopt2/getting-started/">Quick start</a></h2>
@@ -158,6 +164,8 @@ args.port                      # statically an int, not a string
 
 A dataclass, a `TypedDict`, the `Cli` base class, or a pydantic model all work as `schema=` -<br>
 and you don't hand-write it, `docopt2 stub` generates it from the usage.
+
+**[Validated choices.](https://solganis.github.io/docopt2/guides/typed-results/#coercion)** A `Literal` or `Enum` field becomes a closed set - a bad value is rejected with the valid set listed.
 
 <a name="diagnostics"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/diagnostics/">Diagnostics that point at the problem</a></h2>
@@ -342,6 +350,19 @@ format_argv(args, doc)   # ['a', 'b', '--force'] - which docopt parses straight 
 
 It emits exactly what was provided and verifies each candidate by re-parsing, so `docopt(format_argv(x)) == x` always holds -<br>
 a round-trip for reproducible commands, safe subprocess argv, and property tests.
+
+<a name="compat"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/compat/">Compatibility checking</a></h2>
+
+Your usage message is your interface, so `check_compat` (and `docopt2 compat`) reports the changes that would break callers -<br>
+invocations the old usage accepts that the new one rejects:
+
+```python
+check_compat("Usage: git push [--force] <remote>", "Usage: git push <remote> <branch>")
+# ['option `--force` removed', '`push v1` no longer accepted']
+```
+
+It reports only definite breaks - never a "compatible" all-clear - so `docopt2 compat before after` drops into a release gate like a linter.
 
 ---
 

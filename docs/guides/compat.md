@@ -1,0 +1,58 @@
+# Compatibility checking
+
+Your usage message *is* your command-line interface, so a change to it is a change to that interface -
+and some changes break the scripts and muscle memory of everyone who calls your program.
+[`check_compat`](../reference/compat.md) (and the `docopt2 compat` CLI) compares two versions of a usage
+message and reports the **backward-incompatible** ones: invocations the old usage accepts that the new one
+would reject.
+
+```python
+from docopt2 import check_compat
+
+old = "Usage: git push [--force] <remote>"
+new = "Usage: git push <remote> <branch>"
+
+check_compat(old, new)
+# ['option `--force` removed',
+#  '`push v1` no longer accepted']
+```
+
+Two changes broke the interface: `--force` is gone, and a new required `<branch>` means `git push origin`
+no longer parses. Adding an *optional* flag, a new usage line, or a new subcommand does not break anything,
+so it is not reported.
+
+## What it reports, and how far to trust it
+
+Entries come most-reliable first, and every one is a **definite** break:
+
+- **Structural, named:** a removed option or command (`option `--force` removed`). These are read straight
+  off the two grammars.
+- **Concrete counterexamples:** an argument vector the old usage accepts that the new one rejects
+  (`` `push v1` no longer accepted``). These are found by sampling the old grammar's accepted set and
+  replaying it against the new, so each is a real invocation you can paste and confirm. Many equivalent
+  argvs collapse to one representative, and an argv a named break already explains is not repeated.
+
+!!! warning "An empty result is 'no break found', not 'compatible'"
+    The set of accepted invocations is infinite, and `check_compat` samples it - so an empty list means
+    *no breaking change was detected*, the way a passing test means *no failure was observed*, never a
+    proof of compatibility. `check_compat` never claims a change is safe; it only surfaces the breaks it can
+    prove. Treat it as a fast guard that catches the common regressions, not a formal verifier.
+
+## From the command line
+
+`docopt2 compat <old-source> <new-source>` prints one break per line and exits non-zero if any are found,
+so it drops into CI or a pre-release check like a linter. Each `<source>` is a `.py` module docstring, a
+usage text file, or `-` for standard input.
+
+<div class="docopt2-term"><span class="dt-fg">$ docopt2 compat old-usage.txt new-usage.txt</span>
+<span class="dt-fg">option `--force` removed</span>
+<span class="dt-fg">`push v1` no longer accepted</span></div>
+
+It is silent and exits `0` when no break is found, so `docopt2 compat before.txt after.txt` in a release
+gate fails the build precisely when a change would break a caller.
+
+## See also
+
+- [`check_compat`](../reference/compat.md) in the API reference.
+- [Example generation](examples.md) - the accepted-set sampler `check_compat` replays against the new usage.
+- [Usage linting](check.md) - the single-spec counterpart, checking one usage for defects.
