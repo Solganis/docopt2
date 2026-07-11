@@ -15,6 +15,11 @@ _GIT = (
 )
 
 
+def _roundtrips(doc, argv):
+    result = docopt(doc, argv, complete=False)
+    return docopt(doc, format_argv(result, doc), complete=False) == result
+
+
 def test_format_emits_only_provided_elements_in_long_form():
     result = docopt(_GIT, "push --force origin", complete=False)
     assert_that(format_argv(result, _GIT)).is_equal_to(["push", "--force", "origin"])
@@ -60,6 +65,29 @@ def test_format_emits_a_repeated_positional_once_as_its_list():
     # two `<a>` leaves accumulate into one list, so the second is a duplicate the walk must not re-emit
     doc = "Usage: prog <a> <a>"
     assert_that(format_argv(docopt(doc, "x y", complete=False), doc)).is_equal_to(["x", "y"])
+
+
+def test_format_interleaves_a_repeated_positional_with_the_one_between():
+    # <name> repeats around <path>; each leaf must take the next element, not dump the list contiguously
+    doc = "usage: prog <name> <path> <name>"
+    assert_that(format_argv(docopt(doc, "v1 v2 v3", complete=False), doc)).is_equal_to(["v1", "v2", "v3"])
+
+
+def test_format_interleaves_a_repeated_command():
+    # a command is positional too (not floating), so its repeats must bracket the positional between them
+    doc = "usage: prog cmd <name> cmd"
+    assert_that(format_argv(docopt(doc, "cmd v1 cmd", complete=False), doc)).is_equal_to(["cmd", "v1", "cmd"])
+
+
+def test_format_interleaves_a_grouped_repetition():
+    doc = "usage: prog (<a> <b>)..."
+    assert_that(format_argv(docopt(doc, "1 x 2 y", complete=False), doc)).is_equal_to(["1", "x", "2", "y"])
+
+
+def test_format_picks_the_repeating_branch_of_an_alternation():
+    # a multi-element value must be routed to the branch that repeats its name, not the scalar one
+    doc = "usage: prog (<name> | <name> ...)"
+    assert_that(_roundtrips(doc, "v1 v2")).is_true()
 
 
 def test_format_raises_when_the_result_matches_no_pattern():
