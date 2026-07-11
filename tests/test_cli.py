@@ -88,6 +88,39 @@ def test_check_reports_warnings_and_exits_nonzero(tmp_path, capsys):
     assert_that(captured.err).contains("--verbose").contains("never used")
 
 
+def test_examples_prints_valid_invocations(tmp_path, capsys):
+    source = _write(tmp_path, "usage.txt", "Usage: prog ship new <name>")
+    exit_code = main(["examples", source, "--seed=1"])
+    out = capsys.readouterr().out
+    assert_that(exit_code).is_equal_to(0)
+    assert_that(out).contains("ship").contains("new")  # every example walks the one usage line
+
+
+def test_examples_count_caps_output_and_invalid_appends_an_unknown_option(tmp_path, capsys):
+    source = _write(tmp_path, "usage.txt", "Usage: prog [--fast] <a>\n\nOptions:\n  --fast  Go fast.\n")
+    main(["examples", source, "--count=3", "--invalid", "--seed=7"])
+    lines = capsys.readouterr().out.splitlines()
+    assert_that(lines).is_not_empty()
+    assert_that(len(lines)).is_less_than_or_equal_to(3)
+    for line in lines:
+        assert_that(line).contains("--unknown")  # invalid examples carry the undefined option
+
+
+def test_examples_seed_makes_output_reproducible(tmp_path, capsys):
+    source = _write(tmp_path, "usage.txt", "Usage: prog (add | rm) <x> [--force]\n\nOptions:\n  --force  Force.\n")
+    main(["examples", source, "--seed=42"])
+    first = capsys.readouterr().out
+    main(["examples", source, "--seed=42"])
+    assert_that(capsys.readouterr().out).is_equal_to(first)
+
+
+def test_examples_rejects_a_non_integer_count(tmp_path, capsys):
+    source = _write(tmp_path, "usage.txt", "Usage: prog <x>")
+    exit_code = main(["examples", source, "--count=lots"])
+    assert_that(exit_code).is_equal_to(1)
+    assert_that(capsys.readouterr().err).contains("--count must be an integer").contains("lots")
+
+
 def test_version_prints_and_exits(capsys):
     with raises(SystemExit):
         main(["--version"])

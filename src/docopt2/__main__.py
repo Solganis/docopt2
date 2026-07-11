@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from docopt2 import Dispatch, __version__, check, generate_stub
+from docopt2 import Dispatch, __version__, check, generate_examples, generate_stub
 from docopt2._errors import DocoptLanguageError
 
 _STYLES = ("dataclass", "typeddict", "cli")
@@ -18,6 +18,7 @@ docopt2 - typed tooling for docopt usage messages.
 Usage:
   docopt2 stub <source> [--name=<name>] [--style=<style>]
   docopt2 check <source>
+  docopt2 examples <source> [--count=<n>] [--invalid] [--seed=<n>]
   docopt2 (-h | --help)
   docopt2 --version
 
@@ -27,6 +28,9 @@ file of raw usage, or - for standard input.
 Options:
   --name=<name>    Class name for the generated schema [default: Args].
   --style=<style>  Schema style: dataclass, typeddict, or cli [default: dataclass].
+  --count=<n>      How many example invocations to generate [default: 10].
+  --invalid        Generate argument vectors the usage rejects, not ones it accepts.
+  --seed=<n>       Seed the generator for reproducible output.
   -h --help        Show this help and exit.
   --version        Show the docopt2 version and exit.
 """
@@ -65,11 +69,32 @@ def _run_check(arguments: Any) -> int:
     return 1 if warnings else 0
 
 
+def _as_int(value: str, flag: str) -> int:
+    try:
+        return int(value)
+    except ValueError:
+        raise _CliError(f"{flag} must be an integer, not {value!r}") from None
+
+
+def _run_examples(arguments: Any) -> int:
+    seed = None if arguments["--seed"] is None else _as_int(arguments["--seed"], "--seed")
+    examples = generate_examples(
+        _read_usage(arguments["<source>"]),
+        count=_as_int(arguments["--count"], "--count"),
+        valid=not arguments["--invalid"],
+        seed=seed,
+    )
+    for argv in examples:
+        print(" ".join(argv))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the ``docopt2`` console command and ``python -m docopt2``."""
     app = Dispatch(_DOC)
     app.on("stub")(_run_stub)
     app.on("check")(_run_check)
+    app.on("examples")(_run_examples)
     try:
         result: int = app.run(argv, version=__version__, complete=False)
     except (_CliError, DocoptLanguageError, OSError, SyntaxError) as exc:
