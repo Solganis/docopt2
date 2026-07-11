@@ -51,6 +51,15 @@ is opt-in.
 
     [:octicons-arrow-right-24: Usage linting](guides/check.md)
 
+-   :material-flask-outline:{ .lg .middle } __Example generation__
+
+    ---
+
+    `docopt2 examples` (or `generate_examples`) samples the argvs your usage accepts - for drift
+    detection, parser fuzzing, and a Hypothesis strategy.
+
+    [:octicons-arrow-right-24: Example generation](guides/examples.md)
+
 -   :material-console-line:{ .lg .middle } __Shell completion__
 
     ---

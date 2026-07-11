@@ -163,25 +163,38 @@ docopt("Usage: prog <host> [<label>]", "127.0.0.1", schema=Args, complete=False)
 
 ### When coercion fails
 
-The two failure modes are distinct:
+The two failure modes are distinct.
 
-- A **user** value that cannot be coerced (say `int("eighty")`) raises `DocoptExit`, the same exception a
-  non-matching argv raises. It prints the error message and exits with the `exit_code` (`1` by default), so
-  bad input is reported like any other command-line error.
+A **user** value that cannot be coerced (say `int("eighty")`) raises `DocoptExit`, the same exception a
+non-matching argv raises, rendered as the same
+[two-span diagnostic](diagnostics.md#a-value-that-does-not-fit-its-type): a caret under the value in the
+argv, cross-referenced to the usage element that typed it. It exits with the `exit_code` (`1` by default),
+so bad input is reported like any other command-line error.
 
-  ```python
-  @dataclasses.dataclass
-  class P:
-      port: int
+```python
+@dataclasses.dataclass
+class P:
+    port: int
 
-  docopt("Usage: prog <port>", "eighty", schema=P, complete=False)
-  # DocoptExit: invalid value for <port>: 'eighty'
-  ```
+docopt("Usage: prog <port>", "eighty", schema=P)   # raises DocoptExit with the diagnostic below
+```
 
-- A **schema** that disagrees with the usage raises `DocoptLanguageError` (a programmer error, not a
-  user one): a field with no matching element, two elements colliding on one field, a non-optional field
-  bound to an element that may be absent, an unsupported annotation, or a `bool` field mapped to a
-  value-bearing element rather than a flag.
+<div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: invalid value for `&lt;port&gt;`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the arguments:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    eighty</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    </span><span class="dt-caret">^^^^^^</span><span class="dt-label"> expected int</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog &lt;port&gt;</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                </span><span class="dt-caret">^^^^^^</span><span class="dt-label"> typed as int</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: `eighty` is not a valid int</span></div>
+
+A **schema** that disagrees with the usage raises `DocoptLanguageError` (a programmer error, not a user
+one): a field with no matching element, two elements colliding on one field, a non-optional field bound to
+an element that may be absent, an unsupported annotation, or a `bool` field mapped to a value-bearing
+element rather than a flag.
 
 ## The Arguments mapping
 

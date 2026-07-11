@@ -44,6 +44,8 @@ A quick reference, then a worked example of each form.
 | `[options]` | Every option from the `Options:` block |
 | `--` | Ends option parsing; the rest is positional |
 | `[default: <val>]` | An option's default, declared in `Options:` |
+| `[env: <var>]` | An option's environment-variable fallback, resolved after the command line |
+| `[config: <key>]` | An option's config-file fallback, resolved against the `docopt(config=...)` mapping |
 
 ### Commands
 
@@ -105,6 +107,44 @@ docopt(doc, "", complete=False)   # {'--port': '80'}
     `[default: ...]` applies only to options declared in the `Options:` block. A variadic positional
     that is absent defaults to an empty list, any other absent optional is `None`, and an absent flag is
     `False`.
+
+### Environment and config fallback
+
+Two annotations declare where an omitted option's value comes from, layered under `[default: ...]`:
+
+- `[env: VAR]` reads an environment variable.
+- `[config: dotted.key]` reads the mapping you pass as `docopt(config=...)` - a config file you loaded.
+
+The precedence is **command-line argument > `[env: VAR]` > `[config: key]` > `[default: ...]`**: an
+explicit argument always wins, then the environment, then the config, then the default.
+
+```python
+import os
+from docopt2 import docopt
+
+doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: APP_PORT] [config: server.port]."
+cfg = {"server": {"port": 8080}}
+
+os.environ.pop("APP_PORT", None)
+docopt(doc, "", config=cfg, complete=False)              # {'--port': '8080'}  - from the config mapping
+os.environ["APP_PORT"] = "7000"
+docopt(doc, "", config=cfg, complete=False)              # {'--port': '7000'}  - the environment wins
+docopt(doc, "--port=9000", config=cfg, complete=False)   # {'--port': '9000'}  - the argument wins
+```
+
+docopt2 never reads a file itself - that would add a dependency and lock in a format. You load the config
+however you like (TOML, JSON, a `[tool.<prog>]` table) and pass the resulting mapping; `[config: a.b.c]`
+walks the dotted path into it. On a flag the value is read as a boolean (set unless it reads as empty,
+`0`, `false`, `no`, or `off`). Both fallbacks are opt-in per option, apply only to options that appear in
+the usage, and coerce through a [schema](typed-results.md) like any other. A value from env or config is
+still reported as *not* given by [`was_given`](typed-results.md#the-arguments-mapping), since it did not
+come from the command line. The [rich `--help`](help.md#value-provenance) screen documents each option's
+source chain, so users see where a value resolves from without reading the code.
+
+!!! note "Empty is treated as absent"
+    A blank or unset source falls through to the next layer - the shell `${VAR:-default}` convention - so
+    an empty `APP_PORT=` never silently overrides the config or the default with an empty string. The same
+    holds for a `null` or empty config value.
 
 ### Optional `[ ]` and required `( )`
 

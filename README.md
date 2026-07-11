@@ -28,6 +28,57 @@
 
 ---
 
+<h2 align="center">Features</h2>
+
+<table>
+<tr>
+<td valign="top" width="50%">
+<a href="#typed-results"><b>Typed results</b></a><br>
+Pass a schema, get a typed result back - fields coerced to their types, never a <code>dict[str, Any]</code>.
+</td>
+<td valign="top" width="50%">
+<a href="#diagnostics"><b>Rustc-style diagnostics</b></a><br>
+Errors point at the mistake: colored carets in your argv and the usage, plus a did-you-mean.
+</td>
+</tr>
+<tr>
+<td valign="top">
+<a href="#schema-codegen"><b>Schema codegen</b></a><br>
+Never hand-write the schema - <code>docopt2 stub</code> generates it from your usage, in three styles.
+</td>
+<td valign="top">
+<a href="#usage-linter"><b>Static usage linter</b></a><br>
+Catch a broken usage before it ships - <code>docopt2 check</code> flags dead defaults and unusable options.
+</td>
+</tr>
+<tr>
+<td valign="top">
+<a href="#example-generation"><b>Example generation</b></a><br>
+Sample every argv your usage accepts - for drift detection, fuzzing, and a Hypothesis strategy.
+</td>
+<td valign="top">
+<a href="#shell-completion"><b>Shell completion</b></a><br>
+Tab-completion that knows your grammar: bash, zsh, fish, PowerShell.
+</td>
+</tr>
+<tr>
+<td valign="top">
+<a href="#subcommand-dispatch"><b>Subcommand dispatch</b></a><br>
+Route each subcommand to its own handler - no <code>if args[...]</code> ladder.
+</td>
+<td valign="top">
+<a href="#layered-fallback"><b>Layered fallback</b></a><br>
+Resolve an option from <code>[env: VAR]</code> or <code>[config: key]</code> - CLI, then env, then config, then default.
+</td>
+</tr>
+<tr>
+<td valign="top" colspan="2" align="center">
+<a href="#rich-help"><b>Self-documenting <code>--help</code></b></a><br>
+Opt into a colored, scoped help that shows where each value resolves from - env, config, default.
+</td>
+</tr>
+</table>
+
 <h2 align="center"><a href="https://solganis.github.io/docopt2/getting-started/">Quick start</a></h2>
 
 ```bash
@@ -52,7 +103,7 @@ args = docopt(__doc__)
 ```
 
 Every argument vector the original docopt accepts, docopt2 accepts identically -<br>
-so switching over is a one-line import change, and everything below is opt-in.
+so switching over is a one-line import change, and everything else is opt-in.
 
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/usage-dsl/">Usage syntax</a></h2>
 
@@ -71,10 +122,13 @@ docopt2 reads the same usage DSL as docopt - the `Usage:` and `Options:` blocks 
 <tr><td><code>[options]</code></td><td>Stands in for every option listed under <code>Options:</code>.</td></tr>
 <tr><td><code>--</code></td><td>Ends option parsing; the rest is positional.</td></tr>
 <tr><td><code>[default: &lt;val&gt;]</code></td><td>An option's default value, declared under <code>Options:</code>.</td></tr>
+<tr><td><code>[env: &lt;var&gt;]</code></td><td>An option's environment-variable fallback.</td></tr>
+<tr><td><code>[config: &lt;key&gt;]</code></td><td>An option's config-file fallback (CLI &gt; env &gt; config &gt; default).</td></tr>
 </table>
 
 The legend covers the essentials; the [full usage grammar](https://solganis.github.io/docopt2/guides/usage-dsl/) - precedence, edge cases, and how each form maps to the parsed result - lives on the site.
 
+<a name="typed-results"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/typed-results/">Why typed docopt?</a></h2>
 
 **docopt** hands you a dict of strings - no autocomplete, no static types, coercion by hand at every call site:
@@ -101,6 +155,7 @@ args.port                      # statically an int, not a string
 A dataclass, a `TypedDict`, the `Cli` base class, or a pydantic model all work as `schema=` -<br>
 and you don't hand-write it, `docopt2 stub` generates it from the usage.
 
+<a name="diagnostics"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/diagnostics/">Diagnostics that point at the problem</a></h2>
 
 When the arguments don't match, **docopt** reprints the usage and leaves you to find the mistake:
@@ -117,8 +172,14 @@ Usage:
   <img src="docs/assets/diagnostic.png" width="620" alt="A docopt2 error: 'unknown option --forcce' with a caret under the token in the argument vector and a second caret under --force in the usage, plus a 'did you mean --force?' hint">
 </p>
 
-Malformed usage gets the same two carets, at import time - a broken spec fails loudly, not silently.
+Malformed usage gets the same two carets, at import time - a broken spec fails loudly, not silently.<br>
+A value that will not coerce to its typed field gets them too:
 
+<p align="center">
+  <img src="docs/assets/coercion.png" width="511" alt="A docopt2 error: 'invalid value for --port' with a caret under abc in the argument vector and a second caret under --port=<n> in the usage, plus 'help: abc is not a valid int'">
+</p>
+
+<a name="schema-codegen"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/stub/">Generate the schema from the usage</a></h2>
 
 Don't hand-write the schema - `docopt2 stub` generates it from your usage (a module docstring, a text file, or stdin):
@@ -143,6 +204,7 @@ class Args:
 Add `--style=typeddict` or `--style=cli` for the other shapes.<br>
 Widen a field by hand (`speed: int`) and the coercion is automatic.
 
+<a name="usage-linter"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/check/">Lint the usage before it ships</a></h2>
 
 `docopt2 check` (or `docopt2.check(doc)` in code) lints the usage grammar itself -<br>
@@ -155,13 +217,31 @@ catching defects the parser would otherwise accept in silence:
 It flags dead `[default: ...]` values, options declared but never usable,<br>
 ambiguous variadic positionals, and redundant alternatives.
 
+<a name="example-generation"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/examples/">Sample the invocations your usage accepts</a></h2>
+
+`docopt2 examples` (or `generate_examples`) walks the usage grammar into concrete invocations it accepts -<br>
+derived from the spec, so they cannot drift from what `docopt` parses:
+
+```console
+$ docopt2 examples naval.py --count=4 --seed=5
+--help
+ship v1 move v2 v3
+ship new v4 v5
+ship new v6
+```
+
+Golden-file them to catch grammar drift, feed them to fuzz your parser, or add `--invalid` for the<br>
+reject-set - or draw them as a [Hypothesis](https://hypothesis.readthedocs.io/) strategy for property tests.
+
+<a name="shell-completion"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/completion/">Shell completion</a></h2>
 
 <p align="center">
   <img src="https://img.shields.io/badge/bash-3E4349?logo=gnubash&logoColor=white" alt="bash">
   <img src="https://img.shields.io/badge/zsh-3E4349?logo=zsh&logoColor=white" alt="zsh">
   <img src="https://img.shields.io/badge/fish-3E4349?logo=fishshell&logoColor=white" alt="fish">
-  <img src="https://img.shields.io/badge/PowerShell-3E4349?logo=powershell&logoColor=white" alt="PowerShell">
+  <img src="https://img.shields.io/badge/PowerShell-3E4349" alt="PowerShell">
 </p>
 
 Generate the completion script for your shell; Tab then narrows to exactly what is valid at the cursor -<br>
@@ -176,6 +256,7 @@ $ naval ship titanic move 1 2 <TAB>
 --speed
 ```
 
+<a name="subcommand-dispatch"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/dispatch/">Subcommand dispatch</a></h2>
 
 `Dispatch` routes each command to its own handler - no `if args["..."]` ladder:
@@ -199,40 +280,34 @@ def commit(args):
 app.run()   # parse argv, call the matched command's handler
 ```
 
-<h2 align="center">Features</h2>
+<a name="layered-fallback"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/usage-dsl/#environment-and-config-fallback">Layered value resolution</a></h2>
 
-<table>
-<tr>
-<td valign="top" width="50%">
-<a href="https://solganis.github.io/docopt2/guides/typed-results/"><b>Typed results</b></a><br>
-A dataclass, <code>TypedDict</code>, <code>Cli</code>, or pydantic model as <code>schema=</code> - values coerced, result typed, not <code>Any</code>.
-</td>
-<td valign="top" width="50%">
-<a href="https://solganis.github.io/docopt2/guides/diagnostics/"><b>Rustc-style diagnostics</b></a><br>
-Two-span carets tie an argv mistake to the usage that rejected it, in color.
-</td>
-</tr>
-<tr>
-<td valign="top">
-<a href="https://solganis.github.io/docopt2/guides/stub/"><b>Schema codegen</b></a><br>
-<code>docopt2 stub</code> writes the typed schema from your usage, in three styles.
-</td>
-<td valign="top">
-<a href="https://solganis.github.io/docopt2/guides/check/"><b>Static usage linter</b></a><br>
-<code>docopt2 check</code> flags dead defaults, unusable options, and ambiguous variadics before they ship.
-</td>
-</tr>
-<tr>
-<td valign="top">
-<a href="https://solganis.github.io/docopt2/guides/completion/"><b>Shell completion</b></a><br>
-Context-aware scripts for bash, zsh, fish, and PowerShell.
-</td>
-<td valign="top">
-<a href="https://solganis.github.io/docopt2/guides/dispatch/"><b>Subcommand dispatch</b></a><br>
-<code>Dispatch</code> routes a matched command path to a handler, optionally typed per command.
-</td>
-</tr>
-</table>
+Declare an option's fallback sources in the usage with `[env: VAR]` and `[config: key]`; docopt2 resolves each -<br>
+the command-line argument first, then the environment, then a config mapping you pass, then the `[default: ...]`:
+
+```python
+doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: APP_PORT] [config: server.port]."
+
+docopt(doc, "", config={"server": {"port": 8080}})             # {'--port': '8080'} - from the config mapping
+os.environ["APP_PORT"] = "7000"
+docopt(doc, "", config={"server": {"port": 8080}})             # {'--port': '7000'} - the environment wins
+docopt(doc, "--port=9000", config={"server": {"port": 8080}})  # {'--port': '9000'} - the argument wins
+```
+
+docopt2 never reads the file - you load it (TOML, JSON, `[tool.<prog>]`) and pass the mapping, so the core stays zero-dependency.
+
+<a name="rich-help"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/help/">Self-documenting <code>--help</code></a></h2>
+
+`--help` prints your usage verbatim by default. Opt into `help_style="rich"` for an aligned, colored screen that also<br>
+documents **where each value resolves from** - the `[env, config, default]` chain no other CLI library surfaces in its help:
+
+<p align="center">
+  <img src="docs/assets/rich-help.png" width="878" alt="A docopt2 rich --help: a bold Usage, then Options with green option names, aligned descriptions, and a dimmed source chain per option - '[env: PORT, config: server.port, default: 8080]' - documenting the resolution order">
+</p>
+
+Because the sources are declared right in the usage text, the help writes itself. It also scopes to the subcommand the user typed - `git commit --help` shows only `commit`.
 
 ---
 

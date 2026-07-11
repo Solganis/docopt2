@@ -5,7 +5,8 @@ from pathlib import Path
 from assertpy2 import assert_that
 from pytest import raises
 
-from docopt2 import DocoptExit, check, complete, docopt, generate_stub
+from docopt2 import DocoptExit, check, complete, docopt, generate_examples, generate_stub
+from docopt2._help import render_help
 
 README = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
 
@@ -47,6 +48,53 @@ def test_quick_start_result_shape_matches_the_tool():
     assert_that(result["<name>"]).is_equal_to(["titanic"])
     assert_that(result["move"]).is_true()
     assert_that(result["--speed"]).is_equal_to("10")
+
+
+def test_examples_demo_block_matches_the_tool():
+    # The Example generation section shows `docopt2 examples ... --seed=5`; pin its lines to the tool.
+    expected = [["--help"], ["ship", "v1", "move", "v2", "v3"], ["ship", "new", "v4", "v5"], ["ship", "new", "v6"]]
+    assert_that(generate_examples(_naval_doc(), count=4, seed=5)).is_equal_to(expected)
+
+
+def test_env_fallback_readme_example_matches_the_tool(monkeypatch):
+    # The Environment-variable fallback section shows [env: APP_PORT] with CLI > env > default.
+    doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: APP_PORT]."
+    monkeypatch.setenv("APP_PORT", "8080")
+    assert_that(docopt(doc, "", complete=False)["--port"]).is_equal_to("8080")  # env fills it
+    assert_that(docopt(doc, "--port=9000", complete=False)["--port"]).is_equal_to("9000")  # argument wins
+    assert_that(README).contains("[env: APP_PORT]")
+
+
+def test_layered_fallback_readme_example_matches_the_tool(monkeypatch):
+    # The Layered value resolution section shows CLI > env > config > default.
+    doc = (
+        "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: APP_PORT] [config: server.port]."
+    )
+    cfg = {"server": {"port": 8080}}
+    monkeypatch.delenv("APP_PORT", raising=False)
+    assert_that(docopt(doc, "", complete=False, config=cfg)["--port"]).is_equal_to("8080")  # config
+    monkeypatch.setenv("APP_PORT", "7000")
+    assert_that(docopt(doc, "", complete=False, config=cfg)["--port"]).is_equal_to("7000")  # env wins
+    assert_that(docopt(doc, "--port=9000", complete=False, config=cfg)["--port"]).is_equal_to("9000")  # cli wins
+    assert_that(README).contains("[config: server.port]")
+
+
+_RICH_HELP_DOC = (
+    "Serve a directory over HTTP.\n\nUsage:\n  serve [--port=<n>] [--host=<h>] [--log=<lvl>] <root>\n\n"
+    "Options:\n  --port=<n>  Port to bind [default: 8080] [env: PORT] [config: server.port].\n"
+    "  --host=<h>  Interface to bind [default: 127.0.0.1] [env: HOST].\n"
+    "  --log=<lvl>  Log verbosity [default: info] [config: logging.level]."
+)
+
+
+def test_rich_help_screenshot_matches_the_tool():
+    # docs/assets/rich-help.png is rendered from this exact output, with the value-provenance chains.
+    out = render_help(_RICH_HELP_DOC)
+    assert_that(out).starts_with("Serve a directory over HTTP.")
+    assert_that(out).contains("serve [--port=<n>] [--host=<h>] [--log=<lvl>] <root>")
+    assert_that(out).contains("Port to bind.").contains("[env: PORT, config: server.port, default: 8080]")
+    assert_that(out).contains("[env: HOST, default: 127.0.0.1]").contains("[config: logging.level, default: info]")
+    assert_that(README).contains('help_style="rich"')
 
 
 def test_completion_candidates_match_the_tool():
@@ -121,3 +169,29 @@ def test_check_screenshot_text_still_matches_the_tool():
     warnings = check(_CHECK_DOC)
     assert_that(warnings).is_length(1)
     assert_that(warnings[0].render()).is_equal_to(_EXPECTED_CHECK)
+
+
+_COERCION_DOC = "Usage: prog --port=<n>\n\nOptions:\n  --port=<n>  Port."
+_EXPECTED_COERCION = (
+    "error: invalid value for `--port`\n"
+    "   |\n"
+    "   |  in the arguments:\n"
+    "   |    --port=abc\n"
+    "   |           ^^^ expected int\n"
+    "   |\n"
+    "   |  in the usage:\n"
+    "   |    Usage: prog --port=<n>\n"
+    "   |                ^^^^^^^^^^ typed as int\n"
+    "   |\n"
+    "   = help: `abc` is not a valid int"
+)
+
+
+def test_coercion_screenshot_text_still_matches_the_tool():
+    @dataclasses.dataclass
+    class Port:
+        port: int
+
+    with raises(DocoptExit) as exit_info:
+        docopt(_COERCION_DOC, "--port=abc", complete=False, schema=Port)
+    assert_that(str(exit_info.value)).starts_with(_EXPECTED_COERCION)

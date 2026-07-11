@@ -111,7 +111,9 @@ nav:
       - Typed results: guides/typed-results.md
       - Schema stubs: guides/stub.md
       - Diagnostics: guides/diagnostics.md
+      - Rich help: guides/help.md
       - Usage linting: guides/check.md
+      - Example generation: guides/examples.md
       - Subcommand dispatch: guides/dispatch.md
       - Shell completion: guides/completion.md
       - Usage DSL: guides/usage-dsl.md
@@ -124,6 +126,7 @@ nav:
       - Subcommand dispatch: reference/dispatch.md
       - Schema stubs: reference/stub.md
       - Usage linting: reference/check.md
+      - Example generation: reference/examples.md
       - Shell completion: reference/completion.md
       - Exceptions: reference/exceptions.md
       - Usage grammar: reference/grammar.md

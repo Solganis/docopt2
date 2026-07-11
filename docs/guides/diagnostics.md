@@ -80,6 +80,40 @@ docopt(doc, "--fast --slow")
     travels on `str(exc)` and is often inspected as a string. ANSI color is applied at the print site,
     not baked into the exception.
 
+## A value that does not fit its type
+
+A parse can succeed and still fail when a value cannot be coerced to its [schema](typed-results.md) field
+type. That raises [`DocoptExit`](../reference/exceptions.md) too, rendered with the same two-span caret:
+the offending value in the argv, tied to the usage element that declared its type.
+
+```python
+import dataclasses
+from docopt2 import docopt
+
+@dataclasses.dataclass
+class Args:
+    port: int
+
+docopt("Usage: prog --port=<n>", "--port=abc", schema=Args)   # raises DocoptExit with the diagnostic below
+```
+
+<div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: invalid value for `--port`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the arguments:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    --port=abc</span>
+<span class="dt-fg">   |</span><span class="dt-fg">           </span><span class="dt-caret">^^^</span><span class="dt-label"> expected int</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog --port=&lt;n&gt;</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                </span><span class="dt-caret">^^^^^^^^^^</span><span class="dt-label"> typed as int</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: `abc` is not a valid int</span></div>
+
+Only a **user value** gets this two-span treatment. A schema that disagrees with the usage - a field with
+no matching element, an unsupported annotation - is the developer's error, not the user's, and raises
+[`DocoptLanguageError`](../reference/exceptions.md) with no argv caret; see
+[Typed results](typed-results.md#when-coercion-fails).
+
 ## A malformed usage at import time
 
 A usage message that cannot be parsed raises [`DocoptLanguageError`](../reference/exceptions.md) with
