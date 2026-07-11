@@ -37,6 +37,9 @@ dependencies = []
 # Reflective only: we never `import pydantic`. This extra is a convenience pin for
 # users who pass a pydantic model as `schema=`. The core stays zero-dependency.
 pydantic = ["pydantic>=2"]
+# Opt-in only: imported solely by `docopt2.hypothesis`, never by the core. Enables the
+# `argv_strategy` property-testing helper. The core stays zero-dependency.
+hypothesis = ["hypothesis>=6.100"]
 
 [project.scripts]
 docopt2 = "docopt2.__main__:main"

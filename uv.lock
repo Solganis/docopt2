@@ -316,6 +316,9 @@ version = "1.0.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
+hypothesis = [
+    { name = "hypothesis" },
+]
 pydantic = [
     { name = "pydantic" },
 ]
@@ -341,8 +344,11 @@ typecheck = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2" }]
-provides-extras = ["pydantic"]
+requires-dist = [
+    { name = "hypothesis", marker = "extra == 'hypothesis'", specifier = ">=6.100" },
+    { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2" },
+]
+provides-extras = ["pydantic", "hypothesis"]
 
 [package.metadata.requires-dev]
 dev = [
