@@ -666,22 +666,61 @@ def required_leaf_names(pattern: Pattern) -> list[str]:
     return names
 
 
-def closest_usage_requirement(pattern: Pattern, argv_leaves: list[Pattern]) -> list[str] | None:
-    """For a multi-line usage, the required names of the line whose leading command was typed.
+def _usage_lines(pattern: Pattern) -> list[Pattern]:
+    """The alternative usage lines: the children of the top-level ``Required(Either(...))``, else one line."""
+    if isinstance(pattern, Required) and pattern.children and isinstance(pattern.children[0], Either):
+        return pattern.children[0].children
+    return [pattern]
 
-    Returns None unless the usage has several alternative lines and the user's first positional
-    token exactly matches the leading command of one of them - the common subcommand-dispatch case.
+
+def _line_partial_score(line: Pattern, argv_leaves: list[Pattern]) -> tuple[int, LeafPattern | None]:
+    """Greedily match a usage line's top-level elements against argv: return (score, first unmet leaf).
+
+    A matched command scores 2 (a strong intent signal), an any-token positional or option 1, a missing
+    command -2; optional groups contribute what they consume. The first required leaf the argv cannot
+    supply is the near-miss target.
     """
-    if not (isinstance(pattern, BranchPattern) and pattern.children and isinstance(pattern.children[0], Either)):
+    left = list(argv_leaves)
+    score = 0
+    missing: LeafPattern | None = None
+    for element in line.children if isinstance(line, Required) else [line]:
+        if isinstance(element, LeafPattern):
+            position, _node = element.single_match(left)
+            if position is not None:
+                score += 2 if isinstance(element, Command) else 1
+                left = left[:position] + left[position + 1 :]
+            else:
+                score -= 2 if isinstance(element, Command) else 0
+                if missing is None:
+                    missing = element
+        else:  # a branch (optional group, repetition, nested alternation): credit only what it consumes
+            matched, reduced, _ = element.match(left, [])
+            if matched:
+                score += len(left) - len(reduced)
+                left = reduced
+    return score, missing
+
+
+def nearest_usage_line(pattern: Pattern, argv_leaves: list[Pattern]) -> tuple[str, tuple[int, int], int] | None:
+    """The unmet required element of the usage line the argv came closest to, with the line count.
+
+    Generalizes a leading-command guess into a ranking: every line is scored by how many of its leading
+    elements the argv actually supplied, and the best line's first missing required leaf is returned as
+    ``(name, span, line_count)`` for a caret. Fires only with real evidence - the best line must have
+    matched something - so an argv that resembles no line yields None and the caller falls back.
+    """
+    lines = _usage_lines(pattern)
+    if len(lines) < 2:
         return None
-    typed = next((leaf.value for leaf in argv_leaves if type(leaf) is Argument), None)
-    if typed is None:
+    ranked: list[tuple[int, int, LeafPattern | None]] = []
+    for index, line in enumerate(lines):
+        score, missing = _line_partial_score(line, argv_leaves)
+        ranked.append((score, -index, missing))  # ties break to the earliest line (highest -index)
+    ranked.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
+    best_score, _, missing = ranked[0]
+    if best_score <= 0 or missing is None or missing.name is None or missing.span is None:
         return None
-    for branch in pattern.children[0].children:
-        leading = next(iter(branch.flat()), None)
-        if type(leading) is Command and leading.name == typed:
-            return required_leaf_names(branch)
-    return None
+    return missing.name, missing.span, len(lines)
 
 
 def parse_expr(tokens: Tokens, options: list[Option]) -> list[Pattern]:

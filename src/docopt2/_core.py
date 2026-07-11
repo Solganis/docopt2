@@ -18,10 +18,10 @@ from docopt2._parser import (
     Option,
     Pattern,
     Tokens,
-    closest_usage_requirement,
     expand_options_shortcut,
     formal_tokens,
     formal_usage,
+    nearest_usage_line,
     parse_argument_defaults,
     parse_argv,
     parse_defaults,
@@ -393,17 +393,22 @@ def docopt(
         advice: str | None
         if usage_span is not None:
             snippets.append(Snippet(usage, "in the usage:", [Caret(*usage_span, "declared here")]))
-            advice = "give it at most once, and not alongside a mutually exclusive option"
+            advice = "give it at most once, not with a mutually exclusive option"
         else:
             advice = None
         summary = f"unexpected argument `{shown}`"
         raise _exit(
             Diagnostic(summary=summary, snippets=snippets, help=advice).render(), collected=collected, left=left
         )
-    closest = closest_usage_requirement(fixed, argv_patterns)
-    if closest is not None:
-        matched = Diagnostic(summary="arguments do not match this command", help=f"did you mean: {' '.join(closest)}")
-        raise _exit(matched.render(), collected=collected, left=left)
+    near_miss = nearest_usage_line(fixed, argv_patterns)
+    if near_miss is not None:
+        # A multi-line usage: caret the one element the closest line still needs (Snippet shows that line).
+        name, span, total = near_miss
+        snippet = Snippet(usage, "in the usage:", [Caret(*span, "required here")])
+        diagnostic = Diagnostic(
+            summary=f"missing required `{name}`", snippets=[snippet], help=f"closest of {total} usage patterns"
+        )
+        raise _exit(diagnostic.render(), collected=collected, left=left)
     required = required_leaf_names(fixed)
     if required:
         missing = Diagnostic(

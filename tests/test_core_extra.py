@@ -138,24 +138,27 @@ def test_mutually_exclusive_violation_cross_references_argv_and_usage():
 _MULTILINE_DOC = "usage: prog ship <name>\n       prog rm <id>\n"
 
 
-def test_multi_line_usage_points_at_the_matching_subcommand():
+def test_multi_line_usage_carets_the_missing_element_of_the_closest_line():
+    # `ship` matches the first line's command, so the diagnostic names its unmet requirement, not a
+    # generic mismatch: the near-miss points a caret at `<name>` and says which line was closest.
     with raises(DocoptExit) as exc_info:
         docopt(_MULTILINE_DOC, "ship")
-    assert_that(str(exc_info.value)).contains("did you mean").contains("ship <name>")
+    message = str(exc_info.value)
+    assert_that(message).contains("missing required").contains("<name>").contains("closest of 2 usage patterns")
 
 
 def test_multi_line_usage_without_a_matching_subcommand_falls_back():
-    # An unknown leading command gives no per-line hint (just the usage).
+    # An unknown leading command is no evidence of intent, so no near-miss is claimed - just the usage.
     with raises(DocoptExit) as exc_info:
         docopt(_MULTILINE_DOC, "fly")
-    assert_that(str(exc_info.value)).does_not_contain("did you mean")
+    assert_that(str(exc_info.value)).does_not_contain("closest of")
 
 
 def test_multi_line_usage_without_a_positional_token_falls_back():
-    # No positional token to match against a leading command.
+    # No positional token to match against any line's leading command.
     with raises(DocoptExit) as exc_info:
         docopt(_MULTILINE_DOC, "--nope")
-    assert_that(str(exc_info.value)).does_not_contain("did you mean")
+    assert_that(str(exc_info.value)).does_not_contain("closest of")
 
 
 def test_arguments_repr_is_sorted_and_dict_like():
