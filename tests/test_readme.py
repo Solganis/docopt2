@@ -5,7 +5,7 @@ from pathlib import Path
 from assertpy2 import assert_that
 from pytest import raises
 
-from docopt2 import DocoptExit, check, docopt, generate_stub
+from docopt2 import DocoptExit, check, complete, docopt, generate_stub
 
 README = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
 
@@ -34,9 +34,10 @@ def test_every_readme_python_block_is_valid_python():
 
 
 def test_stub_output_block_matches_generate_stub():
-    # The shown `docopt2 stub` output must be exactly what the tool emits for the shown usage.
+    # The README trims the leading `import dataclasses` for compactness, so the shown block is the
+    # tail of the real output; the schema body (fields and types) must still match the tool exactly.
     shown = _block_containing("ship: bool").strip()
-    assert_that(generate_stub(_naval_doc()).strip()).is_equal_to(shown)
+    assert_that(generate_stub(_naval_doc()).strip()).ends_with(shown)
 
 
 def test_quick_start_result_shape_matches_the_tool():
@@ -46,6 +47,14 @@ def test_quick_start_result_shape_matches_the_tool():
     assert_that(result["<name>"]).is_equal_to(["titanic"])
     assert_that(result["move"]).is_true()
     assert_that(result["--speed"]).is_equal_to("10")
+
+
+def test_completion_candidates_match_the_tool():
+    # The Shell completion block shows the Tab candidates; pin them to complete() on the naval usage.
+    doc = _naval_doc()
+    assert_that(complete(doc, [""])).is_equal_to(["--help", "--speed", "ship"])
+    assert_that(complete(doc, ["ship", ""])).is_equal_to(["--speed", "new"])
+    assert_that(complete(doc, ["ship", "titanic", "move", "1", "2", ""])).is_equal_to(["--speed"])
 
 
 def test_typed_example_actually_types_and_coerces():
