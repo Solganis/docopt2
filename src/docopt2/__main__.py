@@ -5,7 +5,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from docopt2 import Dispatch, __version__, check, generate_config_template, generate_examples, generate_stub
+from docopt2 import (
+    Dispatch,
+    __version__,
+    check,
+    check_compat,
+    generate_config_template,
+    generate_examples,
+    generate_stub,
+)
 from docopt2._errors import DocoptLanguageError
 
 _STYLES = ("dataclass", "typeddict", "cli")
@@ -20,6 +28,7 @@ Usage:
   docopt2 check <source>
   docopt2 examples <source> [--count=<n>] [--invalid] [--seed=<n>]
   docopt2 config-template <source>
+  docopt2 compat <old-source> <new-source>
   docopt2 (-h | --help)
   docopt2 --version
 
@@ -95,6 +104,13 @@ def _run_config_template(arguments: Any) -> int:
     return 0
 
 
+def _run_compat(arguments: Any) -> int:
+    breaks = check_compat(_read_usage(arguments["<old-source>"]), _read_usage(arguments["<new-source>"]))
+    for entry in breaks:
+        print(entry, file=sys.stderr)
+    return 1 if breaks else 0  # like `check`: silent and 0 when no breakage is found, else the breaks and 1
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the ``docopt2`` console command and ``python -m docopt2``."""
     app = Dispatch(_DOC)
@@ -102,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     app.on("check")(_run_check)
     app.on("examples")(_run_examples)
     app.on("config-template")(_run_config_template)
+    app.on("compat")(_run_compat)
     try:
         result: int = app.run(argv, version=__version__, complete=False)
     except (_CliError, DocoptLanguageError, OSError, SyntaxError) as exc:

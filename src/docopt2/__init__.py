@@ -3,6 +3,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
 
+from docopt2._compat import check_compat
 from docopt2._completion import complete, generate_completion
 from docopt2._core import Arguments, Cli, Dispatch, Source, docopt, parse_tree
 from docopt2._errors import DocoptExit, DocoptLanguageError
@@ -54,6 +55,7 @@ __all__ = [
     "Source",
     "Tokens",
     "check",
+    "check_compat",
     "complete",
     "docopt",
     "formal_usage",

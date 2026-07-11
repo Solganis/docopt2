@@ -130,6 +130,24 @@ def test_config_template_prints_a_toml_skeleton(tmp_path, capsys):
     assert_that(out).contains("[server]").contains("port = 80").contains("# --port, env PORT")
 
 
+def test_compat_reports_breaks_and_exits_nonzero(tmp_path, capsys):
+    old = _write(tmp_path, "old.txt", "Usage: prog push [--force] <remote>\n\nOptions:\n  --force  Force.")
+    new = _write(tmp_path, "new.txt", "Usage: prog push <remote>")
+    exit_code = main(["compat", old, new])
+    captured = capsys.readouterr()
+    assert_that(exit_code).is_equal_to(1)
+    assert_that(captured.err).contains("--force").contains("removed")
+
+
+def test_compat_is_silent_and_zero_when_no_break_is_found(tmp_path, capsys):
+    old = _write(tmp_path, "old.txt", "Usage: prog push <remote>")
+    new = _write(tmp_path, "new.txt", "Usage: prog push [--verbose] <remote>\n\nOptions:\n  --verbose  V.")
+    exit_code = main(["compat", old, new])
+    captured = capsys.readouterr()
+    assert_that(exit_code).is_equal_to(0)
+    assert_that(captured.err).is_empty()
+
+
 def test_version_prints_and_exits(capsys):
     with raises(SystemExit):
         main(["--version"])
