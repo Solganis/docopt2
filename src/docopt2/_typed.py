@@ -196,6 +196,27 @@ def _unwrap_annotation(annotation: Any) -> Any:
     return annotation
 
 
+def _type_name(annotation: Any) -> str:
+    """A short, readable name for the target type in a coercion-failure message ('int', 'list[int]')."""
+    if get_origin(annotation) is not None:  # a parameterized generic: keep its argument (list[int], not list)
+        return str(annotation)
+    return getattr(annotation, "__name__", str(annotation))
+
+
+class _CoercionError(DocoptExit):
+    """A user value that cannot be coerced to its declared field type.
+
+    Carries the pieces docopt()/Dispatch need to render a two-span diagnostic (the usage element, the
+    raw value, the expected type); ``str()`` is a usable message on its own for a direct bind call.
+    """
+
+    def __init__(self, key: str, raw: Any, expected: str) -> None:
+        self.key = key
+        self.raw = raw
+        self.expected = expected
+        super().__init__(f"invalid value for {key}: {raw!r} (expected {expected})")
+
+
 def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
     """Bind a parsed docopt result onto ``schema``.
 
@@ -244,5 +265,5 @@ def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
         try:
             values[name] = _coerce(raw, annotation)
         except (ValueError, TypeError, ArithmeticError) as exc:
-            raise DocoptExit(f"invalid value for {key}: {raw!r}") from exc
+            raise _CoercionError(key, raw, _type_name(annotation)) from exc
     return schema(**values)

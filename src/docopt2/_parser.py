@@ -26,6 +26,11 @@ MATCH_LIMIT = 200_000
 
 # Extracts a `[default: value]` from an option or argument description; compiled once, not per line.
 _DEFAULT_PATTERN = re.compile(r"\[default: (.*)]", flags=re.IGNORECASE)
+# Extracts an `[env: VAR]` fallback source from an option description. Pure text only: os.environ is
+# never read here (parsing stays side-effect-free, so completion and linting see the same tree).
+_ENV_PATTERN = re.compile(r"\[env:\s*([^\]\s]+)\s*]", flags=re.IGNORECASE)
+# Extracts a `[config: dotted.key]` fallback source; resolved against the mapping passed to docopt(config=).
+_CONFIG_PATTERN = re.compile(r"\[config:\s*([^\]\s]+)\s*]", flags=re.IGNORECASE)
 
 
 def _leaf_with_value(leaf: Pattern, value: LeafValue) -> Pattern:
@@ -266,11 +271,15 @@ class Option(LeafPattern):
         long: str | None = None,
         argcount: int = 0,
         value: LeafValue = False,
+        env: str | None = None,
+        config_key: str | None = None,
     ) -> None:
         self.short = short
         self.long = long
         self.argcount = argcount
         self.value = None if value is False and argcount else value
+        self.env = env  # `[env: VAR]` fallback source, resolved at parse time in docopt(), not here
+        self.config_key = config_key  # `[config: dotted.key]` fallback, resolved against docopt(config=)
 
     @classmethod
     def parse(cls, option_description: str, source: str = "") -> Option:
@@ -312,10 +321,16 @@ class Option(LeafPattern):
                 help="separate the option from its description with at least two spaces",
             )
             raise DocoptLanguageError(diagnostic.render())
+        env_match = _ENV_PATTERN.search(description)
+        env = env_match.group(1) if env_match else None
+        config_match = _CONFIG_PATTERN.search(description)
+        config_key = config_match.group(1) if config_match else None
         if argcount:
-            matched = _DEFAULT_PATTERN.findall(description)
+            # Strip `[env:]`/`[config:]` first so the greedy `[default: (.*)]` cannot swallow them.
+            without_sources = _CONFIG_PATTERN.sub("", _ENV_PATTERN.sub("", description))
+            matched = _DEFAULT_PATTERN.findall(without_sources)
             value = matched[0] if matched else None
-        return cls(short, long, argcount, value)
+        return cls(short, long, argcount, value, env, config_key)
 
     def single_match(self, left: list[Pattern]) -> SingleMatch:
         for index, pattern in enumerate(left):
