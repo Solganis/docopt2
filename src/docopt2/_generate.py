@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import itertools
 import random
+import re
 from typing import TYPE_CHECKING
 
+from docopt2._diagnostics import Diagnostic
+from docopt2._errors import DocoptLanguageError
 from docopt2._parser import (
     Argument,
     Command,
@@ -127,3 +130,92 @@ def generate_examples(doc: str, *, count: int = 10, valid: bool = True, seed: in
             seen.add(tuple(argv))
             examples.append(argv)
     return examples
+
+
+def _toml_value(value: object) -> str:
+    """Render an option's default as a TOML scalar: bare int/float/bool, quoted string, ``""`` if none."""
+    if value is None:
+        return '""'
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    text = str(value)
+    if re.fullmatch(r"-?(0|[1-9]\d*)(\.\d+)?", text):  # a bare TOML int/float; leading zeros (e.g. "007") stay strings
+        return text
+    if text.lower() in ("true", "false"):
+        return text.lower()
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _toml_key(segment: str) -> str:
+    """Render one dotted-key segment as a TOML key: bare when bare-key-safe, else a quoted key.
+
+    A config annotation may name anything (``[config: a"b]``); an unquoted ``a"b = ...`` would be
+    invalid TOML, so a segment outside ``[A-Za-z0-9_-]`` (or empty) is emitted as a quoted key instead.
+    """
+    if re.fullmatch(r"[A-Za-z0-9_-]+", segment):
+        return segment
+    return '"' + segment.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _config_comment(option: Option) -> str:
+    """A trailing comment tying a config entry back to its CLI flag and any ``[env: VAR]`` it also reads."""
+    refs = [str(option.name), *([f"env {option.env}"] if option.env is not None else [])]
+    return "  # " + ", ".join(refs)
+
+
+def _reject_colliding_config_keys(keys: list[str]) -> None:
+    """Fail loudly on config keys that cannot share one TOML document, instead of emitting a broken file.
+
+    A repeated key, or a dotted path that is a prefix of another (the same name used as both a value and
+    a ``[table]``, like ``srv`` beside ``srv.port``), is a contradiction TOML cannot express - so it is a
+    usage error, reported like a malformed usage rather than written out as invalid TOML.
+    """
+    seen: set[str] = set()
+    for key in keys:
+        if key in seen:
+            raise DocoptLanguageError(Diagnostic(summary=f"duplicate config key `{key}`").render())
+        seen.add(key)
+    paths = sorted({tuple(key.split(".")) for key in keys}, key=len)
+    for index, prefix in enumerate(paths):
+        collides = next((path for path in paths[index + 1 :] if path[: len(prefix)] == prefix), None)
+        if collides is not None:
+            raise DocoptLanguageError(
+                Diagnostic(
+                    summary=f"config key `{'.'.join(prefix)}` collides with `{'.'.join(collides)}`",
+                    help="one is used as a value and the other as a table; they cannot share a TOML file",
+                ).render()
+            )
+
+
+def generate_config_template(doc: str) -> str:
+    """Generate a TOML config-file skeleton from the ``[config: key]`` annotations in ``doc``.
+
+    Every option declaring a ``[config: dotted.key]`` becomes an entry under its table, seeded with the
+    option's ``[default: ...]`` (or an empty placeholder), and commented with the CLI flag and any
+    ``[env: VAR]`` it also reads. Options without a ``[config:]`` key are not part of the file. Returns
+    an empty string when the usage declares no config keys. Config keys that cannot coexist in one TOML
+    document (a duplicate, or a path that is a prefix of another) raise :class:`DocoptLanguageError`.
+    """
+    single_usage_section(doc)  # fail loudly on a malformed usage, like the other generators
+    config_options = [option for option in parse_defaults(doc) if option.config_key is not None]
+    _reject_colliding_config_keys([str(option.config_key) for option in config_options])
+    tables: dict[str, list[tuple[str, Option]]] = {}
+    order: list[str] = []
+    for option in config_options:
+        *prefix, leaf = str(option.config_key).split(".")
+        table = ".".join(prefix)
+        if table not in tables:
+            tables[table] = []
+            order.append(table)
+        tables[table].append((leaf, option))
+    # TOML requires root keys before any [table] header, so emit the unnamed table first.
+    order = ([""] if "" in tables else []) + [table for table in order if table]
+    blocks: list[str] = []
+    for table in order:
+        header = ["[" + ".".join(_toml_key(segment) for segment in table.split(".")) + "]"] if table else []
+        rows = [(f"{_toml_key(leaf)} = {_toml_value(opt.value)}", _config_comment(opt)) for leaf, opt in tables[table]]
+        width = max(len(entry) for entry, _ in rows)
+        blocks.append("\n".join([*header, *(f"{entry.ljust(width)}{comment}" for entry, comment in rows)]))
+    return "\n\n".join(blocks) + "\n" if blocks else ""

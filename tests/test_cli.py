@@ -121,6 +121,15 @@ def test_examples_rejects_a_non_integer_count(tmp_path, capsys):
     assert_that(capsys.readouterr().err).contains("--count must be an integer").contains("lots")
 
 
+def test_config_template_prints_a_toml_skeleton(tmp_path, capsys):
+    doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: PORT] [config: server.port]."
+    source = _write(tmp_path, "usage.txt", doc)
+    exit_code = main(["config-template", source])
+    out = capsys.readouterr().out
+    assert_that(exit_code).is_equal_to(0)
+    assert_that(out).contains("[server]").contains("port = 80").contains("# --port, env PORT")
+
+
 def test_version_prints_and_exits(capsys):
     with raises(SystemExit):
         main(["--version"])

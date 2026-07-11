@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import itertools
 import os
 import sys
@@ -35,6 +36,15 @@ SchemaT = TypeVar("SchemaT")
 CliT = TypeVar("CliT", bound="Cli")
 
 
+class Source(enum.Enum):
+    """Where a resolved value came from, in the precedence order docopt2 applies (highest first)."""
+
+    CLI = "cli"
+    ENV = "env"
+    CONFIG = "config"
+    DEFAULT = "default"
+
+
 class Arguments(dict[str, Any]):
     """Mapping of parsed element names (``"--flag"``, ``"<arg>"``, ``"command"``) to their values
     (``str | bool | int | list[str] | None``); the back-compat return type, narrowed by the typed API.
@@ -47,6 +57,7 @@ class Arguments(dict[str, Any]):
         super().__init__(*args, **kwargs)
         self.provided: frozenset[str] = frozenset()
         self.extra: list[str] = []
+        self._sources: dict[str, Source] = {}
 
     def __repr__(self) -> str:
         body = ",\n ".join(f"{key!r}: {value!r}" for key, value in sorted(self.items()))
@@ -55,6 +66,14 @@ class Arguments(dict[str, Any]):
     def was_given(self, name: str) -> bool:
         """Return whether ``name`` was supplied in ``argv`` (as opposed to left at its default)."""
         return name in self.provided
+
+    def source(self, name: str) -> Source:
+        """Where ``name``'s value was resolved from: the command line, ``[env:]``, ``[config:]``, or the default.
+
+        Answers "why is this value what it is?" for layered configuration; a name never resolved from a
+        fallback reports :attr:`Source.DEFAULT`.
+        """
+        return self._sources.get(name, Source.DEFAULT)
 
 
 def _extras(default_help: bool, version: object, options: list[Pattern], doc: str, help_style: str) -> None:
@@ -115,8 +134,8 @@ def _config_lookup(config: Mapping[str, Any], key: str) -> Any:
     return node
 
 
-def _fallback_value(option: Option, config: Mapping[str, Any] | None) -> str | None:
-    """The env-then-config fallback for an omitted option (env wins), or None to keep its `[default:]`.
+def _fallback_value(option: Option, config: Mapping[str, Any] | None) -> tuple[str, Source] | None:
+    """The env-then-config fallback for an omitted option (env wins), with its source, or None to default.
 
     An empty or unset source is treated as absent - the shell ``${VAR:-default}`` convention - so a blank
     environment variable never silently overrides the config or default with an empty string.
@@ -124,11 +143,11 @@ def _fallback_value(option: Option, config: Mapping[str, Any] | None) -> str | N
     if option.env is not None:
         env_value = os.environ.get(option.env)
         if env_value:  # non-empty; unset or "" falls through
-            return env_value
+            return env_value, Source.ENV
     if option.config_key is not None and config is not None:
         found = _config_lookup(config, option.config_key)
         if found is not None and str(found):  # non-empty; a null or blank config value falls through
-            return str(found)  # normalize to a string, like a CLI/env value, so the schema coerces it
+            return str(found), Source.CONFIG  # normalize to a string, so the schema coerces it like a CLI value
     return None
 
 
@@ -136,16 +155,19 @@ def _apply_fallbacks(result: Arguments, options: list[Option], config: Mapping[s
     """Fill options absent from argv from their declared sources: CLI (provided) > env > config > default.
 
     An option given on the command line (in ``result.provided``) is left untouched; otherwise an
-    ``[env: VAR]`` (then a ``[config: key]`` against ``config``) supplies the value, which coerces
-    through the schema like any other string. ``was_given`` still reports such an option as not given.
+    ``[env: VAR]`` (then a ``[config: key]`` against ``config``) supplies the value and records its
+    :class:`Source`, which coerces through the schema like any other string. ``was_given`` still reports
+    such an option as not given.
     """
     for option in options:
         name = option.name
         if name is None or name in result.provided or name not in result:
             continue
-        raw = _fallback_value(option, config)
-        if raw is not None:
+        resolved = _fallback_value(option, config)
+        if resolved is not None:
+            raw, source = resolved
             result[name] = raw if option.argcount else _env_truthy(raw)
+            result._sources[name] = source
 
 
 @overload
@@ -329,6 +351,13 @@ def docopt(
         for name, default in argument_defaults.items():
             if name in result and result[name] is None:
                 result[name] = default
+        for name in result:
+            # _apply_fallbacks already recorded ENV/CONFIG; here CLI wins for anything given on argv,
+            # and everything else settles on its literal default.
+            if name in result.provided:
+                result._sources[name] = Source.CLI
+            else:
+                result._sources.setdefault(name, Source.DEFAULT)
         if schema is None:
             return result
         try:

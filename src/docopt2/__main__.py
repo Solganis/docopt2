@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from docopt2 import Dispatch, __version__, check, generate_examples, generate_stub
+from docopt2 import Dispatch, __version__, check, generate_config_template, generate_examples, generate_stub
 from docopt2._errors import DocoptLanguageError
 
 _STYLES = ("dataclass", "typeddict", "cli")
@@ -19,6 +19,7 @@ Usage:
   docopt2 stub <source> [--name=<name>] [--style=<style>]
   docopt2 check <source>
   docopt2 examples <source> [--count=<n>] [--invalid] [--seed=<n>]
+  docopt2 config-template <source>
   docopt2 (-h | --help)
   docopt2 --version
 
@@ -89,12 +90,18 @@ def _run_examples(arguments: Any) -> int:
     return 0
 
 
+def _run_config_template(arguments: Any) -> int:
+    print(generate_config_template(_read_usage(arguments["<source>"])), end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the ``docopt2`` console command and ``python -m docopt2``."""
     app = Dispatch(_DOC)
     app.on("stub")(_run_stub)
     app.on("check")(_run_check)
     app.on("examples")(_run_examples)
+    app.on("config-template")(_run_config_template)
     try:
         result: int = app.run(argv, version=__version__, complete=False)
     except (_CliError, DocoptLanguageError, OSError, SyntaxError) as exc:

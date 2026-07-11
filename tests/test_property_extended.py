@@ -4,7 +4,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from _strategies import argv_strategy, doc_strategy
-from docopt2 import DocoptExit, DocoptLanguageError, complete, docopt
+from docopt2 import DocoptExit, DocoptLanguageError, Source, complete, docopt
 from docopt2._parser import (
     Command,
     Option,
@@ -46,6 +46,21 @@ def test_allow_extra_is_a_no_op_on_already_valid_input(doc, argv):
     assert relaxed.provided == strict.provided
     # provenance can only ever name elements that are actually in the result
     assert strict.provided <= set(strict.keys())
+
+
+@given(doc=doc_strategy, argv=argv_strategy)
+def test_source_is_cli_exactly_for_provided_names(doc, argv):
+    # With no [env:]/[config:] in these docs, every value resolves from either argv or its default,
+    # so source() must report CLI for exactly the provided names and DEFAULT for the rest - and only
+    # ever a real Source member. This pins the CLI/DEFAULT bookkeeping against `provided`.
+    try:
+        result = docopt(doc, argv, help=False)
+    except (DocoptExit, DocoptLanguageError):
+        return
+    for name in result:
+        source = result.source(name)
+        assert source in Source
+        assert (source is Source.CLI) == (name in result.provided)
 
 
 @given(doc=doc_strategy, argv=argv_strategy, code=st.integers(min_value=2, max_value=255))
