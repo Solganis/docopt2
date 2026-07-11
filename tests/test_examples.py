@@ -16,6 +16,7 @@ _CASES = [
     ("completion.py", [], "COMP_WORDS"),
     ("layered.py", [], "from config"),
     ("rich_help.py", ["./public"], "./public"),
+    ("round_trip.py", ["web", "--replicas=3", "--force"], "rebuilt: deploy web --replicas=3 --force"),
 ]
 
 
