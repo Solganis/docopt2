@@ -116,20 +116,24 @@ Two annotations declare where an omitted option's value comes from, layered unde
 - `[config: dotted.key]` reads the mapping you pass as `docopt(config=...)` - a config file you loaded.
 
 The precedence is **command-line argument > `[env: VAR]` > `[config: key]` > `[default: ...]`**: an
-explicit argument always wins, then the environment, then the config, then the default.
+explicit argument always wins, then the environment, then the config, then the default. So below, `8080`
+comes from the config, `7000` from `APP_PORT` once it is set, and `9000` from the explicit `--port`:
 
 ```python
 import os
 from docopt2 import docopt
 
-doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: APP_PORT] [config: server.port]."
+doc = """Usage: prog [--port=<n>]
+
+Options:
+  --port=<n>  Port [default: 80] [env: APP_PORT] [config: server.port]."""
 cfg = {"server": {"port": 8080}}
 
 os.environ.pop("APP_PORT", None)
-docopt(doc, "", config=cfg, complete=False)              # {'--port': '8080'}  - from the config mapping
+docopt(doc, "", config=cfg, complete=False)             # {'--port': '8080'}
 os.environ["APP_PORT"] = "7000"
-docopt(doc, "", config=cfg, complete=False)              # {'--port': '7000'}  - the environment wins
-docopt(doc, "--port=9000", config=cfg, complete=False)   # {'--port': '9000'}  - the argument wins
+docopt(doc, "", config=cfg, complete=False)             # {'--port': '7000'}
+docopt(doc, "--port=9000", config=cfg, complete=False)  # {'--port': '9000'}
 ```
 
 docopt2 never reads a file itself - that would add a dependency and lock in a format. You load the config
@@ -138,13 +142,61 @@ walks the dotted path into it. On a flag the value is read as a boolean (set unl
 `0`, `false`, `no`, or `off`). Both fallbacks are opt-in per option, apply only to options that appear in
 the usage, and coerce through a [schema](typed-results.md) like any other. A value from env or config is
 still reported as *not* given by [`was_given`](typed-results.md#the-arguments-mapping), since it did not
-come from the command line. The [rich `--help`](help.md#value-provenance) screen documents each option's
-source chain, so users see where a value resolves from without reading the code.
+come from the command line. At runtime, [`args.source(name)`](typed-results.md#where-a-value-came-from)
+reports which layer actually supplied each value; the [rich `--help`](help.md#value-provenance) screen
+documents the same source chain, so users see where a value resolves from without reading the code.
 
 !!! note "Empty is treated as absent"
     A blank or unset source falls through to the next layer - the shell `${VAR:-default}` convention - so
     an empty `APP_PORT=` never silently overrides the config or the default with an empty string. The same
     holds for a `null` or empty config value.
+
+### Generate a config skeleton
+
+Once options declare `[config: key]`, [`generate_config_template`](../reference/config-templates.md) turns
+those annotations into a ready-to-fill TOML file: each key under its table, seeded with the option's
+`[default: ...]`, and commented with the flag and any `[env: VAR]` it also reads. It is the mirror image of
+the resolution above - the file the `docopt(config=...)` mapping is loaded from.
+
+```python
+from docopt2 import generate_config_template
+
+doc = """Usage: prog [options]
+
+Options:
+  --host=<h>   Bind address [default: 0.0.0.0] [config: server.host].
+  --port=<n>   Port [default: 8080] [env: APP_PORT] [config: server.port].
+  --verbose    Log verbosely [config: logging.verbose]."""
+
+print(generate_config_template(doc))
+# [server]
+# host = "0.0.0.0"  # --host
+# port = 8080       # --port, env APP_PORT
+#
+# [logging]
+# verbose = false  # --verbose
+```
+
+Options without a `[config:]` key are left out, and the output is valid TOML - integers, floats, and
+booleans stay bare, everything else is quoted - so it round-trips straight back through `tomllib`.
+
+!!! note "Contradictory keys fail loudly"
+    Config keys that cannot coexist in one TOML document raise `DocoptLanguageError` rather than emit a
+    broken file: a duplicate key, or a path that is a prefix of another (`[config: server]` beside
+    `[config: server.port]` uses `server` as both a value and a table). Sibling keys under one table
+    (`server.host` and `server.port`) are fine.
+
+The `docopt2 config-template <source>` CLI prints the same skeleton from a `.py` module docstring, a
+usage file, or `-` for standard input:
+
+<div class="docopt2-term"><span class="dt-fg">$ docopt2 config-template serve.py</span>
+
+<span class="dt-label">[server]</span>
+<span class="dt-help">host</span><span class="dt-fg"> = "0.0.0.0"  </span><span class="dt-dim"># --host</span>
+<span class="dt-help">port</span><span class="dt-fg"> = 8080       </span><span class="dt-dim"># --port, env APP_PORT</span>
+
+<span class="dt-label">[logging]</span>
+<span class="dt-help">verbose</span><span class="dt-fg"> = false  </span><span class="dt-dim"># --verbose</span></div>
 
 ### Optional `[ ]` and required `( )`
 

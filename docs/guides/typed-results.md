@@ -35,7 +35,8 @@ class Args:
     port: int
     verbose: bool
 
-docopt("Usage: prog [--verbose] <host> <port>", "--verbose 127.0.0.1 8080", schema=Args, complete=False)
+doc = "Usage: prog [--verbose] <host> <port>"
+docopt(doc, "--verbose 127.0.0.1 8080", schema=Args, complete=False)
 # Args(host='127.0.0.1', port=8080, verbose=True)
 ```
 
@@ -54,7 +55,8 @@ class Args(TypedDict):
     port: int
     verbose: bool
 
-docopt("Usage: prog [--verbose] <host> <port>", "127.0.0.1 8080", schema=Args, complete=False)
+doc = "Usage: prog [--verbose] <host> <port>"
+docopt(doc, "127.0.0.1 8080", schema=Args, complete=False)
 # {'host': '127.0.0.1', 'port': 8080, 'verbose': False}
 ```
 
@@ -92,7 +94,8 @@ class Settings(pydantic.BaseModel):
     port: int
     verbose: bool
 
-docopt("Usage: prog [--verbose] <host> <port>", "127.0.0.1 8080", schema=Settings, complete=False)
+doc = "Usage: prog [--verbose] <host> <port>"
+docopt(doc, "127.0.0.1 8080", schema=Settings, complete=False)
 # Settings(host='127.0.0.1', port=8080, verbose=False)
 ```
 
@@ -176,7 +179,7 @@ so bad input is reported like any other command-line error.
 class P:
     port: int
 
-docopt("Usage: prog <port>", "eighty", schema=P)   # raises DocoptExit with the diagnostic below
+docopt("Usage: prog <port>", "eighty", schema=P)   # raises the diagnostic below
 ```
 
 <div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: invalid value for `&lt;port&gt;`</span>
@@ -215,9 +218,36 @@ args = docopt(doc, "--port 9000", complete=False)
 args["--port"], args.was_given("--port")        # ('9000', True) -> explicit
 ```
 
+### Where a value came from
+
+`was_given` answers *did the user type this?*; `source(name)` answers the sharper *which layer supplied
+it?* when an option has [`[env:]`/`[config:]` fallbacks](usage-dsl.md#environment-and-config-fallback). It
+returns a [`Source`](../reference/docopt.md) enum member - `CLI`, `ENV`, `CONFIG`, or `DEFAULT` - in the
+same precedence order docopt2 resolves them, so you can log or branch on provenance instead of guessing.
+
 ```python
-args = docopt("Usage: prog <cmd>", "run leftover1 leftover2", allow_extra=True, complete=False)
-args.extra                                       # ['leftover1', 'leftover2']
+import os
+from docopt2 import Source, docopt
+
+doc = """Usage: prog [--port=<n>]
+
+Options:
+  --port=<n>  Port [default: 80] [env: APP_PORT] [config: server.port]."""
+cfg = {"server": {"port": 8080}}
+
+os.environ.pop("APP_PORT", None)
+args = docopt(doc, "", config=cfg, complete=False)
+args["--port"], args.source("--port")   # ('8080', Source.CONFIG) - config file
+
+os.environ["APP_PORT"] = "7000"
+args = docopt(doc, "--port=9000", config=cfg, complete=False)
+args.source("--port") is Source.CLI     # True - the command line still wins
+```
+
+```python
+doc = "Usage: prog <cmd>"
+args = docopt(doc, "run leftover1 leftover2", allow_extra=True, complete=False)
+args.extra                              # ['leftover1', 'leftover2']
 ```
 
 ## See also

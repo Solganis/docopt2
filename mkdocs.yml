@@ -127,6 +127,7 @@ nav:
       - Schema stubs: reference/stub.md
       - Usage linting: reference/check.md
       - Example generation: reference/examples.md
+      - Config templates: reference/config-templates.md
       - Shell completion: reference/completion.md
       - Exceptions: reference/exceptions.md
       - Usage grammar: reference/grammar.md

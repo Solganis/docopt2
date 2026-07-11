@@ -77,6 +77,26 @@ is opt-in.
 
     [:octicons-arrow-right-24: Subcommand dispatch](guides/dispatch.md)
 
+-   :material-layers-triple:{ .lg .middle } __Layered value resolution__
+
+    ---
+
+    Declare an option's fallback sources in the usage with `[env: VAR]` and `[config: key]`; docopt2
+    resolves command line over environment over config over default, and `args.source()` reports which
+    layer supplied each value. `generate_config_template` scaffolds the config file itself.
+
+    [:octicons-arrow-right-24: Layered fallback](guides/usage-dsl.md#environment-and-config-fallback)
+
+-   :material-card-text-outline:{ .lg .middle } __Self-documenting `--help`__
+
+    ---
+
+    Opt into `help_style="rich"` for an aligned, colored help screen that scopes to the subcommand the
+    user typed and documents where each value resolves from - the `[env, config, default]` chain, taken
+    straight from the usage text.
+
+    [:octicons-arrow-right-24: Rich help](guides/help.md)
+
 </div>
 
 ## Install

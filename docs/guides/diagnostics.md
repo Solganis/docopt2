@@ -40,7 +40,7 @@ Options:
   --force  Force the push.
 """
 
-docopt(doc, "push --forcce origin", suggest=True)   # raises DocoptExit with the diagnostic above
+docopt(doc, "push --forcce origin", suggest=True)   # raises the diagnostic above
 ```
 
 Read the two snippets top to bottom:
@@ -94,7 +94,8 @@ from docopt2 import docopt
 class Args:
     port: int
 
-docopt("Usage: prog --port=<n>", "--port=abc", schema=Args)   # raises DocoptExit with the diagnostic below
+doc = "Usage: prog --port=<n>"
+docopt(doc, "--port=abc", schema=Args)   # raises the diagnostic below
 ```
 
 <div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: invalid value for `--port`</span>

@@ -231,17 +231,18 @@ ship new v4 v5
 ship new v6
 ```
 
-Golden-file them to catch grammar drift, feed them to fuzz your parser, or add `--invalid` for the<br>
-reject-set - or draw them as a [Hypothesis](https://hypothesis.readthedocs.io/) strategy for property tests.
+Golden-file them to catch grammar drift, fuzz your parser with the accepted set, or add `--invalid` for the reject-set.
+
+**[Property-test with Hypothesis.](https://solganis.github.io/docopt2/guides/examples/#property-testing-with-hypothesis)** The same sampler is a shrinking [Hypothesis](https://hypothesis.readthedocs.io/) strategy - every draw is an argv your usage accepts.
 
 <a name="shell-completion"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/completion/">Shell completion</a></h2>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/bash-3E4349?logo=gnubash&logoColor=white" alt="bash">
-  <img src="https://img.shields.io/badge/zsh-3E4349?logo=zsh&logoColor=white" alt="zsh">
-  <img src="https://img.shields.io/badge/fish-3E4349?logo=fishshell&logoColor=white" alt="fish">
-  <img src="https://img.shields.io/badge/PowerShell-3E4349" alt="PowerShell">
+  <a href="https://www.gnu.org/software/bash/"><img src="https://img.shields.io/badge/bash-4EAA25?logo=gnubash&logoColor=white" alt="bash"></a>
+  <a href="https://www.zsh.org/"><img src="https://img.shields.io/badge/zsh-F15A24?logo=zsh&logoColor=white" alt="zsh"></a>
+  <a href="https://fishshell.com/"><img src="https://img.shields.io/badge/fish-34C534?logo=fishshell&logoColor=white" alt="fish"></a>
+  <a href="https://learn.microsoft.com/powershell/"><img src="https://img.shields.io/badge/PowerShell-5391FE" alt="PowerShell"></a>
 </p>
 
 Generate the completion script for your shell; Tab then narrows to exactly what is valid at the cursor -<br>
@@ -289,13 +290,27 @@ the command-line argument first, then the environment, then a config mapping you
 ```python
 doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: APP_PORT] [config: server.port]."
 
-docopt(doc, "", config={"server": {"port": 8080}})             # {'--port': '8080'} - from the config mapping
+docopt(doc, "", config={"server": {"port": 8080}})             # {'--port': '8080'} - config
 os.environ["APP_PORT"] = "7000"
-docopt(doc, "", config={"server": {"port": 8080}})             # {'--port': '7000'} - the environment wins
-docopt(doc, "--port=9000", config={"server": {"port": 8080}})  # {'--port': '9000'} - the argument wins
+docopt(doc, "", config={"server": {"port": 8080}})             # {'--port': '7000'} - env wins
+docopt(doc, "--port=9000", config={"server": {"port": 8080}})  # {'--port': '9000'} - CLI wins
 ```
 
-docopt2 never reads the file - you load it (TOML, JSON, `[tool.<prog>]`) and pass the mapping, so the core stays zero-dependency.
+docopt2 never reads the file - you load it however you like (TOML, JSON, a `[tool.<prog>]` table) and pass the mapping, so you are never tied to one format.
+
+**[Know where a value came from.](https://solganis.github.io/docopt2/guides/typed-results/#where-a-value-came-from)** `args.source(name)` reports the layer that actually won - so you can log or branch on provenance instead of guessing:
+
+```python
+docopt(doc, "--port=9000", config={"server": {"port": 8080}}).source("--port")   # Source.CLI
+```
+
+**[Scaffold the config file from your usage.](https://solganis.github.io/docopt2/guides/usage-dsl/#generate-a-config-skeleton)** `docopt2 config-template` writes a ready-to-fill TOML skeleton - every `[config: key]`, seeded with its default:
+
+```console
+$ docopt2 config-template app.py
+[server]
+port = 80  # --port, env APP_PORT
+```
 
 <a name="rich-help"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/help/">Self-documenting <code>--help</code></a></h2>

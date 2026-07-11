@@ -158,7 +158,7 @@ Extra keyword arguments to `run(...)` are forwarded to [`docopt`](../reference/d
 `exit_code`, `version`, and so on). `schema` is not among them, since dispatch binds per handler.
 
 ```python
-app.run(version="app 2.0")   # --version prints "app 2.0" and exits, before any handler runs
+app.run(version="app 2.0")   # --version prints "app 2.0" and exits
 ```
 
 ## See also

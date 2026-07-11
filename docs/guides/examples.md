@@ -137,7 +137,7 @@ DOC = """Usage:
 
 @given(argv_strategy(DOC))
 def test_program_survives_every_accepted_shape(argv):
-    run(docopt(DOC, argv))  # your program should never crash on an argv its usage accepts
+    run(docopt(DOC, argv))  # never crashes on an argv the usage accepts
 ```
 
 Unlike a fixed list from `generate_examples`, the strategy keeps exploring new shapes across runs and
