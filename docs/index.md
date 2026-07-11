@@ -29,44 +29,10 @@ is opt-in.
     ---
 
     On a mismatch, a two-span caret ties the offending token in the argument vector to the usage that
-    rejected it, in color, with a "did you mean" hint - not a bare reprint of the usage.
+    rejected it, in color. Typos get a "did you mean" hint; a multi-line usage gets the closest line and
+    the one element it still needs - never a bare reprint.
 
     [:octicons-arrow-right-24: Diagnostics](guides/diagnostics.md)
-
--   :material-file-code:{ .lg .middle } __Schema codegen__
-
-    ---
-
-    `docopt2 stub` (or `generate_stub`) writes the typed schema from your usage, in three styles, so
-    you never hand-write it.
-
-    [:octicons-arrow-right-24: Schema stubs](guides/stub.md)
-
--   :material-spellcheck:{ .lg .middle } __Static usage linter__
-
-    ---
-
-    `docopt2 check` (or `check`) lints the usage grammar itself - dead defaults, unusable options,
-    ambiguous variadics - before it ships.
-
-    [:octicons-arrow-right-24: Usage linting](guides/check.md)
-
--   :material-flask-outline:{ .lg .middle } __Example generation__
-
-    ---
-
-    `docopt2 examples` (or `generate_examples`) samples the argvs your usage accepts - for drift
-    detection, parser fuzzing, and a Hypothesis strategy.
-
-    [:octicons-arrow-right-24: Example generation](guides/examples.md)
-
--   :material-console-line:{ .lg .middle } __Shell completion__
-
-    ---
-
-    Context-aware completion scripts generated for bash, zsh, fish, and PowerShell.
-
-    [:octicons-arrow-right-24: Shell completion](guides/completion.md)
 
 -   :material-sitemap:{ .lg .middle } __Subcommand dispatch__
 
@@ -76,6 +42,23 @@ is opt-in.
     dispatch layer docopt itself omits.
 
     [:octicons-arrow-right-24: Subcommand dispatch](guides/dispatch.md)
+
+-   :material-console-line:{ .lg .middle } __Shell completion__
+
+    ---
+
+    Context-aware completion scripts generated for bash, zsh, fish, and PowerShell.
+
+    [:octicons-arrow-right-24: Shell completion](guides/completion.md)
+
+-   :material-file-code:{ .lg .middle } __Schema codegen__
+
+    ---
+
+    `docopt2 stub` (or `generate_stub`) writes the typed schema from your usage, in three styles, so
+    you never hand-write it.
+
+    [:octicons-arrow-right-24: Schema stubs](guides/stub.md)
 
 -   :material-layers-triple:{ .lg .middle } __Layered value resolution__
 
@@ -96,6 +79,33 @@ is opt-in.
     straight from the usage text.
 
     [:octicons-arrow-right-24: Rich help](guides/help.md)
+
+-   :material-spellcheck:{ .lg .middle } __Static usage linter__
+
+    ---
+
+    `docopt2 check` (or `check`) lints the usage grammar itself - dead defaults, unusable options,
+    ambiguous variadics - before it ships.
+
+    [:octicons-arrow-right-24: Usage linting](guides/check.md)
+
+-   :material-flask-outline:{ .lg .middle } __Example generation__
+
+    ---
+
+    `docopt2 examples` (or `generate_examples`) samples the argvs your usage accepts - for drift
+    detection, parser fuzzing, and a Hypothesis strategy.
+
+    [:octicons-arrow-right-24: Example generation](guides/examples.md)
+
+-   :material-swap-horizontal:{ .lg .middle } __Round-trip codec__
+
+    ---
+
+    `format_argv` is the inverse of `docopt`: it rebuilds a canonical argv from a parsed result, verified
+    by a re-parse, so `docopt(format_argv(x)) == x`. One usage spec drives both parsing and synthesis.
+
+    [:octicons-arrow-right-24: Round-trip to argv](guides/round-trip.md)
 
 </div>
 
