@@ -6,6 +6,7 @@ from importlib.metadata import version as _package_version
 from docopt2._completion import complete, generate_completion
 from docopt2._core import Arguments, Cli, Dispatch, Source, docopt, parse_tree
 from docopt2._errors import DocoptExit, DocoptLanguageError
+from docopt2._format import format_argv
 from docopt2._generate import generate_config_template, generate_examples
 from docopt2._lint import check
 from docopt2._parser import (
@@ -56,6 +57,7 @@ __all__ = [
     "complete",
     "docopt",
     "formal_usage",
+    "format_argv",
     "generate_completion",
     "generate_config_template",
     "generate_examples",
