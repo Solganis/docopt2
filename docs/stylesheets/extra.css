@@ -1,0 +1,127 @@
+/* Palette derived from docopt.org: a monochrome charcoal (#3E4349) surface paired
+   with a serif body and a monospace code face (see theme.font in mkdocs.yml). The
+   single accent hue below is a muted slate-blue, kept as one clearly-labelled
+   variable so the accent is a one-line change here. */
+
+/* --- The single accent ---------------------------------------------------------
+   Change this one value to re-tint every interactive accent (links, hovers,
+   selection) across both light and dark schemes. */
+:root {
+  --docopt2-accent: #5B6B8C; /* muted slate-blue, the single interactive accent */
+}
+
+/* Global type density (assertpy2's approach, tuned a touch airier here). Material scales
+   the whole page - text, headings, spacing, admonition padding - off an enlarged root that
+   reads airy at 100% zoom. Pinning the root a touch lower tightens everything
+   proportionally, while readers can still zoom on top. This is the density knob: lower for
+   denser (assertpy2 uses 124%), raise for airier. */
+:root {
+  font-size: 130%;
+}
+
+/* Material renders admonitions (!!! note) and <details> smaller than body text; the root
+   tightening makes that already-small text hard to read, so lift it back to body size. */
+.md-typeset .admonition,
+.md-typeset details {
+  font-size: 0.7rem;
+}
+
+/* Light scheme (default). Charcoal primary (header) + docopt's serif/mono type. Code
+   stays on Material's light surface so inline code and blocks read cleanly on white -
+   forcing the charcoal code surface here turned inline code into dark blobs in running
+   text. The charcoal code identity lives in the dark scheme below. */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:        #3E4349; /* docopt.org charcoal */
+  --md-primary-fg-color--light: #565c63;
+  --md-primary-fg-color--dark:  #2b2f34;
+
+  --md-accent-fg-color:         var(--docopt2-accent);
+}
+
+/* Dark (slate) scheme. Same charcoal identity, lifted body-text contrast to match
+   the reference site's readability overrides. */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        #3E4349; /* docopt.org charcoal */
+  --md-accent-fg-color:         var(--docopt2-accent);
+
+  --md-code-bg-color:           #2b2f34;                    /* deeper charcoal in dark mode */
+  --md-code-fg-color:           hsla(0, 0%, 100%, 0.92);
+
+  /* Material's slate scheme ships low-contrast grey body text; lift it to near-white
+     so the dark theme reads as cleanly as the light one. */
+  --md-typeset-color:             hsla(0, 0%, 100%, 0.90);
+  --md-default-fg-color:          hsla(0, 0%, 100%, 0.95);
+  --md-default-fg-color--light:   hsla(0, 0%, 100%, 0.72);
+  --md-default-fg-color--lighter: hsla(0, 0%, 100%, 0.45);
+
+  --md-typeset-a-color:           var(--docopt2-accent); /* links */
+}
+
+/* Prose wrapping. Let the browser avoid orphans (a lone word on the last line) rather
+   than needing a manual <br> per paragraph, and keep an inline code span whole instead
+   of splitting it mid-token across a line break. */
+.md-typeset p,
+.md-typeset li {
+  text-wrap: pretty;
+}
+.md-typeset :not(pre) > code {
+  white-space: nowrap;
+}
+
+/* --- Theme-adaptive terminal component -----------------------------------------
+   Reproduces docopt2's colored diagnostics as live HTML instead of a fixed dark
+   PNG. Colors are defined once per Material scheme so the block reads as a dark
+   terminal in the dark theme and a light terminal in the light theme, blending
+   into the surrounding code surface rather than sitting as a fixed dark island.
+   Role classes map to the semantic segments emitted by paint():
+     dt-fg    default text (gutter pipe, source lines)
+     dt-err   the error heading word
+     dt-caret the ^^^ carets
+     dt-warn  the warning heading word
+     dt-label the caret labels
+     dt-help  the `help` word
+     dt-dim   the intro labels (in the arguments:, in the usage:, in the options:)
+     dt-b     bold modifier */
+.docopt2-term {
+  font-family: var(--md-code-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas,
+               "Liberation Mono", monospace);
+  white-space: pre;
+  overflow-x: auto;
+  line-height: 1.5;
+  padding: 1rem;
+  margin: 1em 0;
+  border: 1px solid;
+  border-radius: 0.5rem;
+  font-size: 0.72rem;
+  background: var(--md-code-bg-color);
+}
+
+.docopt2-term .dt-b { font-weight: 700; }
+
+/* Dark scheme: GitHub-dark surface and the exact hues from paint(). */
+[data-md-color-scheme="slate"] .docopt2-term {
+  background: #161b22;
+  border-color: #30363d;
+  color: #c9d1d9;
+}
+[data-md-color-scheme="slate"] .docopt2-term .dt-fg    { color: #c9d1d9; }
+[data-md-color-scheme="slate"] .docopt2-term .dt-err   { color: #ff7b72; }
+[data-md-color-scheme="slate"] .docopt2-term .dt-caret { color: #ff7b72; }
+[data-md-color-scheme="slate"] .docopt2-term .dt-warn  { color: #e3b341; }
+[data-md-color-scheme="slate"] .docopt2-term .dt-label { color: #e3b341; }
+[data-md-color-scheme="slate"] .docopt2-term .dt-help  { color: #56d364; }
+[data-md-color-scheme="slate"] .docopt2-term .dt-dim   { color: #8b949e; }
+
+/* Light scheme: GitHub-light surface with the light-theme equivalents. */
+[data-md-color-scheme="default"] .docopt2-term {
+  background: #f6f8fa;
+  border-color: #d0d7de;
+  color: #1f2328;
+}
+[data-md-color-scheme="default"] .docopt2-term .dt-fg    { color: #1f2328; }
+[data-md-color-scheme="default"] .docopt2-term .dt-err   { color: #cf222e; }
+[data-md-color-scheme="default"] .docopt2-term .dt-caret { color: #cf222e; }
+[data-md-color-scheme="default"] .docopt2-term .dt-warn  { color: #9a6700; }
+[data-md-color-scheme="default"] .docopt2-term .dt-label { color: #9a6700; }
+[data-md-color-scheme="default"] .docopt2-term .dt-help  { color: #1a7f37; }
+[data-md-color-scheme="default"] .docopt2-term .dt-dim   { color: #57606a; }

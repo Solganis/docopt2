@@ -71,6 +71,13 @@ dev = [
     # Dev-only: property-based tests (differential vs vanilla docopt, coercion round-trips).
     "hypothesis>=6",
 ]
+# Documentation site (mkdocs-material + mkdocstrings). Build-only; not shipped with the
+# package and not part of the zero runtime-dependency guarantee (that concerns
+# [project.dependencies], which stays empty). pymdown-extensions ships with mkdocs-material.
+docs = [
+    "mkdocs-material>=9.7.6",
+    "mkdocstrings[python]>=1.0.4",
+]
 # Second and third type checkers: the library is consumed by people on different
 # checkers, so the code is kept clean under all three. `ty` is the gate; these run
 # locally on changed files, not in the deps/CI floor.

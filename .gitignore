@@ -24,6 +24,9 @@ venv/
 coverage.xml
 htmlcov/
 
+# Docs (mkdocs build output)
+site/
+
 # uv
 # (uv.lock is committed on purpose; do not ignore it)
 
