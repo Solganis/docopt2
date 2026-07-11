@@ -119,9 +119,13 @@ def _coercion_diagnostic(doc: str, argv: list[str] | tuple[str, ...] | str, err:
     if where is not None:
         caret = Caret(*where, f"typed as {err.expected}")
         snippets.append(Snippet(usage, "in the usage:", [caret]))
-    return Diagnostic(
-        summary=f"invalid value for `{err.key}`", snippets=snippets, help=f"`{err.raw}` is not a valid {err.expected}"
+    # "one of `a`, `b`" reads as "is not one of ..."; a plain type reads as "is not a valid int".
+    advice = (
+        f"`{err.raw}` is not {err.expected}"
+        if err.expected.startswith("one of ")
+        else f"`{err.raw}` is not a valid {err.expected}"
     )
+    return Diagnostic(summary=f"invalid value for `{err.key}`", snippets=snippets, help=advice)
 
 
 def _config_lookup(config: Mapping[str, Any], key: str) -> Any:

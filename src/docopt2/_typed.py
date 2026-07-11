@@ -12,6 +12,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
+    Literal,
     TypeVar,
     Union,
     cast,
@@ -83,6 +84,10 @@ def _coerce(value: Any, annotation: Any) -> Any:
     if origin is types.UnionType or origin is Union:
         inner = next((arg for arg in args if arg is not type(None)), str)
         return _coerce(value, inner)
+    if origin is Literal:
+        if value in args:
+            return value
+        raise ValueError(f"{value!r} is not one of {args!r}")
     if origin is list or annotation is list:
         inner = args[0] if args else str
         return [_coerce(item, inner) for item in value]
@@ -197,7 +202,15 @@ def _unwrap_annotation(annotation: Any) -> Any:
 
 
 def _type_name(annotation: Any) -> str:
-    """A short, readable name for the target type in a coercion-failure message ('int', 'list[int]')."""
+    """A short, readable name for the target type in a coercion-failure message ('int', 'list[int]').
+
+    A closed set of choices (a ``Literal`` or an ``Enum``) is rendered as ``one of `a`, `b`, `c```, so the
+    diagnostic lists the valid values instead of a bare type name.
+    """
+    if get_origin(annotation) is Literal:
+        return "one of " + ", ".join(f"`{arg}`" for arg in get_args(annotation))
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return "one of " + ", ".join(f"`{member.value}`" for member in annotation)
     if get_origin(annotation) is not None:  # a parameterized generic: keep its argument (list[int], not list)
         return str(annotation)
     return getattr(annotation, "__name__", str(annotation))
