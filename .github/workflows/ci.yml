@@ -89,7 +89,7 @@ jobs:
         run: uv run ruff format --check src tests
 
       - name: Type check (ty)
-        run: uv run ty check src/docopt2 tests/typing_surface/check_typed.py
+        run: uv run ty check
 
       - name: Type check (mypy --strict)
         run: uv run mypy --strict src/docopt2 tests/typing_surface/check_typed.py

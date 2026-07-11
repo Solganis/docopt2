@@ -175,3 +175,9 @@ ignore = []
 # Suppressions must be ty-native `# ty: ignore[rule]`. Make ty disregard mypy's
 # generic `# type: ignore` so a stray mypy-style comment can't silently mask a ty error.
 respect-type-ignore-comments = false
+
+[tool.ty.src]
+# Match the CI type gate: check the package and the typing-surface test only. The rest of
+# tests/ (the vendored docopt oracle plus the differential/property tests) uses dynamic
+# Pattern introspection ty cannot narrow, and is exercised by pytest, not type-checked.
+include = ["src", "tests/typing_surface"]
