@@ -7,12 +7,16 @@ from docopt2 import DocoptExit, DocoptLanguageError, docopt
 from docopt2._parser import (
     Argument,
     Command,
+    Either,
     Option,
+    Required,
     formal_tokens,
     parse_defaults,
     parse_pattern,
+    required_leaf_names,
     single_usage_section,
 )
+from docopt2.hypothesis import argv_strategy
 
 _DOC = (
     "Usage:\n"
@@ -84,3 +88,55 @@ def test_near_miss_never_crashes_and_names_a_real_element(argv):
         if "closest of" in message:
             named = message.split("missing required `")[1].split("`")[0]
             assert_that(named).is_in(*_vocabulary(_DOC))
+
+
+_DISPATCH = "Usage:\n  tool build <target>\n  tool test [--fast]\n  tool deploy <env> <version>\n"
+_MULTI_DOCS = [_DOC, _DISPATCH, "Usage:\n  p a <x>\n  p b <y> <z>\n"]
+
+
+def _fail(doc, argv):
+    """The DocoptExit message from a failing parse, for inspecting the near-miss it produced."""
+    with raises(DocoptExit) as exc_info:
+        docopt(doc, argv, complete=False)
+    return str(exc_info.value)
+
+
+def _required_names(doc):
+    """Every element some usage line requires - via required_leaf_names, independent of the near-miss scorer,
+    so it can cross-check what near-miss claims is missing."""
+    pattern = parse_pattern(formal_tokens(single_usage_section(doc)), parse_defaults(doc))
+    is_multi = isinstance(pattern, Required) and pattern.children and isinstance(pattern.children[0], Either)
+    lines = pattern.children[0].children if is_multi else [pattern]
+    return {name for line in lines for name in required_leaf_names(line)}
+
+
+def test_near_miss_names_the_requirement_of_the_command_that_was_typed():
+    # each leading command belongs to exactly one line, so near-miss must name THAT line's missing element
+    assert_that(_fail(_DISPATCH, "build")).contains("missing required `<target>`")
+    assert_that(_fail(_DISPATCH, "deploy prod")).contains("missing required `<version>`")
+
+
+def test_near_miss_stays_on_the_line_as_the_argv_gets_further_in():
+    # adding a token the push line accepts must not switch the diagnostic to a different line
+    assert_that(_fail(_DOC, "push")).contains("`<remote>`")
+    assert_that(_fail(_DOC, "push --force")).contains("`<remote>`")
+
+
+@given(data=st.data())
+def test_near_miss_names_a_genuinely_required_unmet_element(data):
+    # Cross-validation against an independent oracle: take a valid argv, drop its last token so it fails,
+    # and whatever near-miss names must be an element the grammar actually REQUIRES (per required_leaf_names)
+    # - never an optional element it invented, nor a non-requirement.
+    doc = data.draw(st.sampled_from(_MULTI_DOCS))
+    full = data.draw(argv_strategy(doc))
+    if not full:
+        return
+    try:
+        docopt(doc, full[:-1], help=False, complete=False)
+    except DocoptExit as exit_signal:
+        message = str(exit_signal)
+    else:
+        return  # dropping the token still matched (it was optional) - not a near-miss case
+    if "closest of" in message:
+        named = message.split("missing required `")[1].split("`")[0]
+        assert_that(named).is_in(*_required_names(doc))
