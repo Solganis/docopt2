@@ -94,7 +94,7 @@ def check(doc: str) -> list[Diagnostic]:
     options = [option for option, _name, _default in declared]
     try:
         pattern = parse_pattern(formal_usage(single_usage_section(doc)), list(options))
-    except DocoptLanguageError:
+    except (DocoptLanguageError, RecursionError):
         return warnings
     in_usage = {leaf.name for leaf in pattern.flat(Option)}
     required = set(required_leaf_names(pattern))

@@ -19,12 +19,12 @@ from docopt2._parser import (
     Pattern,
     Required,
     Tokens,
+    _option_chunks,
     expand_options_shortcut,
     formal_usage,
     parse_argv,
     parse_defaults,
     parse_pattern,
-    parse_section,
     single_usage_section,
 )
 
@@ -147,19 +147,16 @@ def _describe(doc: str) -> dict[str, str]:
     description column), simply get no entry, so their completion candidate shows without a tooltip.
     """
     descriptions: dict[str, str] = {}
-    for section in parse_section("options:", doc):
-        _, _, body = section.partition(":")
-        split = re.split(r"\n[ \t]*(-\S+?)", "\n" + body)[1:]
-        for chunk in ("".join(pair) for pair in zip(split[::2], split[1::2], strict=False)):
-            option = Option.parse(chunk)
-            _, _, text = chunk.strip().partition("  ")
-            # Collapse wrapped continuation lines and stray tabs to single spaces: a newline or tab in
-            # the text would split the `name\tdescription` reply line the shells rely on, injecting a
-            # bogus candidate. join(split()) also trims the ends before the trailing period is dropped.
-            text = " ".join(text.split()).rstrip(".").strip()
-            for name in (option.long, option.short):
-                if name is not None:
-                    descriptions[name] = text
+    for chunk in _option_chunks(doc):
+        option = Option.parse(chunk)
+        _, _, text = chunk.strip().partition("  ")
+        # Collapse wrapped continuation lines and stray tabs to single spaces: a newline or tab in
+        # the text would split the `name\tdescription` reply line the shells rely on, injecting a
+        # bogus candidate. join(split()) also trims the ends before the trailing period is dropped.
+        text = " ".join(text.split()).rstrip(".").strip()
+        for name in (option.long, option.short):
+            if name is not None:
+                descriptions[name] = text
     return descriptions
 
 
@@ -175,7 +172,10 @@ def reply_to_completion_request(doc: str) -> str | None:
         return None
     raw = os.environ.get(_WORDS_ENV, "")
     words = raw.split("\n") if raw else []
-    descriptions = _describe(doc)
+    try:
+        descriptions = _describe(doc)
+    except DocoptLanguageError:
+        descriptions = {}  # a malformed Options section must not raise into the shell on Tab
     return "\n".join(f"{name}\t{descriptions.get(name, '')}" for name in complete(doc, [*words, ""]))
 
 

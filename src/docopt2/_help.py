@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from docopt2._diagnostics import _BOLD, _DIM, _GREEN, _RESET
-from docopt2._parser import _CONFIG_PATTERN, _DEFAULT_PATTERN, _ENV_PATTERN, parse_section
+from docopt2._parser import _CONFIG_PATTERN, _DEFAULT_PATTERN, _ENV_PATTERN, _option_chunks, parse_section
 
 # A short/long option token as written in a usage line or an option spec (`-v`, `--speed`, `--dry-run`).
 _OPTION_TOKEN = re.compile(r"-{1,2}[A-Za-z][\w-]*")
@@ -42,17 +42,14 @@ def _option_entries(doc: str) -> list[tuple[str, frozenset[str], str, str]]:
     """Each ``Options:`` line as ``(spec, {names}, description, provenance)`` - the annotations pulled out
     of the description into a source chain, so the help text stays human-readable."""
     entries: list[tuple[str, frozenset[str], str, str]] = []
-    for section in parse_section("options:", doc):
-        _, _, body = section.partition(":")
-        parts = re.split(r"\n[ \t]*(-\S+?)", "\n" + body)[1:]
-        for chunk in ("".join(pair) for pair in zip(parts[::2], parts[1::2], strict=False)):
-            spec, _, description = chunk.strip().partition("  ")
-            provenance = _provenance(description)
-            clean = _DEFAULT_PATTERN.sub("", _CONFIG_PATTERN.sub("", _ENV_PATTERN.sub("", description)))
-            # close the gap the removed annotations leave before trailing punctuation ("bind ." -> "bind."),
-            # anchored at the end so a legitimate mid-text "a : b" is left alone
-            clean = re.sub(r"\s+([.,;:!?]+)$", r"\1", " ".join(clean.split()))
-            entries.append((spec.strip(), frozenset(_OPTION_TOKEN.findall(spec)), clean, provenance))
+    for chunk in _option_chunks(doc):
+        spec, _, description = chunk.strip().partition("  ")
+        provenance = _provenance(description)
+        clean = _DEFAULT_PATTERN.sub("", _CONFIG_PATTERN.sub("", _ENV_PATTERN.sub("", description)))
+        # close the gap the removed annotations leave before trailing punctuation ("bind ." -> "bind."),
+        # anchored at the end so a legitimate mid-text "a : b" is left alone
+        clean = re.sub(r"\s+([.,;:!?]+)$", r"\1", " ".join(clean.split()))
+        entries.append((spec.strip(), frozenset(_OPTION_TOKEN.findall(spec)), clean, provenance))
     return entries
 
 

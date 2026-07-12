@@ -13,6 +13,20 @@ def test_check_is_total_and_renderable_on_any_grammar(doc):
         warning.render()
 
 
+def test_check_returns_no_warnings_on_a_deeply_nested_usage():
+    # check() promises no warnings for an unparseable doc; a pathologically deep grammar raises
+    # RecursionError inside the parser, which must be swallowed like a DocoptLanguageError.
+    deep = "Usage: prog " + "( " * 2000 + "x " + ") " * 2000
+    assert_that(check(deep)).is_equal_to([])
+
+
+def test_check_flags_an_unused_option_declared_after_a_wrapped_description():
+    # A continuation line (indented, not starting with `-`) must be skipped, not end the scan: an option
+    # declared after another option's wrapped description is still linted.
+    doc = "Usage: prog [--foo] <x>\n\nOptions:\n  --foo  Enable foo,\n    continued here.\n  --bar  Unused.\n"
+    assert_that([warning.summary for warning in check(doc)]).contains("option `--bar` is declared but never used")
+
+
 def _summaries(doc: str) -> list[str]:
     return [warning.summary for warning in check(doc)]
 

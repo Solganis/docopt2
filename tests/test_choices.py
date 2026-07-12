@@ -65,3 +65,21 @@ def test_list_of_literals_coerces_each_element():
     assert_that(docopt("Usage: prog <tags>...", "a c a", complete=False, schema=_Tags).tags).is_equal_to(
         ["a", "c", "a"]
     )
+
+
+def test_a_mistyped_choice_gets_a_did_you_mean_suggestion():
+    with raises(DocoptExit) as exc_info:
+        docopt(_LEVEL_DOC, "--level=warm", complete=False, schema=_Levelled)  # warm -> warn (one substitution)
+    assert_that(str(exc_info.value)).contains("did you mean `warn`?")
+
+
+def test_a_transposed_choice_is_still_suggested():
+    with raises(DocoptExit) as exc_info:
+        docopt(_LEVEL_DOC, "--level=inof", complete=False, schema=_Levelled)  # inof -> info (transposition)
+    assert_that(str(exc_info.value)).contains("did you mean `info`?")
+
+
+def test_a_value_close_to_no_choice_gets_no_suggestion():
+    with raises(DocoptExit) as exc_info:
+        docopt(_LEVEL_DOC, "--level=production", complete=False, schema=_Levelled)
+    assert_that(str(exc_info.value)).does_not_contain("did you mean")

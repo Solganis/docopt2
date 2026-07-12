@@ -108,6 +108,32 @@ def test_annotated_field_coerced_to_inner_type():
 
 
 @dataclasses.dataclass
+class ListForScalar:
+    x: list[str]
+
+
+def test_non_repeating_element_into_list_field_raises_language_error():
+    # Symmetric to test_repeated_element_into_scalar_field: a list-typed field needs a repeating
+    # element; a scalar must raise, not silently char-split the string into single characters.
+    doc = "Usage: prog <x>"
+    assert_that(docopt).raises(DocoptLanguageError).when_called_with(doc, "hello", schema=ListForScalar)
+
+
+@dataclasses.dataclass
+class NestedAnnotated:
+    port: Annotated[int, "meta"] | None
+    vals: list[Annotated[int, "meta"]]
+
+
+def test_annotated_nested_in_union_and_list_coerces_to_inner_type():
+    # Annotated must be unwrapped even when nested inside a Union member or a list element type,
+    # not only at the top level - a common pattern in typed codebases.
+    result = docopt("Usage: prog [--port=<p>] <vals>...", "--port 80 1 2", schema=NestedAnnotated)
+    assert_that(result.port).is_equal_to(80)
+    assert_that(result.vals).is_equal_to([1, 2])
+
+
+@dataclasses.dataclass
 class ScalarForRepeated:
     x: str
 

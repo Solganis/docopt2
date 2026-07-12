@@ -197,25 +197,28 @@ class LeafPattern(Pattern):
         if matched_leaf is None or position is None:
             return
         remaining = left[:position] + left[position + 1 :]
-        same_name = [item for item in collected if item.name == self.name]
+        # Only int-counted or list-valued leaves need the same-named prior match; the common
+        # non-repeating case below does not, so skip scanning `collected` for it entirely.
         # `type(...) is int` deliberately excludes bool (a bool flag must not count).
+        if type(self.value) is not int and type(self.value) is not list:
+            yield remaining, [*collected, matched_leaf]
+            return
+        existing = next((item for item in collected if item.name == self.name), None)
         if type(self.value) is int:
-            if same_name:
-                incremented = cast("int", same_name[0].value) + 1
-                bumped = [_leaf_with_value(item, incremented) if item is same_name[0] else item for item in collected]
+            if existing is not None:
+                incremented = cast("int", existing.value) + 1
+                bumped = [_leaf_with_value(item, incremented) if item is existing else item for item in collected]
                 yield remaining, bumped
             else:
                 yield remaining, [*collected, _leaf_with_value(matched_leaf, 1)]
-        elif type(self.value) is list:
+        else:  # type(self.value) is list
             addition = [matched_leaf.value] if isinstance(matched_leaf.value, str) else matched_leaf.value
-            if same_name:
-                combined = cast("list[str]", same_name[0].value) + cast("list[str]", addition)
-                merged = [_leaf_with_value(item, combined) if item is same_name[0] else item for item in collected]
+            if existing is not None:
+                combined = cast("list[str]", existing.value) + cast("list[str]", addition)
+                merged = [_leaf_with_value(item, combined) if item is existing else item for item in collected]
                 yield remaining, merged
             else:
                 yield remaining, [*collected, _leaf_with_value(matched_leaf, addition)]
-        else:
-            yield remaining, [*collected, matched_leaf]
 
 
 class BranchPattern(Pattern):
@@ -313,8 +316,8 @@ class Option(LeafPattern):
             # real cause (caret under the first stray word) instead of a cryptic later "unmatched".
             offending = next(match for match in re.finditer(r"\S+", options) if not match.group().startswith("-"))
             base = source.find(stripped)
-            hit = [Caret(base + offending.start(), base + offending.end(), "read as an argument name")]
-            snippets = [Snippet(source, "in the options:", hit)] if base != -1 else []
+            carets = [Caret(base + offending.start(), base + offending.end(), "read as an argument name")]
+            snippets = [Snippet(source, "in the options:", carets)] if base != -1 else []
             diagnostic = Diagnostic(
                 summary=f"option `{stripped}` has more argument words than flags",
                 snippets=snippets,
@@ -595,8 +598,9 @@ def parse_long(tokens: Tokens, options: list[Option], allow_abbrev: bool = True)
         if value is not None:
             raise tokens.fail(f"`{option.long}` takes no argument")
     elif value is None:
-        # A structural closer (`)`/`]`) is not an argument, so it does not satisfy the option.
-        if tokens.current() in (None, "--", ")", "]"):
+        # `)`/`]` close a group only in the usage pattern; in argv they are ordinary values.
+        closers = (None, "--", ")", "]") if not tokens.parsing_argv else (None, "--")
+        if tokens.current() in closers:
             raise tokens.fail(f"`{option.long}` requires an argument")
         value = tokens.move()
     if tokens.parsing_argv:
@@ -629,7 +633,8 @@ def parse_shorts(tokens: Tokens, options: list[Option]) -> list[Pattern]:
         value: str | None = None
         if option.argcount != 0:
             if left == "":
-                if tokens.current() in (None, "--", ")", "]"):
+                closers = (None, "--", ")", "]") if not tokens.parsing_argv else (None, "--")
+                if tokens.current() in closers:
                     raise tokens.fail(f"`{short}` requires an argument")
                 value = tokens.move()
             else:
@@ -826,15 +831,17 @@ def parse_argv(
     return parsed
 
 
-def parse_defaults(doc: str) -> list[Option]:
-    """Collect option defaults from every ``options:`` section of the docstring."""
-    defaults: list[Option] = []
+def _option_chunks(doc: str) -> Iterator[str]:
+    """Each ``-``-led option block from every ``options:`` section, split on its leading flag token."""
     for section in parse_section("options:", doc):
         _, _, body = section.partition(":")
         split = re.split(r"\n[ \t]*(-\S+?)", "\n" + body)[1:]
-        pairs = ["".join(pair) for pair in zip(split[::2], split[1::2], strict=False)]
-        defaults += [Option.parse(text, doc) for text in pairs if text.startswith("-")]
-    return defaults
+        yield from ("".join(pair) for pair in zip(split[::2], split[1::2], strict=False))
+
+
+def parse_defaults(doc: str) -> list[Option]:
+    """Collect option defaults from every ``options:`` section of the docstring."""
+    return [Option.parse(text, doc) for text in _option_chunks(doc) if text.startswith("-")]
 
 
 def parse_argument_defaults(doc: str) -> dict[str, str]:

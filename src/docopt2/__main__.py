@@ -10,6 +10,7 @@ from docopt2 import (
     __version__,
     check,
     check_compat,
+    format_usage,
     generate_config_template,
     generate_examples,
     generate_stub,
@@ -29,6 +30,7 @@ Usage:
   docopt2 examples <source> [--count=<n>] [--invalid] [--seed=<n>]
   docopt2 config-template <source>
   docopt2 compat <old-source> <new-source>
+  docopt2 fmt <source>
   docopt2 (-h | --help)
   docopt2 --version
 
@@ -55,7 +57,10 @@ def _read_usage(source: str) -> str:
     if source == "-":
         return sys.stdin.read()
     path = Path(source)
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise _CliError(f"{source}: not a UTF-8 text file") from error
     if path.suffix != ".py":
         return text
     docstring = ast.get_docstring(ast.parse(text))
@@ -111,6 +116,11 @@ def _run_compat(arguments: Any) -> int:
     return 1 if breaks else 0  # like `check`: silent and 0 when no breakage is found, else the breaks and 1
 
 
+def _run_fmt(arguments: Any) -> int:
+    print(format_usage(_read_usage(arguments["<source>"])), end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the ``docopt2`` console command and ``python -m docopt2``."""
     app = Dispatch(_DOC)
@@ -119,9 +129,11 @@ def main(argv: list[str] | None = None) -> int:
     app.on("examples")(_run_examples)
     app.on("config-template")(_run_config_template)
     app.on("compat")(_run_compat)
+    app.on("fmt")(_run_fmt)
     try:
         result: int = app.run(argv, version=__version__, complete=False)
-    except (_CliError, DocoptLanguageError, OSError, SyntaxError) as exc:
+    except (_CliError, DocoptLanguageError, OSError, SyntaxError, ValueError) as exc:
+        # ValueError also covers generate_stub rejecting a bad --name and a NUL byte in a source file.
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return result

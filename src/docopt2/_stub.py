@@ -97,7 +97,10 @@ def generate_stub(doc: str, *, name: str = "Args", style: StubStyle = "dataclass
 
     Raises:
         DocoptLanguageError: The usage message is malformed (the same error :func:`docopt` raises).
+        ValueError: ``name`` is not a valid Python identifier.
     """
+    if not name.isidentifier() or keyword.iskeyword(name):
+        raise ValueError(f"class name {name!r} is not a valid Python identifier")
     key_types = _key_annotations(doc)
     keys_by_field: dict[str, list[str]] = {}
     for key in key_types:
@@ -113,7 +116,7 @@ def generate_stub(doc: str, *, name: str = "Args", style: StubStyle = "dataclass
         handled.add(field)
         colliding = keys_by_field[field]
         if len(colliding) > 1:
-            joined = ", ".join(f"`{name}`" for name in colliding)
+            joined = ", ".join(f"`{usage_key}`" for usage_key in colliding)
             notes.append(f"# note: usage keys {joined} all map to `{field}`; give them distinct names to type them")
         elif not field.isidentifier() or keyword.iskeyword(field):
             notes.append(f"# note: usage key `{key}` is not a valid field name; rename it in the usage to type it")

@@ -18,6 +18,12 @@ def test_generate_stub_is_exported_from_the_package():
     assert_that(generate_stub).is_not_none()
 
 
+def test_generate_stub_rejects_an_invalid_class_name():
+    # The docstring promises valid Python; a non-identifier name would emit `class not valid:`.
+    assert_that(generate_stub).raises(ValueError).when_called_with("Usage: prog <x>", name="not valid")
+    assert_that(generate_stub).raises(ValueError).when_called_with("Usage: prog <x>", name="class")
+
+
 def test_a_required_positional_is_a_plain_str():
     assert_that(generate_stub("Usage: prog <host>")).contains("host: str\n")
 

@@ -79,6 +79,8 @@ def _coerce(value: Any, annotation: Any) -> Any:
     """Coerce a docopt-native value to the field's declared type (closed set)."""
     if value is None:
         return None
+    if hasattr(annotation, "__metadata__"):  # Annotated[T, ...] nested in a Union or list; unwrap to T
+        return _coerce(value, get_args(annotation)[0])
     origin = get_origin(annotation)
     args = get_args(annotation)
     if origin is types.UnionType or origin is Union:
@@ -89,6 +91,11 @@ def _coerce(value: Any, annotation: Any) -> Any:
             return value
         raise ValueError(f"{value!r} is not one of {args!r}")
     if origin is list or annotation is list:
+        if not isinstance(value, list):
+            raise DocoptLanguageError(
+                f"the schema type {annotation!r} is a list, but this usage element is not repeated; "
+                "mark it with `...` to repeat, or use a scalar type"
+            )
         inner = args[0] if args else str
         return [_coerce(item, inner) for item in value]
     if isinstance(value, list):

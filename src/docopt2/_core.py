@@ -3,8 +3,9 @@ from __future__ import annotations
 import enum
 import itertools
 import os
+import re
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, ClassVar, TypeVar, cast, overload
 
 from docopt2._completion import reply_to_completion_request
@@ -29,7 +30,7 @@ from docopt2._parser import (
     required_leaf_names,
     single_usage_section,
 )
-from docopt2._spellcheck import suggest_option
+from docopt2._spellcheck import _closest, suggest_option
 from docopt2._typed import _CoercionError, bind_schema
 
 SchemaT = TypeVar("SchemaT")
@@ -104,6 +105,11 @@ def _env_truthy(value: str) -> bool:
     return value.strip().lower() not in {"", "0", "false", "no", "off"}
 
 
+def _span_of(leaves: Iterable[Pattern], name: str) -> tuple[int, int] | None:
+    """The usage span of the leaf named ``name`` (the first that carries one), or None."""
+    return next((leaf.span for leaf in leaves if leaf.name == name and leaf.span is not None), None)
+
+
 def _coercion_diagnostic(doc: str, argv: list[str] | tuple[str, ...] | str, err: _CoercionError) -> Diagnostic:
     """Render a schema coercion failure with the same two-span caret used for match errors: the value
     in the argv, cross-referenced to the usage element that declared its type."""
@@ -115,16 +121,19 @@ def _coercion_diagnostic(doc: str, argv: list[str] | tuple[str, ...] | str, err:
     # Build the pattern the same way docopt() does (formal_tokens), so the leaf spans align with `usage`;
     # parse_tree() uses formal_usage and would offset the caret.
     pattern = parse_pattern(formal_tokens(usage), parse_defaults(doc))
-    where = next((leaf.span for leaf in pattern.flat() if leaf.name == err.key and leaf.span is not None), None)
+    where = _span_of(pattern.flat(), err.key)
     if where is not None:
         caret = Caret(*where, f"typed as {err.expected}")
         snippets.append(Snippet(usage, "in the usage:", [caret]))
     # "one of `a`, `b`" reads as "is not one of ..."; a plain type reads as "is not a valid int".
-    advice = (
-        f"`{err.raw}` is not {err.expected}"
-        if err.expected.startswith("one of ")
-        else f"`{err.raw}` is not a valid {err.expected}"
-    )
+    if err.expected.startswith("one of "):
+        advice = f"`{err.raw}` is not {err.expected}"
+        choices = [match.group(1) for match in re.finditer(r"`([^`]+)`", err.expected)]
+        suggestion = _closest(str(err.raw), choices)  # a mistyped choice gets a spell-checked "did you mean"
+        if suggestion is not None:
+            advice += f" - did you mean `{suggestion}`?"
+    else:
+        advice = f"`{err.raw}` is not a valid {err.expected}"
     return Diagnostic(summary=f"invalid value for `{err.key}`", snippets=snippets, help=advice)
 
 
@@ -170,7 +179,9 @@ def _apply_fallbacks(result: Arguments, options: list[Option], config: Mapping[s
         resolved = _fallback_value(option, config)
         if resolved is not None:
             raw, source = resolved
-            result[name] = raw if option.argcount else _env_truthy(raw)
+            filled = raw if option.argcount else _env_truthy(raw)
+            # a repeating option holds a list everywhere else; keep the key's type consistent
+            result[name] = [filled] if isinstance(result[name], list) else filled
             result._sources[name] = source
 
 
@@ -374,9 +385,7 @@ def docopt(
         if hint is not None:
             unknown, suggestion = hint
             snippets = [_argv_snippet(argv, unknown, "not a known option")]
-            declared_at = next(
-                (leaf.span for leaf in fixed.flat(Option) if leaf.name == suggestion and leaf.span is not None), None
-            )
+            declared_at = _span_of(fixed.flat(Option), suggestion)
             if declared_at is not None:  # the suggested option is written in the usage: cross-reference it
                 where = Snippet(usage, "in the usage:", [Caret(*declared_at, f"`{suggestion}` is defined here")])
                 snippets.append(where)
@@ -391,9 +400,7 @@ def docopt(
         offending = left[0]
         shown = str(offending.name) if isinstance(offending, Option) else str(offending.value)
         snippets = [_argv_snippet(argv, shown, "not allowed here")]
-        usage_span = next(
-            (leaf.span for leaf in fixed.flat(Option) if leaf.name == shown and leaf.span is not None), None
-        )
+        usage_span = _span_of(fixed.flat(Option), shown)
         advice: str | None
         if usage_span is not None:
             snippets.append(Snippet(usage, "in the usage:", [Caret(*usage_span, "declared here")]))
@@ -404,7 +411,9 @@ def docopt(
         raise _exit(
             Diagnostic(summary=summary, snippets=snippets, help=advice).render(), collected=collected, left=left
         )
-    near_miss = nearest_usage_line(fixed, argv_patterns)
+    # Score against a freshly-parsed (unfixed) pattern: fix() dedups identical leaves across lines onto
+    # one shared span, which would caret the wrong line when a name repeats (e.g. `<y>` in several lines).
+    near_miss = nearest_usage_line(parse_pattern(formal_tokens(usage), parse_defaults(doc)), argv_patterns)
     if near_miss is not None:
         # A multi-line usage: caret the one element the closest line still needs (Snippet shows that line).
         name, span, total = near_miss
@@ -436,8 +445,7 @@ class Cli:
     Subclass it, set ``__cli_doc__`` to the usage message, and declare fields as
     annotations; ``YourClass.parse(argv)`` returns an instance typed as the subclass. This is
     the only decorator-shaped sugar that keeps real static types under mypy, pyright and
-    ty (a method-injecting decorator degrades the result to ``Any``). See
-    docs/design/typed-api.md.
+    ty (a method-injecting decorator degrades the result to ``Any``).
     """
 
     __cli_doc__: ClassVar[str | None] = None

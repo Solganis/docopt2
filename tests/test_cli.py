@@ -72,6 +72,21 @@ def test_stub_reports_a_malformed_usage(tmp_path, capsys):
     assert_that(capsys.readouterr().err).starts_with("error:")
 
 
+def test_stub_reports_an_invalid_class_name(tmp_path, capsys):
+    source = _write(tmp_path, "usage.txt", "Usage: prog <host>")
+    exit_code = main(["stub", source, "--name=not valid"])
+    assert_that(exit_code).is_equal_to(1)
+    assert_that(capsys.readouterr().err).starts_with("error:").contains("valid Python identifier")
+
+
+def test_stub_reports_a_non_utf8_file(tmp_path, capsys):
+    source = tmp_path / "latin1.txt"
+    source.write_bytes(b"Usage: prog \xe9")  # 0xe9 is not valid UTF-8
+    exit_code = main(["stub", str(source)])
+    assert_that(exit_code).is_equal_to(1)
+    assert_that(capsys.readouterr().err).starts_with("error:").contains("UTF-8")
+
+
 def test_check_is_silent_and_zero_on_a_clean_usage(tmp_path, capsys):
     source = _write(tmp_path, "usage.txt", "Usage: prog <file>")
     exit_code = main(["check", source])
@@ -146,6 +161,15 @@ def test_compat_is_silent_and_zero_when_no_break_is_found(tmp_path, capsys):
     captured = capsys.readouterr()
     assert_that(exit_code).is_equal_to(0)
     assert_that(captured.err).is_empty()
+
+
+def test_fmt_aligns_and_tidies_the_options_block(tmp_path, capsys):
+    doc = "Usage: prog serve <root>\n\nOptions:\n  --port=<n>  Port.\n  -v, --verbose      Loud.\n"
+    source = _write(tmp_path, "usage.txt", doc)
+    exit_code = main(["fmt", source])
+    out = capsys.readouterr().out
+    assert_that(exit_code).is_equal_to(0)
+    assert_that(out).contains("  -v --verbose  Loud.")  # comma normalized to a space, column aligned
 
 
 def test_version_prints_and_exits(capsys):

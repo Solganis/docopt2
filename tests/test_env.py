@@ -66,3 +66,11 @@ def test_env_on_an_option_absent_from_usage_is_ignored(monkeypatch):
     monkeypatch.setenv("GHOST", "x")
     doc = "Usage: prog [--a]\n\nOptions:\n  --a  A.\n  --ghost  Ghost [env: GHOST]."
     assert_that("--ghost" in docopt(doc, "", complete=False)).is_false()
+
+
+def test_env_fallback_wraps_a_repeating_option_in_a_list(monkeypatch):
+    # A repeating option holds a list everywhere (given -> [...], absent -> []); an env fallback must
+    # keep that type, not assign a bare string, or the key's type is inconsistent across sources.
+    monkeypatch.setenv("APP_TAGS", "ab")
+    doc = "Usage: prog [--tag=<t>]...\n\nOptions:\n  --tag=<t>  a tag [env: APP_TAGS]."
+    assert_that(docopt(doc, "", complete=False)["--tag"]).is_equal_to(["ab"])

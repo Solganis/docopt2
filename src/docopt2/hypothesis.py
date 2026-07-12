@@ -14,11 +14,7 @@ if TYPE_CHECKING:
 
 
 class _DrawChooser:
-    """Drives the pattern walk from a Hypothesis draw, so every choice shrinks on its own.
-
-    Because each branch pick, repeat count, and coin flip is a separate draw, Hypothesis can shrink a
-    failing argv toward a minimal one: drop optionals, take first alternatives, fewest repeats.
-    """
+    """Drives the pattern walk from a Hypothesis draw, so every choice shrinks on its own."""
 
     def __init__(self, draw: DrawFn) -> None:
         self._draw = draw

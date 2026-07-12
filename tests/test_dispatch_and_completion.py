@@ -258,6 +258,15 @@ def test_reply_returns_none_without_a_request(monkeypatch):
     assert_that(reply_to_completion_request(_GIT_DOC)).is_none()
 
 
+def test_reply_does_not_raise_into_the_shell_on_a_malformed_options_section(monkeypatch):
+    # A run-together Options line (arg words > flags) must degrade to an empty reply on Tab, not dump
+    # a DocoptLanguageError traceback into the user's shell.
+    monkeypatch.setenv("_DOCOPT2_COMPLETE", "1")
+    monkeypatch.setenv("_DOCOPT2_WORDS", "")
+    doc = "Usage: prog [options] <x>\n\nOptions:\n  --foo ARG1 ARG2  desc"
+    assert_that(reply_to_completion_request(doc)).is_equal_to("")
+
+
 def test_reply_answers_a_completion_request(monkeypatch):
     monkeypatch.setenv("_DOCOPT2_COMPLETE", "1")
     monkeypatch.setenv("_DOCOPT2_WORDS", "remote")  # completed tokens; the reply lists every next token

@@ -5,7 +5,17 @@ from typing import TYPE_CHECKING
 from docopt2._core import Arguments, docopt
 from docopt2._errors import DocoptExit, DocoptLanguageError
 from docopt2._generate import _usage_pattern
-from docopt2._parser import Argument, Command, Either, OneOrMore, Option, Optional, OptionsShortcut, Required
+from docopt2._parser import (
+    Argument,
+    Command,
+    Either,
+    OneOrMore,
+    Option,
+    Optional,
+    OptionsShortcut,
+    Required,
+    _usage_lines,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -130,13 +140,6 @@ def _emit(
     elif isinstance(node, Option) and node.name is not None and node.name in provided and node.name not in consumed:
         consumed[node.name] = 1  # stacked or duplicate leaves of one flag emit once, with the full count
         _emit_option(node, result, tokens)
-
-
-def _usage_lines(top: Pattern) -> list[Pattern]:
-    """The alternative usage lines: the children of the top ``Required(Either(...))``, else the pattern itself."""
-    if isinstance(top, Required) and top.children and isinstance(top.children[0], Either):
-        return top.children[0].children
-    return [top]
 
 
 def _round_trips(doc: str, tokens: list[str], result: Arguments) -> bool:

@@ -68,10 +68,8 @@ def _usage_pattern(doc: str) -> Pattern:
 def _sample(node: Pattern, chooser: _Chooser, counter: Iterator[int]) -> list[str]:
     """Walk the pattern into one argv the usage accepts.
 
-    A required sequence emits all children; an alternation picks one branch; a repetition repeats once
-    or twice; an optional group is taken with even odds; a positional gets a synthetic value; a command
-    emits its literal; a valued option emits a synthetic value. Every choice comes from ``chooser``, so
-    the same walk serves both the seeded generator and the Hypothesis strategy.
+    Every choice comes from ``chooser``, so the same walk serves both the seeded generator and the
+    Hypothesis strategy.
     """
     if isinstance(node, Required):
         return [token for child in node.children for token in _sample(child, chooser, counter)]
@@ -117,7 +115,7 @@ def generate_examples(doc: str, *, count: int = 10, valid: bool = True, seed: in
     pattern = _usage_pattern(doc)
     chooser = _RandomChooser(random.Random(seed))
     counter = itertools.count(1)
-    unknown = _unknown_option(doc)
+    unknown = _unknown_option(doc) if not valid else ""
     seen: set[tuple[str, ...]] = set()
     examples: list[list[str]] = []
     for _ in range(max(count, 0) * 20):
@@ -126,10 +124,16 @@ def generate_examples(doc: str, *, count: int = 10, valid: bool = True, seed: in
         argv = _sample(pattern, chooser, counter)
         if not valid:
             argv.append(unknown)
-        if tuple(argv) not in seen:
-            seen.add(tuple(argv))
+        key = tuple(argv)
+        if key not in seen:
+            seen.add(key)
             examples.append(argv)
     return examples
+
+
+def _toml_quote(text: str) -> str:
+    """Quote a string as TOML, doubling backslashes before escaping quotes (order matters)."""
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _toml_value(value: object) -> str:
@@ -145,7 +149,7 @@ def _toml_value(value: object) -> str:
         return text
     if text.lower() in ("true", "false"):
         return text.lower()
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return _toml_quote(text)
 
 
 def _toml_key(segment: str) -> str:
@@ -156,7 +160,7 @@ def _toml_key(segment: str) -> str:
     """
     if re.fullmatch(r"[A-Za-z0-9_-]+", segment):
         return segment
-    return '"' + segment.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return _toml_quote(segment)
 
 
 def _config_comment(option: Option) -> str:

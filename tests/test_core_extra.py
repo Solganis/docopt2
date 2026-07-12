@@ -161,6 +161,31 @@ def test_multi_line_usage_without_a_positional_token_falls_back():
     assert_that(str(exc_info.value)).does_not_contain("closest of")
 
 
+def test_near_miss_ranks_the_line_the_argv_got_furthest_into():
+    # Two lines share a leading `ship`; `ship new` gets two elements into the first line but cannot start
+    # the second, so the near-miss must target the first line's unmet `<name>` (the higher partial score),
+    # not the other line - inverting the match score would pick the wrong line or claim no near-miss.
+    doc = "usage: prog ship new <name>\n       prog rm <id>\n"
+    with raises(DocoptExit) as exc_info:
+        docopt(doc, "ship new")
+    message = str(exc_info.value)
+    assert_that(message).contains("missing required").contains("<name>").contains("closest of 2 usage patterns")
+
+
+def test_near_miss_carets_the_closest_line_when_the_missing_name_repeats():
+    # `<y>` appears in both lines; fix() dedups identical leaves onto one shared span, so scoring the
+    # near-miss on the fixed pattern would caret the wrong line. The caret must sit under the closest
+    # line's `<y>` (the `ship ... move` line the argv got furthest into), not the other line's.
+    doc = "usage: prog ship <name> move <x> <y>\n       prog mine set <x> <y>\n"
+    with raises(DocoptExit) as exc_info:
+        docopt(doc, "ship a move 1")
+    rows = str(exc_info.value).splitlines()
+    caret_row = next(row for row in rows if "^" in row)
+    source_row = rows[rows.index(caret_row) - 1]
+    assert_that(source_row).contains("ship <name> move")  # the winning line, not `mine set <x> <y>`
+    assert_that(caret_row.index("^")).is_equal_to(source_row.index("<y>"))
+
+
 def test_arguments_repr_is_sorted_and_dict_like():
     text = repr(docopt("usage: prog [-v] <name>", "-v alice"))
     assert_that(text).starts_with("{").ends_with("}")
@@ -239,3 +264,16 @@ def test_docopt_exit_empty_when_required_element_missing():
         docopt("usage: prog <a>", "")
     assert_that(exc_info.value.left).is_empty()
     assert_that(exc_info.value.collected).is_empty()
+
+
+def test_a_closing_bracket_is_accepted_as_a_long_option_argument_value():
+    # `)` and `]` close a group only in the usage pattern; in argv they are ordinary values, so an
+    # option that takes an argument consumes them (matching vanilla docopt) instead of being rejected.
+    doc = "Usage: prog --file <f>\n\nOptions:\n  --file=<f>  the file"
+    assert_that(docopt(doc, ["--file", ")"], complete=False)).is_equal_to({"--file": ")"})
+    assert_that(docopt(doc, ["--file", "]"], complete=False)).is_equal_to({"--file": "]"})
+
+
+def test_a_closing_bracket_is_accepted_as_a_short_option_argument_value():
+    doc = "Usage: prog -f <f>\n\nOptions:\n  -f <f>  the file"
+    assert_that(docopt(doc, ["-f", ")"], complete=False)).is_equal_to({"-f": ")"})
