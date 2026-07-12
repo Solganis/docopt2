@@ -1,4 +1,6 @@
 from assertpy2 import assert_that
+from hypothesis import given
+from hypothesis import strategies as st
 from pytest import raises
 
 from docopt2 import DocoptExit, Option, docopt
@@ -52,6 +54,15 @@ def test_suggest_gives_no_hint_when_nothing_is_close():
     assert_that(str(exc_info.value)).does_not_contain("did you mean")
 
 
+def test_suggest_hints_a_transposed_option_typo():
+    # A pure adjacent-letter swap must stay close enough to suggest: Damerau counts `--tga` as one edit
+    # from `--tag`, where plain Levenshtein (distance 2) would fall outside the threshold and stay silent.
+    doc = "Usage: prog [--tag=<t>]\n\nOptions:\n  --tag=<t>  A tag.\n"
+    with raises(DocoptExit) as exc_info:
+        docopt(doc, ["--tga=x"], suggest=True, complete=False)
+    assert_that(str(exc_info.value)).contains("did you mean `--tag`")
+
+
 def test_valid_prefix_still_de_abbreviates():
     assert_that(docopt(DOC, "--verb x")["--verbose"]).is_true()
 
@@ -88,6 +99,20 @@ def test_closest_returns_none_when_nothing_within_threshold():
 
 def test_closest_returns_match_within_threshold():
     assert_that(_closest("--verbso", ["--verbose", "--version"])).is_equal_to("--verbose")
+
+
+def test_levenshtein_counts_an_adjacent_transposition_as_one_edit():
+    # Damerau: a swapped pair is one typo, not two, so a transposed word stays close to its intended form
+    assert_that(_levenshtein("ba", "ab")).is_equal_to(1)
+    assert_that(_levenshtein("inof", "info")).is_equal_to(1)
+    assert_that(_levenshtein("abcd", "abdc")).is_equal_to(1)
+
+
+@given(word=st.text(min_size=1, max_size=8), candidates=st.lists(st.text(min_size=1, max_size=8), max_size=6))
+def test_closest_only_ever_returns_a_candidate_or_none(word, candidates):
+    # soundness: a suggestion is always a real candidate, never invented
+    result = _closest(word, candidates)
+    assert result is None or result in candidates
 
 
 def test_suggest_option_skips_positionals_double_dash_and_valid_prefixes():

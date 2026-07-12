@@ -13,7 +13,10 @@ _SIMILARITY_THRESHOLD = 0.34
 
 
 def _levenshtein(source: str, target: str) -> int:
-    """Edit distance via the Wagner-Fischer algorithm; a ported improvement (see NOTICE)."""
+    """Optimal string-alignment (Damerau) edit distance; a ported improvement (see NOTICE).
+
+    Counts an adjacent transposition as one edit, so a common typo like ``inof`` for ``info`` stays close.
+    """
     source_range = range(len(source) + 1)
     target_range = range(len(target) + 1)
     matrix = [[(row if column == 0 else column) for column in target_range] for row in source_range]
@@ -25,6 +28,13 @@ def _levenshtein(source: str, target: str) -> int:
                 matrix[row][column - 1] + 1,
                 matrix[row - 1][column - 1] + substitution,
             )
+            if (
+                row > 1
+                and column > 1
+                and source[row - 1] == target[column - 2]
+                and source[row - 2] == target[column - 1]
+            ):
+                matrix[row][column] = min(matrix[row][column], matrix[row - 2][column - 2] + 1)  # transposition
     return matrix[len(source)][len(target)]
 
 
