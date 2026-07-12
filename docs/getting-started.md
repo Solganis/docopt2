@@ -15,8 +15,8 @@ pydantic support is reflective and optional (`docopt2[pydantic]`).
 
 ## Your first parse
 
-The usage message is the parser spec. Describe the interface, hand it to `docopt`, and read the parsed
-values back:
+The usage message is the parser spec. Describe the interface as text, hand it to `docopt`, and read the
+parsed values back by name. Start with two positional arguments:
 
 ```python
 from docopt2 import docopt
@@ -26,7 +26,39 @@ args["<host>"]  # "127.0.0.1"
 args["<port>"]  # "8080"
 ```
 
-A real program is the same shape, only longer. Save this as `naval_fate.py`:
+(In a real program you call `docopt(__doc__)` and it reads `sys.argv`; passing the argv here just keeps
+the examples self-contained.)
+
+Add an **option that takes a value**. `[--port=<n>]` is optional, and the `[default: ...]` declared under
+`Options:` fills it in when the flag is absent:
+
+```python
+doc = "Usage: prog <host> [--port=<n>]\n\nOptions:\n  --port=<n>  [default: 8000]"
+
+docopt(doc, "localhost")["--port"]              # "8000" - the default fills in
+docopt(doc, "localhost --port=9000")["--port"]  # "9000" - the argument wins
+```
+
+A bare **flag** carries no value: it is `True` when present, `False` when absent:
+
+```python
+doc = "Usage: prog [--verbose] <host>"
+
+docopt(doc, "--verbose example.com")["--verbose"]  # True
+docopt(doc, "example.com")["--verbose"]            # False
+```
+
+A **command** is a literal word (a bool, like a flag), and a trailing `...` makes an element
+**repeatable** - its value comes back as a list:
+
+```python
+args = docopt("Usage: prog add <file>...", "add a.txt b.txt")
+args["add"]     # True
+args["<file>"]  # ['a.txt', 'b.txt']
+```
+
+Positionals, options with defaults, flags, commands, repetition - that is the whole vocabulary, and a real
+program just combines them. Save this as `naval_fate.py`:
 
 ```python
 """Naval Fate.
@@ -103,21 +135,23 @@ arguments["--speed"]   # '15'
     Naval Fate 2.0
     ```
 
-When the arguments do not match any usage line, `docopt` prints the usage and exits non-zero instead of
-returning:
+When the arguments do not match, `docopt` does not return a broken result - it points at what is missing
+and exits non-zero. Move a ship, but forget the second coordinate:
 
-```console
-$ python naval_fate.py ship
-error: arguments do not match this command
-   = help: did you mean: ship new <name>
-Usage:
-  naval_fate ship new <name>...
-  ...
-```
+<div class="docopt2-term"><span class="dt-fg">$ python naval_fate.py ship Titanic move 1</span>
+<span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: missing required `&lt;y&gt;`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">      naval_fate ship &lt;name&gt; move &lt;x&gt; &lt;y&gt; [--speed=&lt;kn&gt;]</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                                      </span><span class="dt-caret">^^^</span><span class="dt-label"> required here</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: closest of 6 usage patterns</span></div>
 
-The full grammar behind the usage message - groups, alternation, repetition, `[options]`, and `--` - is
-covered in [Usage DSL](guides/usage-dsl.md); the error format above is covered in
-[Diagnostics](guides/diagnostics.md).
+docopt2 finds the usage line you got closest to and carets the one element it still needs (the full usage
+is printed beneath, trimmed here). Other mismatches - an unknown option, a value that will not fit its
+type - get the same pointed treatment, cross-referencing your argv and the usage; see
+[Diagnostics](guides/diagnostics.md). The full grammar behind the usage message - groups, alternation,
+repetition, `[options]`, and `--` - is in [Usage DSL](guides/usage-dsl.md).
 
 ## Typed results
 
@@ -145,6 +179,10 @@ The `port` field is annotated `int`, so the parsed `"8080"` comes back as an `in
 checkers see `args.port` as an `int`. A schema can be a dataclass, a `TypedDict`, a
 [`Cli`](reference/cli.md) subclass, or a pydantic model. Each shape, the coercions docopt2 performs, and
 how a coercion failure surfaces are covered in [Typed results](guides/typed-results.md).
+
+You do not have to write the schema by hand. `docopt2 stub naval_fate.py` reads the usage and prints a
+ready-to-edit dataclass (or a `TypedDict`, or a `Cli` subclass) with every field typed from the grammar;
+widen a field like `speed: int` and the coercion follows. See [Schema stubs](guides/stub.md).
 
 ## Next steps
 

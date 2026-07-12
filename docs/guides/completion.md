@@ -31,7 +31,7 @@ the usage text. For `prog="naval"`, the bash script is:
 _naval_completion() {
     local IFS=$'\n'
     local words="${COMP_WORDS[*]:1:COMP_CWORD-1}"
-    local reply; reply="$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}")"
+    local reply; reply="$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" | cut -f1)"
     COMPREPLY=( $(compgen -W "$reply" -- "${COMP_WORDS[COMP_CWORD]}") )
 }
 complete -F _naval_completion naval

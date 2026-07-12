@@ -28,6 +28,13 @@
 
 ---
 
+<h2 align="center">What is docopt2?</h2>
+
+docopt2 is a command-line argument parser for Python. Most CLI libraries have you build the parser in code and generate a `--help` out of it; docopt2 goes the other way: **you write the usage message, and that message *is* the parser.**<br>
+Put the `Usage:` and `Options:` text in your module docstring - the help you would write anyway - and docopt2 parses the command line against it. The help your users read and the parser that runs are the same text, so they can never drift.
+
+The full documentation is on the [website](https://solganis.github.io/docopt2/) - it opens on a short introduction, then walks through [Getting started](https://solganis.github.io/docopt2/getting-started/) and the guides.
+
 <h2 align="center">Features</h2>
 
 <table>
@@ -67,22 +74,26 @@ Resolve an option from <code>[env: VAR]</code> or <code>[config: key]</code> - C
 Opt into a colored, scoped help that shows where each value resolves from - env, config, default.
 </td>
 <td valign="top">
-<a href="#usage-linter"><b>Static usage linter</b></a><br>
-Catch a broken usage before it ships - <code>docopt2 check</code> flags dead defaults and unusable options.
+<a href="#example-generation"><b>Example generation</b></a><br>
+Sample every argv your usage accepts - for drift detection, fuzzing, and a Hypothesis strategy.
 </td>
 </tr>
 <tr>
 <td valign="top">
-<a href="#example-generation"><b>Example generation</b></a><br>
-Sample every argv your usage accepts - for drift detection, fuzzing, and a Hypothesis strategy.
+<a href="#usage-linter"><b>Static usage linter</b></a><br>
+Catch a broken usage before it ships - <code>docopt2 check</code> flags dead defaults and unusable options.
 </td>
+<td valign="top">
+<a href="#usage-formatter"><b>Usage formatter</b></a><br>
+Keep the <code>Options:</code> block aligned - <code>docopt2 fmt</code> reformats it, the format half to <code>check</code>'s lint.
+</td>
+</tr>
+<tr>
 <td valign="top">
 <a href="#round-trip"><b>Round-trip codec</b></a><br>
 Turn a parsed result back into an argv that parses to it - <code>format_argv</code>, the inverse of <code>docopt</code>.
 </td>
-</tr>
-<tr>
-<td valign="top" colspan="2" align="center">
+<td valign="top">
 <a href="#compat"><b>Compatibility checking</b></a><br>
 <code>docopt2 compat old new</code> reports the changes that would break callers - a breaking-change detector for your CLI.
 </td>
@@ -165,7 +176,7 @@ args.port                      # statically an int, not a string
 A dataclass, a `TypedDict`, the `Cli` base class, or a pydantic model all work as `schema=` -<br>
 and you don't hand-write it, `docopt2 stub` generates it from the usage.
 
-**[Validated choices.](https://solganis.github.io/docopt2/guides/typed-results/#coercion)** A `Literal` or `Enum` field becomes a closed set - a bad value is rejected with the valid set listed.
+**[Validated choices.](https://solganis.github.io/docopt2/guides/typed-results/#coercion)** A `Literal` or `Enum` field becomes a closed set - a bad value is rejected with the valid set listed and the closest match suggested.
 
 <a name="diagnostics"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/diagnostics/">Diagnostics that point at the problem</a></h2>
@@ -306,19 +317,6 @@ documents **where each value resolves from** - the `[env, config, default]` chai
 
 Because the sources are declared right in the usage text, the help writes itself. It also scopes to the subcommand the user typed - `git commit --help` shows only `commit`.
 
-<a name="usage-linter"></a>
-<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/check/">Lint the usage before it ships</a></h2>
-
-`docopt2 check` (or `docopt2.check(doc)` in code) lints the usage grammar itself -<br>
-catching defects the parser would otherwise accept in silence:
-
-<p align="center">
-  <img src="docs/assets/check.png" width="857" alt="A docopt2 check warning: option --verbose is declared but never used, with a caret under its declaration in the options section and a help line on how to fix it">
-</p>
-
-It flags dead `[default: ...]` values, options declared but never usable,<br>
-ambiguous variadic positionals, and redundant alternatives.
-
 <a name="example-generation"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/examples/">Sample the invocations your usage accepts</a></h2>
 
@@ -336,6 +334,43 @@ ship new v6
 Golden-file them to catch grammar drift, fuzz your parser with the accepted set, or add `--invalid` for the reject-set.
 
 **[Property-test with Hypothesis.](https://solganis.github.io/docopt2/guides/examples/#property-testing-with-hypothesis)** The same sampler is a shrinking [Hypothesis](https://hypothesis.readthedocs.io/) strategy - every draw is an argv your usage accepts.
+
+<a name="usage-linter"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/check/">Lint the usage before it ships</a></h2>
+
+`docopt2 check` (or `docopt2.check(doc)` in code) lints the usage grammar itself -<br>
+catching defects the parser would otherwise accept in silence:
+
+<p align="center">
+  <img src="docs/assets/check.png" width="857" alt="A docopt2 check warning: option --verbose is declared but never used, with a caret under its declaration in the options section and a help line on how to fix it">
+</p>
+
+It flags dead `[default: ...]` values, options declared but never usable,<br>
+ambiguous variadic positionals, and redundant alternatives.
+
+<a name="usage-formatter"></a>
+<h2 align="center"><a href="https://solganis.github.io/docopt2/guides/fmt/">Format the usage</a></h2>
+
+`docopt2 fmt` (or `format_usage`) reformats the `Options:` block - aligning every description into one column,<br>
+normalizing each spec, stripping trailing space - the format half to `check`'s lint. Take a drifted block:
+
+```text
+Options:
+  --port=<n>  Port [default: 8080].
+  --host=<h>   Interface [default: 127.0.0.1].
+  -v, --verbose  Be loud.
+```
+
+`docopt2 fmt` lines it up, without changing what the usage parses to and leaving the `Usage:` patterns untouched:
+
+```text
+Options:
+  --port=<n>    Port [default: 8080].
+  --host=<h>    Interface [default: 127.0.0.1].
+  -v --verbose  Be loud.
+```
+
+The change is layout-only and idempotent, so `docopt2 fmt` drops into a pre-commit hook or a format-check step in CI.
 
 <a name="round-trip"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/round-trip/">Round-trip: results back to argv</a></h2>
@@ -363,6 +398,11 @@ check_compat("Usage: git push [--force] <remote>", "Usage: git push <remote> <br
 ```
 
 It reports only definite breaks - never a "compatible" all-clear - so `docopt2 compat before after` drops into a release gate like a linter.
+
+<p align="center">
+  <b><a href="https://solganis.github.io/docopt2/">Read the full documentation</a></b> ·
+  start with <a href="https://solganis.github.io/docopt2/getting-started/">Getting started</a>
+</p>
 
 ---
 

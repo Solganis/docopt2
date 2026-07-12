@@ -174,8 +174,9 @@ non-matching argv raises, rendered as the same
 [two-span diagnostic](diagnostics.md#a-value-that-does-not-fit-its-type): a caret under the value in the
 argv, cross-referenced to the usage element that typed it. It exits with the `exit_code` (`1` by default),
 so bad input is reported like any other command-line error. For a closed set of choices - a `Literal[...]`
-or an `Enum` - the diagnostic lists the valid values (`expected one of debug, info, warn`), so the user
-sees exactly what is allowed rather than a bare type name.
+or an `Enum` - the diagnostic lists the valid values (`expected one of debug, info, warn`), and a mistyped
+value gets a spell-checked `did you mean` suggestion (`inof` -> `did you mean info?`, transpositions
+included), so the user sees exactly what is allowed rather than a bare type name.
 
 ```python
 @dataclasses.dataclass

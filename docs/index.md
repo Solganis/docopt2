@@ -80,15 +80,6 @@ is opt-in.
 
     [:octicons-arrow-right-24: Rich help](guides/help.md)
 
--   :material-spellcheck:{ .lg .middle } __Static usage linter__
-
-    ---
-
-    `docopt2 check` (or `check`) lints the usage grammar itself - dead defaults, unusable options,
-    ambiguous variadics - before it ships.
-
-    [:octicons-arrow-right-24: Usage linting](guides/check.md)
-
 -   :material-flask-outline:{ .lg .middle } __Example generation__
 
     ---
@@ -98,6 +89,24 @@ is opt-in.
 
     [:octicons-arrow-right-24: Example generation](guides/examples.md)
 
+-   :material-spellcheck:{ .lg .middle } __Static usage linter__
+
+    ---
+
+    `docopt2 check` (or `check`) lints the usage grammar itself - dead defaults, unusable options,
+    ambiguous variadics - before it ships.
+
+    [:octicons-arrow-right-24: Usage linting](guides/check.md)
+
+-   :material-format-align-left:{ .lg .middle } __Usage formatter__
+
+    ---
+
+    `docopt2 fmt` (or `format_usage`) reformats the `Options:` block - aligning descriptions into one
+    column, tidying each spec - the format half to `check`'s lint, without changing what the usage parses to.
+
+    [:octicons-arrow-right-24: Formatting usage](guides/fmt.md)
+
 -   :material-swap-horizontal:{ .lg .middle } __Round-trip codec__
 
     ---
@@ -106,6 +115,15 @@ is opt-in.
     by a re-parse, so `docopt(format_argv(x)) == x`. One usage spec drives both parsing and synthesis.
 
     [:octicons-arrow-right-24: Round-trip to argv](guides/round-trip.md)
+
+-   :material-compare:{ .lg .middle } __Compatibility checking__
+
+    ---
+
+    `check_compat` (or `docopt2 compat`) reports the invocations an old usage accepts that a new one
+    rejects - the breaking changes to your CLI - so it drops into a release gate. Never a false all-clear.
+
+    [:octicons-arrow-right-24: Compatibility checking](guides/compat.md)
 
 </div>
 
