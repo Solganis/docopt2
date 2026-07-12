@@ -1,11 +1,25 @@
+import sys
+
 from assertpy2 import assert_that
 from hypothesis import given
 from hypothesis import strategies as st
 
-from docopt2._diagnostics import Caret, Diagnostic, Snippet
+from docopt2._diagnostics import Caret, Diagnostic, Snippet, use_color
 
 _PREFIX = len("   |    ")  # gutter + indent shared by the source and caret rows
 _SOURCE_CHARS = st.sampled_from(["\t", " ", "a", "b", "-", "<", ">", "|", "["])
+
+
+def test_use_color_follows_the_tty_and_no_color(monkeypatch):
+    # ANSI only to a real terminal, and never when NO_COLOR is set (an opt-out even on a tty).
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+    assert_that(use_color(sys.stderr)).is_true()
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert_that(use_color(sys.stderr)).is_false()
+    monkeypatch.delenv("NO_COLOR")
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
+    assert_that(use_color(sys.stderr)).is_false()
 
 
 @given(source=st.text(alphabet=_SOURCE_CHARS, max_size=30), data=st.data())

@@ -15,6 +15,7 @@ from docopt2 import (
     generate_examples,
     generate_stub,
 )
+from docopt2._diagnostics import use_color
 from docopt2._errors import DocoptLanguageError
 
 _STYLES = ("dataclass", "typeddict", "cli")
@@ -80,7 +81,7 @@ def _run_stub(arguments: Any) -> int:
 def _run_check(arguments: Any) -> int:
     warnings = check(_read_usage(arguments["<source>"]))
     for warning in warnings:
-        print(warning.render(), file=sys.stderr)
+        print(warning.render(color=use_color(sys.stderr)), file=sys.stderr)
     return 1 if warnings else 0
 
 

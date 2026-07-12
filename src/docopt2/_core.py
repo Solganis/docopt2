@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, ClassVar, TypeVar, cast, overload
 
 from docopt2._completion import reply_to_completion_request
-from docopt2._diagnostics import Caret, Diagnostic, Snippet
+from docopt2._diagnostics import Caret, Diagnostic, Snippet, use_color
 from docopt2._errors import DocoptExit, DocoptLanguageError
 from docopt2._help import render_help
 from docopt2._parser import (
@@ -83,7 +83,7 @@ def _extras(default_help: bool, version: object, options: list[Pattern], doc: st
         if help_style == "rich":
             # scope the rendered help to the command path already typed (the positionals before --help)
             tokens = tuple(str(leaf.value) for leaf in options if type(leaf) is Argument and leaf.value is not None)
-            print(render_help(doc, tokens, color=sys.stdout.isatty()))
+            print(render_help(doc, tokens, color=use_color(sys.stdout)))
         else:
             print(doc.strip("\n"))
         sys.exit()
@@ -311,9 +311,9 @@ def docopt(
 
     usage = single_usage_section(doc)
 
-    def _exit(message: str = "", **fields: Any) -> DocoptExit:
+    def _exit(diagnostic: Diagnostic, **fields: Any) -> DocoptExit:
         """A DocoptExit carrying this call's usage text and exit code (no shared class state)."""
-        return DocoptExit(message, usage=usage, exit_code=exit_code, **fields)
+        return DocoptExit(diagnostic=diagnostic, usage=usage, exit_code=exit_code, **fields)
 
     argument_defaults = parse_argument_defaults(doc)
     options = parse_defaults(doc)
@@ -351,7 +351,7 @@ def docopt(
             else:
                 complete_match = next((accumulated for remaining, accumulated in bounded if remaining == []), None)
     except RecursionError:
-        raise _exit(Diagnostic(summary="the arguments are too deeply nested to match").render()) from None
+        raise _exit(Diagnostic(summary="the arguments are too deeply nested to match")) from None
     extra_tokens: list[str] = []
     if complete_match is None and allow_extra and greedy is not None:
         # A prefix matched but not fully: keep it and return the surplus as `extra` instead of failing.
@@ -378,7 +378,7 @@ def docopt(
         try:
             return bind_schema(result, schema)
         except _CoercionError as exc:
-            raise _exit(_coercion_diagnostic(doc, argv, exc).render(), collected=complete_match, left=left) from exc
+            raise _exit(_coercion_diagnostic(doc, argv, exc), collected=complete_match, left=left) from exc
     if suggest:
         raw_tokens = argv.split() if isinstance(argv, str) else argv
         hint = suggest_option(raw_tokens, options, allow_abbrev)
@@ -392,7 +392,7 @@ def docopt(
             diagnostic = Diagnostic(
                 summary=f"unknown option `{unknown}`", snippets=snippets, help=f"did you mean `{suggestion}`?"
             )
-            raise _exit(diagnostic.render(), collected=collected, left=left)
+            raise _exit(diagnostic, collected=collected, left=left)
     if left and greedy is not None:
         # A prefix matched, so left[0] is the first token with no place in the usage. Caret it in the
         # argv; if it is an option the usage declares (mutual exclusion, or a non-repeatable option
@@ -408,9 +408,7 @@ def docopt(
         else:
             advice = None
         summary = f"unexpected argument `{shown}`"
-        raise _exit(
-            Diagnostic(summary=summary, snippets=snippets, help=advice).render(), collected=collected, left=left
-        )
+        raise _exit(Diagnostic(summary=summary, snippets=snippets, help=advice), collected=collected, left=left)
     # Score against a freshly-parsed (unfixed) pattern: fix() dedups identical leaves across lines onto
     # one shared span, which would caret the wrong line when a name repeats (e.g. `<y>` in several lines).
     near_miss = nearest_usage_line(parse_pattern(formal_tokens(usage), parse_defaults(doc)), argv_patterns)
@@ -421,14 +419,14 @@ def docopt(
         diagnostic = Diagnostic(
             summary=f"missing required `{name}`", snippets=[snippet], help=f"closest of {total} usage patterns"
         )
-        raise _exit(diagnostic.render(), collected=collected, left=left)
+        raise _exit(diagnostic, collected=collected, left=left)
     required = required_leaf_names(fixed)
     if required:
         missing = Diagnostic(
             summary="missing or mismatched arguments", help=f"the usage requires: {' '.join(required)}"
         )
-        raise _exit(missing.render(), collected=collected, left=left)
-    raise _exit(Diagnostic(summary="the arguments do not match the usage").render(), collected=collected, left=left)
+        raise _exit(missing, collected=collected, left=left)
+    raise _exit(Diagnostic(summary="the arguments do not match the usage"), collected=collected, left=left)
 
 
 def parse_tree(doc: str) -> Pattern:
@@ -530,7 +528,7 @@ class Dispatch:
         arguments = cast("Arguments", docopt(self.doc, argv, **options))
         resolved = self._resolve(arguments)
         if resolved is None:
-            raise DocoptExit(Diagnostic(summary="no handler is registered for the given command").render())
+            raise DocoptExit(diagnostic=Diagnostic(summary="no handler is registered for the given command"))
         handler, schema = resolved
         if schema is None:
             return handler(arguments)
@@ -538,7 +536,7 @@ class Dispatch:
             bound = bind_schema(arguments, schema)
         except _CoercionError as exc:
             resolved_argv = sys.argv[1:] if argv is None else argv
-            raise DocoptExit(_coercion_diagnostic(self.doc, resolved_argv, exc).render()) from exc
+            raise DocoptExit(diagnostic=_coercion_diagnostic(self.doc, resolved_argv, exc)) from exc
         return handler(bound)
 
     def _resolve(self, arguments: Arguments) -> tuple[_DispatchHandler, type[Any] | None] | None:

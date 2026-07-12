@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import TextIO
 
 # Zero-dependency ANSI. Rendering defaults to plain text (color off), since the message travels on
 # an exception and is often inspected as a string; color belongs at the print site, not in str(exc).
 _RESET, _BOLD, _DIM = "\033[0m", "\033[1m", "\033[2m"
 _RED, _YELLOW, _CYAN, _GREEN = "\033[31m", "\033[33m", "\033[36m", "\033[32m"
 _TAB = 8  # tab stop width; source lines are expanded to spaces so carets align under real columns
+
+
+def use_color(stream: TextIO) -> bool:
+    """Whether to emit ANSI to ``stream``: only to a real terminal, and never when ``NO_COLOR`` is set."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    return stream.isatty()
 
 
 @dataclass

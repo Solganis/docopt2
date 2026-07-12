@@ -566,10 +566,10 @@ class Tokens(list[str]):
         intro = "in the arguments:" if self.parsing_argv else "in the usage:"
         carets = [Caret(span[0], span[1], "here")] if span is not None else []
         snippets = [Snippet(self.text, intro, carets)] if self.text else []
-        rendered = Diagnostic(summary=message, snippets=snippets).render()
+        diagnostic = Diagnostic(summary=message, snippets=snippets)
         if self.parsing_argv:
-            return DocoptExit(rendered, usage=self.usage, exit_code=self.exit_code)
-        return self.error(rendered)
+            return DocoptExit(diagnostic=diagnostic, usage=self.usage, exit_code=self.exit_code)
+        return self.error(diagnostic.render())
 
 
 def parse_long(tokens: Tokens, options: list[Option], allow_abbrev: bool = True) -> list[Pattern]:

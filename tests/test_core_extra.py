@@ -1,3 +1,5 @@
+import sys
+
 from assertpy2 import assert_that
 from pytest import raises
 
@@ -184,6 +186,25 @@ def test_near_miss_carets_the_closest_line_when_the_missing_name_repeats():
     source_row = rows[rows.index(caret_row) - 1]
     assert_that(source_row).contains("ship <name> move")  # the winning line, not `mine set <x> <y>`
     assert_that(caret_row.index("^")).is_equal_to(source_row.index("<y>"))
+
+
+def test_docopt_exit_from_a_plain_message_keeps_that_message():
+    # DocoptExit is public; constructing it with a bare message (no diagnostic) keeps str(exc) that text.
+    exc = DocoptExit("custom failure")
+    assert_that(str(exc)).is_equal_to("custom failure")
+    assert_that(exc.code).is_equal_to("custom failure")
+
+
+def test_diagnostic_autoprints_colored_on_a_tty_while_str_stays_plain(monkeypatch):
+    # str(exc) is plain for inspection/logging; the copy the interpreter auto-prints on an uncaught exit
+    # (exc.code) carries ANSI when stderr is a terminal, so an unhandled error shows carets in color.
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+    with raises(DocoptExit) as exc_info:
+        docopt("usage: prog <a> <b>", "x")
+    exc = exc_info.value
+    assert_that(str(exc)).does_not_contain("\033[")
+    assert_that(str(exc.code)).contains("\033[")
 
 
 def test_arguments_repr_is_sorted_and_dict_like():

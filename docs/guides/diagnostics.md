@@ -76,9 +76,10 @@ docopt(doc, "--fast --slow")
 <span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: give it at most once, not with a mutually exclusive option</span></div>
 
 !!! note
-    The diagnostic on the exception is plain text: `render()` defaults to color off, because the message
-    travels on `str(exc)` and is often inspected as a string. ANSI color is applied at the print site,
-    not baked into the exception.
+    `str(exc)` is always plain text, so a caught diagnostic inspects and logs cleanly. When an error goes
+    unhandled and the interpreter prints it, the copy sent to the terminal is colored - automatically when
+    `stderr` is a TTY, and never when the [`NO_COLOR`](https://no-color.org) environment variable is set.
+    Piped or redirected output stays plain, so color never leaks into a file or a captured test.
 
 ## The usage line you were closest to
 
