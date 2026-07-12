@@ -5,7 +5,7 @@ from pathlib import Path
 from assertpy2 import assert_that
 from pytest import raises
 
-from docopt2 import DocoptExit, check, complete, docopt, generate_examples, generate_stub
+from docopt2 import DocoptExit, check, complete, docopt, format_usage, generate_examples, generate_stub
 from docopt2._help import render_help
 
 README = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
@@ -195,3 +195,21 @@ def test_coercion_screenshot_text_still_matches_the_tool():
     with raises(DocoptExit) as exit_info:
         docopt(_COERCION_DOC, "--port=abc", complete=False, schema=Port)
     assert_that(str(exit_info.value)).starts_with(_EXPECTED_COERCION)
+
+
+# The "Format the usage" section shows a before/after of the Options block; the after must be what fmt produces.
+_FMT_BEFORE = (
+    "Usage:\n  serve [--port=<n>] [--host=<h>] <root>\n\n"
+    "Options:\n  --port=<n>  Port [default: 8080].\n"
+    "  --host=<h>   Interface [default: 127.0.0.1].\n"
+    "  -v, --verbose  Be loud.\n"
+)
+_EXPECTED_FMT_OPTIONS = (
+    "  --port=<n>    Port [default: 8080].\n  --host=<h>    Interface [default: 127.0.0.1].\n  -v --verbose  Be loud."
+)
+
+
+def test_fmt_readme_example_matches_the_tool():
+    assert_that(format_usage(_FMT_BEFORE)).contains(_EXPECTED_FMT_OPTIONS)
+    assert_that(README).contains("  --port=<n>  Port [default: 8080].")  # the drifted "before" block
+    assert_that(README).contains(_EXPECTED_FMT_OPTIONS)  # the aligned "after" block
