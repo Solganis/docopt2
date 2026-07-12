@@ -113,6 +113,7 @@ nav:
       - Diagnostics: guides/diagnostics.md
       - Rich help: guides/help.md
       - Usage linting: guides/check.md
+      - Formatting usage: guides/fmt.md
       - Compatibility checking: guides/compat.md
       - Example generation: guides/examples.md
       - Round-trip to argv: guides/round-trip.md
@@ -128,6 +129,7 @@ nav:
       - Subcommand dispatch: reference/dispatch.md
       - Schema stubs: reference/stub.md
       - Usage linting: reference/check.md
+      - Formatting usage: reference/fmt.md
       - Compatibility checking: reference/compat.md
       - Example generation: reference/examples.md
       - Config templates: reference/config-templates.md
