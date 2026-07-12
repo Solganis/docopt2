@@ -13,6 +13,7 @@
 <p align="center">
   <a href="https://github.com/Solganis/docopt2/actions/workflows/ci.yml"><img src="https://github.com/Solganis/docopt2/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://pypi.org/project/docopt2/"><img src="https://img.shields.io/pypi/v/docopt2" alt="PyPI version"></a>
+  <a href="https://pepy.tech/projects/docopt2"><img src="https://static.pepy.tech/badge/docopt2/month" alt="Downloads"></a>
   <a href="https://pypi.org/project/docopt2/"><img src="https://img.shields.io/pypi/pyversions/docopt2" alt="Python"></a>
   <a href="https://codecov.io/gh/Solganis/docopt2"><img src="https://codecov.io/gh/Solganis/docopt2/graph/badge.svg" alt="Coverage"></a>
   <br>
