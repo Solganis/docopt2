@@ -6,6 +6,17 @@ repo_name: Solganis/docopt2
 edit_uri: edit/main/docs/
 copyright: Copyright &copy; 2026 Solganis and docopt2 contributors
 
+# A link to a heading that does not exist is INFO by default, so `--strict` lets it through and the dead
+# anchor ships. These are the classes of broken link worth failing the build over.
+validation:
+  links:
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+  nav:
+    omitted_files: warn
+    not_found: warn
+
 theme:
   name: material
   logo: assets/logo-dark.png
@@ -107,19 +118,24 @@ watch:
 nav:
   - Introduction: index.md
   - Getting started: getting-started.md
+  # Three groups, and the third is not a taste call: it is exactly the `docopt2` CLI subcommands, a
+  # boundary the product already draws. The usage DSL leads, because every other page derives from it.
   - Guides:
-      - Typed results: guides/typed-results.md
-      - Schema stubs: guides/stub.md
-      - Diagnostics: guides/diagnostics.md
-      - Rich help: guides/help.md
-      - Usage linting: guides/check.md
-      - Formatting usage: guides/fmt.md
-      - Compatibility checking: guides/compat.md
-      - Example generation: guides/examples.md
-      - Round-trip to argv: guides/round-trip.md
-      - Subcommand dispatch: guides/dispatch.md
-      - Shell completion: guides/completion.md
-      - Usage DSL: guides/usage-dsl.md
+      - The usage message:
+          - Usage DSL: guides/usage-dsl.md
+          - Diagnostics: guides/diagnostics.md
+          - Rich help: guides/help.md
+      - Parsing into your program:
+          - Typed results: guides/typed-results.md
+          - Subcommand dispatch: guides/dispatch.md
+          - Shell completion: guides/completion.md
+          - Round-trip to argv: guides/round-trip.md
+      - The docopt2 command:
+          - Schema stubs: guides/stub.md
+          - Usage linting: guides/check.md
+          - Formatting usage: guides/fmt.md
+          - Compatibility checking: guides/compat.md
+          - Example generation: guides/examples.md
   - Concepts:
       - Design boundaries: concepts/design-boundaries.md
   - API Reference:
