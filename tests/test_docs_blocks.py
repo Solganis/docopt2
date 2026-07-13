@@ -189,7 +189,9 @@ def _documented_annotations() -> set[str]:
 
 
 def _documented_name(annotation: type) -> str:
-    module = annotation.__module__
+    # The public module, not __module__: on 3.13 pathlib is split and reports `Path` as `pathlib._local`,
+    # which is an implementation detail no table would ever print.
+    module = annotation.__module__.split(".", 1)[0]
     return annotation.__name__ if module == "builtins" else f"{module}.{annotation.__name__}"
 
 
