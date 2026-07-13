@@ -1,0 +1,32 @@
+name: Nightly
+
+# The gate runs Hypothesis derandomised at 300 examples, deliberately: a PR check that flakes is a check
+# people learn to ignore. The cost is that every run sees the same inputs, so a rare violation can sit
+# there forever. This explores 10,000 randomised examples per property, off the critical path, where a
+# failure is a finding rather than a blocked merge.
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Property tests, wide and randomised
+        run: uv run pytest --hypothesis-profile=explore -q --no-cov
