@@ -125,6 +125,7 @@ supported set is closed:
 | `uuid.UUID` | `UUID(value)` | |
 | `datetime.datetime` | `datetime.fromisoformat(value)` | ISO 8601 |
 | `datetime.date` | `date.fromisoformat(value)` | ISO 8601 |
+| `datetime.time` | `time.fromisoformat(value)` | ISO 8601 |
 
 Any other annotation raises `DocoptLanguageError` (typed docopt cannot coerce it).
 
