@@ -68,12 +68,13 @@ _CASES = [
 ]
 
 _READY = "DOCOPT2-READY"
-# A colour code takes no space on screen: dropping it must not break a word. fish paints the matched `--`
-# of `--drifting` in one colour and the rest in another, so replacing SGR with a space would split the
-# candidate in two and the check would "miss" it. Cursor moves and erases DO separate regions, so those
-# become a space.
-_SGR = re.compile(r"\x1b\[[0-9;]*m")
-_CONTROL = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()>=][A-Za-z0-9]?|\x1bP.*?\x1b\\|[\r\x07]", re.S)
+# The split that matters is not SGR-vs-rest but WIDTH. A sequence that moves the cursor or erases really
+# does separate two regions of the screen, so it must become a space - otherwise a redrawn prompt glues
+# onto the candidate list and `test` arrives as `testtool`. Everything else (colour, terminal modes) takes
+# no space at all, so it must vanish: a shell paints the matched `--` of `--drifting` in one colour and the
+# rest in another, and turning that into a space would split the candidate and the check would "miss" it.
+_MOVE = re.compile(r"\x1b\[[0-9;?]*[A-HJKSTfd]|\r")
+_ZERO = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()>=][A-Za-z0-9]?|\x1bP.*?\x1b\\|\x07", re.S)
 
 
 def _install(bin_dir: Path, prog: str, doc: str) -> None:
@@ -110,8 +111,11 @@ def _read_until(fd: int, want: str | None, *, idle: float, cap: float) -> str:
                 break
         elif want is None and time.monotonic() - last >= idle:
             break  # waiting for a marker must not give up on a lull: fish sits silent for 2s on startup
-    text = b"".join(chunks).decode("utf-8", "replace")
-    return _CONTROL.sub(" ", _SGR.sub("", text))
+    return b"".join(chunks).decode("utf-8", "replace")  # raw: a failure must be able to show the escapes
+
+
+def _clean(raw: str) -> str:
+    return _ZERO.sub("", _MOVE.sub(" ", raw))
 
 
 def _tab(shell: list[str], setup: str, line: str, tabs: int = 2) -> str:
@@ -201,6 +205,19 @@ def _powershell(work: Path, prog: str, typed: list[str]) -> str:
 _EXECUTABLE = {"bash": "bash", "zsh": "zsh", "fish": "fish", "powershell": "pwsh"}
 
 
+def _report(label: str, expected: list[str], raw: str) -> int:
+    """Hold what the shell offered against the grammar; on a miss, show the escapes it actually painted."""
+    offered = _clean(raw)
+    missing = [name for name in expected if not re.search(rf"(?<![\w=-]){re.escape(name)}(?![\w=-])", offered)]
+    print(f"{'ok  ' if not missing else 'FAIL'} {label} <TAB>", flush=True)
+    if missing:
+        print(f"       expected: {expected}", flush=True)
+        print(f"       missing : {missing}", flush=True)
+        print(f"       offered : {' '.join(offered.split())[:300]!r}", flush=True)
+        print(f"       raw     : {raw[-400:]!r}", flush=True)  # the escapes: no guessing across terminals
+    return bool(missing)
+
+
 def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="docopt2-shells-"))
     bin_dir = work / "bin"
@@ -226,23 +243,14 @@ def main() -> int:
             )
         for prog, typed in _CASES:
             expected = complete(_DOCS[prog], [*typed, ""])
-            offered = _powershell(work, prog, typed) if shell == "powershell" else _posix(shell, work, prog, typed)
-            missing = [name for name in expected if not re.search(rf"(?<![\w=-]){re.escape(name)}(?![\w=-])", offered)]
-            failures += bool(missing)
-            print(f"{'ok  ' if not missing else 'FAIL'} {shell:11} {prog} {' '.join(typed)} <TAB>", flush=True)
-            if missing:
-                print(f"       expected: {expected}", flush=True)
-                print(f"       missing : {missing}", flush=True)
-                print(f"       offered : {' '.join(offered.split())[:300]!r}", flush=True)
+            raw = _powershell(work, prog, typed) if shell == "powershell" else _posix(shell, work, prog, typed)
+            failures += _report(f"{shell:11} {prog} {' '.join(typed)}", expected, raw)
         if shell == "zsh":  # the documented $fpath install, on the FIRST Tab
-            expected = complete(_NAVAL, ["mine", ""])
-            offered = _zsh_autoloaded(work, "naval", ["mine"])
-            missing = [name for name in expected if not re.search(rf"(?<![\w=-]){re.escape(name)}(?![\w=-])", offered)]
-            failures += bool(missing)
-            print(f"{'ok  ' if not missing else 'FAIL'} zsh         naval mine <TAB> (autoloaded from $fpath)")
-            if missing:
-                print(f"       missing : {missing}", flush=True)
-                print(f"       offered : {' '.join(offered.split())[:300]!r}", flush=True)
+            failures += _report(
+                "zsh         naval mine (autoloaded from $fpath)",
+                complete(_NAVAL, ["mine", ""]),
+                _zsh_autoloaded(work, "naval", ["mine"]),
+            )
     total = len(shells) * len(_CASES) + ("zsh" in shells)
     print(f"\n{total - failures} passed, {failures} failed, over {', '.join(shells)}")
     return 1 if failures else 0
