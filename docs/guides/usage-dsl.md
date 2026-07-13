@@ -260,8 +260,9 @@ The value type is fixed by the form, which is exactly what the [typed schema](ty
 | variadic positional `<x>...` | `list[str]` | `[]` |
 | option `--opt=<v>` | `str` | the `[default:]`, otherwise `None` |
 
-Every value is a string, or a container of strings; coercion to `int`, `bool` fields, and so on happens
-when you pass a [schema](typed-results.md).
+Those are the docopt-native forms: a flag or command answers with a boolean (a count, once it repeats),
+and anything that carries a value answers with a string, or a list of them. Coercion to your own field
+types happens when you pass a [schema](typed-results.md).
 
 ## Multiple usage patterns
 
@@ -285,10 +286,11 @@ parse_tree("Usage: prog <host> <port>")
 ## Parser primitives
 
 The [pattern node classes](../reference/grammar.md) (`Pattern`, `Argument`, `Command`, `Option`,
-`Required`, `Optional`, `Either`, `OneOrMore`, `OptionsShortcut`) and the low-level `parse_*` functions
-are re-exported for drop-in compatibility with the original docopt module, whose users import them
-directly. They are a compatibility surface: for new code, prefer `docopt()` with a
-[schema](typed-results.md).
+`Required`, `Optional`, `Either`, `OneOrMore`, `OptionsShortcut`) and the low-level parser functions are
+exported because tools built on docopt reach into them. They are the parser's own vocabulary, not a
+promise: the drop-in guarantee covers `docopt()` and the mapping it returns, and these names follow
+docopt's unreleased master rather than the 0.6.2 spelling (`TokenStream`, `ChildPattern`, `ParentPattern`,
+`AnyOptions`). For new code, prefer `docopt()` with a [schema](typed-results.md).
 
 ## See also
 

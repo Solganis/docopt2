@@ -29,17 +29,20 @@ candidate argv from each usage line and re-parses it, returning the first that r
 output is always *a* valid argv - though not necessarily the shortest one, nor the exact string the user
 typed. The canonical form is fixed and predictable:
 
-- **only what was supplied.** Elements left at their `[default: ...]` are omitted - `format_argv` emits exactly
-  `result.provided` (see [the Arguments mapping](typed-results.md#the-arguments-mapping)), so a defaulted
-  `--keep` would not appear, an explicit one would.
+- **everything that carries a value.** What the user supplied, plus whatever `[env:]` or `[config:]` resolved.
+  Only elements left at their `[default: ...]` are omitted, so a defaulted `--keep` would not appear and an
+  explicit one would. An env- or config-sourced value is written out rather than skipped, so the argv stands on
+  its own: a persisted command that silently depended on an unrecorded variable would not reproduce the run.
 - **usage order.** Tokens follow the order of the matched usage line.
 - **long form.** An option is written `--name=value` when it has a long form, `-x value` when it is short only;
   a counted flag repeats (`-v -v -v`), a repeatable option repeats (`--x=1 --x=2`).
 - **the line the result took.** For a multi-pattern usage, the alternative the result matched is chosen (the
   `commit` line for a commit result), verified by the re-parse.
 
-A result that no usage pattern can reproduce - only ever a hand-built or inconsistent mapping, never a genuine
-`docopt` result - raises `ValueError` rather than return a wrong argv.
+A result that no usage pattern can reproduce raises `ValueError` rather than return a wrong argv. That is a
+hand-built or inconsistent mapping, or a degenerate grammar in which one value is reachable through
+differently-shaped positions (`(<name> | <name> ...)`, `(-a | -b)...`, `[<name>] <path> <name>`) - a shape
+whose argv is genuinely ambiguous, so there is no single canonical form to return.
 
 ## What it is for
 

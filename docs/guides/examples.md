@@ -50,8 +50,8 @@ The sampler covers every construct: alternation picks a branch (`mine set` vs th
 golden file. Duplicates are dropped, so a grammar with few accepted shapes returns fewer than `count`:
 
 ```python
-generate_examples("Usage: prog [-v]\n\nOptions:\n  -v  Verbose.", count=10)
-# [[], ['-v']]   # only two argvs are accepted, so that is all you get
+generate_examples("Usage: prog [-v]\n\nOptions:\n  -v  Verbose.", count=10, seed=1)
+# [['-v'], []]   # only two argvs are accepted, so that is all you get - in seeded order
 
 generate_examples("Usage: prog <x>", count=0)
 # []
@@ -104,8 +104,8 @@ module docstring (without importing it), a text file of raw usage, or `-` for st
 
 <div class="docopt2-term"><span class="dt-fg">$ docopt2 examples naval.txt --count=3 --invalid --seed=7</span>
 <span class="dt-fg">mine set v1 v2 --unknown</span>
-<span class="dt-fg">--help --unknown</span>
-<span class="dt-fg">ship new v3 --unknown</span></div>
+<span class="dt-fg">ship new v3 --unknown</span>
+<span class="dt-fg">ship new v4 v5 --unknown</span></div>
 
 The flags are `--count=<n>` (how many, default 10), `--invalid` (reject-set), and `--seed=<n>`
 (reproducible output). A non-integer `--count` or `--seed` exits `1` with an `error:` message.

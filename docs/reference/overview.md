@@ -15,7 +15,7 @@ exported names in `docopt2.__all__`.
 - [Config templates](config-templates.md) - `generate_config_template`, scaffolding a TOML config file.
 - [Shell completion](completion.md) - `complete` and `generate_completion`.
 - [Exceptions](exceptions.md) - `DocoptExit` and `DocoptLanguageError`.
-- [Usage grammar](grammar.md) - the pattern node classes and low-level `parse_*` primitives
-  re-exported for drop-in compatibility with the original docopt.
+- [Usage grammar](grammar.md) - the pattern node classes and the low-level parser primitives, exported
+  for tools that reach into the parse tree.
 
 For a task-oriented view, start from the [Guides](../guides/typed-results.md) instead.

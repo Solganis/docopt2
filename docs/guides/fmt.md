@@ -2,7 +2,7 @@
 
 Your usage message is source you maintain by hand, so it drifts: option columns stop lining up, separators
 get inconsistent, trailing whitespace creeps in. [`format_usage`](../reference/fmt.md) (and the `docopt2 fmt`
-CLI) tidies it - the formatter to what [`check`](check.md) is as a linter. `check` finds defects;
+CLI) tidies it: it is to [`check`](check.md) what a formatter is to a linter. `check` finds defects;
 `format_usage` reformats the layout of an otherwise valid usage.
 
 It **aligns every `Options:` description into one column**, normalizes each option spec (comma separators
@@ -31,6 +31,8 @@ format_usage("Usage: p\n\nOptions:\n  -v, --verbose      Loud.   \n")
   property test pins this over many randomly-laid-out usages.
 - **Idempotent.** Running it on already-formatted output is a no-op, so it is safe in a pre-commit hook or a
   format-check step.
+- **Only the `options:` sections are re-aligned** - the same lines the parser reads options from. A `-`-led
+  line anywhere else is prose, not an option, and prose keeps every character (trailing whitespace aside).
 - **The `Usage:` patterns are left untouched** - reformatting a grammar back to canonical text is a harder
   problem than aligning the options block, and this stays out of it deliberately.
 
@@ -40,8 +42,9 @@ format source - a lint-and-format pair (`check` + `fmt`) that no code-driven CLI
 ## From the command line
 
 `docopt2 fmt <source>` prints the formatted usage, reading from a `.py` module docstring, a usage text file,
-or `-` for standard input. It always exits `0`; pipe it back to rewrite the file, or diff it in CI to flag a
-usage that is not formatted.
+or `-` for standard input. Pipe it back to rewrite the file, or diff it in CI to flag a usage that is not
+formatted. A *malformed* usage still exits `0` - validating is [`check`](check.md)'s job, not the
+formatter's - but an unreadable source (a missing file, a `.py` with no module docstring) exits `1`.
 
 ## See also
 

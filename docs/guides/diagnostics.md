@@ -4,9 +4,11 @@ When the arguments don't match, docopt2 does not just reprint the usage - it poi
 token, in the argument vector and in the usage that rejected it, with a two-span caret and a
 "did you mean" hint where one applies.
 
-Every error, whether the user mistyped an argument or the developer wrote a malformed usage, is lowered
-to one shape: a bold `error:` heading with a one-line summary, then captioned source snippets with
-carets, then optional `note:` and `help:` lines. The two are not interchangeable, and follow rustc's
+Every error the *usage* produces, whether the user mistyped an argument or the developer wrote a malformed
+usage, is lowered to one shape: a bold `error:` heading with a one-line summary, then captioned source
+snippets with carets, then optional `note:` and `help:` lines. (A schema that does not fit its usage - a
+field naming no element, an annotation nothing can coerce to - is a programming error, and raises a plain
+`DocoptLanguageError` with no source to point at.) The two are not interchangeable, and follow rustc's
 split: a `note:` gives context - why the input was rejected, or why this usage line is the one shown - while
 a `help:` proposes a concrete fix, such as a "did you mean". A diagnostic with nothing to suggest carries no
 `help:` at all. The static [usage linter](check.md) reuses the same grammar with a yellow `warning:` heading,

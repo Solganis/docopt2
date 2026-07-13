@@ -1,7 +1,8 @@
 # Usage grammar
 
-The pattern node classes and low-level parser functions, re-exported for drop-in compatibility with the
-original docopt module (whose users import them directly). Most programs never touch these; use
+The pattern node classes and low-level parser functions, exported because tools built on docopt reach into
+them. The drop-in guarantee covers `docopt()` and the mapping it returns, not these names, which follow
+docopt's unreleased master rather than the 0.6.2 spelling. Most programs never touch them; use
 [`parse_tree`](docopt.md) for a friendlier entry point into the parse tree.
 
 ## Pattern nodes

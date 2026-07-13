@@ -59,7 +59,8 @@ class Deploy:
     targets: list[str]
 ```
 
-The annotation follows only from the [usage form](usage-dsl.md#what-each-form-produces):
+The annotation follows the [usage form](usage-dsl.md#what-each-form-produces), read across the whole usage:
+a positional is `str` only when *every* usage line requires it, since a line that omits it can leave it unset.
 
 | Grammar form | Field type |
 | --- | --- |

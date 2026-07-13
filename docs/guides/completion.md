@@ -1,7 +1,7 @@
 # Shell completion
 
 `generate_completion` emits a context-aware completion script for the CLI described by your usage, for
-bash, zsh, fish, and PowerShell - the same four Click and Typer support. The script carries no grammar of
+bash, zsh, fish, and PowerShell - the same four Typer supports, and one more than Click. The script carries no grammar of
 its own: it delegates every Tab back to your program, whose [`docopt`](../reference/docopt.md) call
 resolves the candidates from the usage. This guide covers generating and installing that script, and
 computing the candidates directly with `complete()`.

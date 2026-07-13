@@ -39,7 +39,7 @@ the usage message says something you did not intend.
 | Warning | Fires when |
 | --- | --- |
 | unusable option | an option in `Options:` appears in no usage line and no `[options]` shortcut is present to absorb it |
-| dead default (option) | a `[default: ...]` sits on an option that every usage pattern requires, so it can never be applied |
+| dead default (option) | a `[default: ...]` sits on a value-taking option that every usage pattern requires, so it can never be applied |
 | dead default (argument) | a `[default: ...]` in an `Arguments:` section sits on an always-required positional |
 | ambiguous variadics | two `...` positionals share one sequence, leaving the token split between them undefined |
 | redundant alternative | two branches of one alternation group are identical, so one can never be reached |

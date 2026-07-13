@@ -1,7 +1,7 @@
 # Formatting usage messages
 
-Reformat the `Options:` block of a usage message - align descriptions, tidy specs, strip trailing whitespace -
-without changing what it parses to. See the [Formatting usage messages](../guides/fmt.md) guide.
+Reformat the `Options:` sections of a usage message - align descriptions, tidy specs, strip trailing
+whitespace throughout - without changing what it parses to, and without touching prose elsewhere. See the [Formatting usage messages](../guides/fmt.md) guide.
 
 ::: docopt2.format_usage
     options:

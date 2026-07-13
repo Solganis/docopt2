@@ -59,8 +59,9 @@ the options they use. For a `git`-shaped CLI, `git commit --help` drops `push` a
 <span class="dt-fg">  </span><span class="dt-help">--message=&lt;msg&gt;</span><span class="dt-fg">  Commit message to record.</span>
 <span class="dt-fg">  </span><span class="dt-help">--amend        </span><span class="dt-fg">  Amend the last commit.</span></div>
 
-The scope is the leading positional tokens before `--help` that are command literals in the usage (here,
-`commit`). A path that matches no single line, or no path at all, shows the whole usage.
+The scope is every positional token in the argv that is a command literal in the usage (here, `commit`);
+the usage narrows to the lines that carry all of them. Position does not matter - `--help commit` scopes
+the same as `commit --help`. A path that matches no single line, or no path at all, shows the whole usage.
 
 ## Raw by default
 

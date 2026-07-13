@@ -118,6 +118,8 @@ supported set is closed:
 | `bool` | truthiness of the flag | must map to a flag, not a value-bearing element |
 | `list[T]`, `list` | each item coerced to `T` | `T` defaults to `str` |
 | `T \| None` | `None` stays `None`, else coerce to `T` | for an optional element |
+| `T \| U` | coerced to the first member that is not `None` | so `int \| str` yields an `int` |
+| `Annotated[T, ...]` | the metadata is dropped, `T` is coerced | as a validation library would attach it |
 | `Literal["a", "b"]` | the value, if it is one of the literals | a closed set of choices; validated |
 | `enum.Enum` subclass | `EnumType(value)` | matched by member value |
 | `pathlib.Path` | `Path(value)` | |
