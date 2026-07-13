@@ -181,7 +181,17 @@ def test_the_docs_show_only_output_the_tool_really_produces():
 # lets a run of them be grouped exponentially many ways - catastrophic backtracking (CodeQL py/redos).
 _TABLE_ROW = re.compile(r"^\| (`[^`]+`(?:, `[^`]+`)*)(?: subclass)? \|", re.M)
 # The forms whose coercion carries its own semantics, so they are spelled out in `_coerce`, not in the map.
-_SPELLED_OUT = {"str", "bool", "list[T]", "list", "T | None", 'Literal["a", "b"]', "enum.Enum"}
+_SPELLED_OUT = {
+    "str",
+    "bool",
+    "list[T]",
+    "list",
+    "T | None",
+    "T | U",
+    "Annotated[T, ...]",
+    'Literal["a", "b"]',
+    "enum.Enum",
+}
 
 
 def _documented_annotations() -> set[str]:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from docopt2._diagnostics import Caret, Diagnostic, Snippet
 from docopt2._errors import DocoptLanguageError
@@ -12,9 +12,9 @@ from docopt2._parser import (
     OneOrMore,
     Option,
     OptionsShortcut,
-    formal_usage,
+    always_required_names,
+    formal_tokens,
     parse_pattern,
-    required_leaf_names,
     single_usage_section,
 )
 
@@ -42,6 +42,26 @@ def _variadic_units(node: Pattern) -> int:
 
 
 _DEFAULT = re.compile(r"\[default:.*?]", re.IGNORECASE)
+
+
+def _branch_key(branch: Pattern, usage: str) -> str:
+    """What makes two alternatives the same: the source they were written from, not the node they parsed to.
+
+    `-h | --help` is one option under its two spellings - docopt's own idiom, and the canonical naval-fate
+    example - which parses to two identical leaves. `(add | add)` is the copy-paste slip, and its branches
+    share their source text as well. A branch with no span (a whole usage line) falls back to its shape.
+    """
+    span = branch.span
+    return usage[span[0] : span[1]].strip() if span is not None else repr(branch)
+
+
+def _nested_eithers(node: Pattern) -> Iterator[Either]:
+    """Every ``Either`` in the tree, including one nested inside another."""
+    if isinstance(node, Either):
+        yield node
+    if isinstance(node, BranchPattern):
+        for child in node.children:
+            yield from _nested_eithers(child)
 
 
 def _section_lines(doc: str, header: str) -> Iterator[tuple[str, int]]:
@@ -93,11 +113,14 @@ def check(doc: str) -> list[Diagnostic]:
         declared.append((option, _token_span(line, offset), _default_span(line, offset)))
     options = [option for option, _name, _default in declared]
     try:
-        pattern = parse_pattern(formal_usage(single_usage_section(doc)), list(options))
+        # formal_tokens, not formal_usage: the latter builds the same tree but offsets every leaf span, and
+        # the redundant-alternative rule reads the source a branch was written from.
+        usage = single_usage_section(doc)
+        pattern = parse_pattern(formal_tokens(usage), list(options))
     except (DocoptLanguageError, RecursionError):
         return warnings
     in_usage = {leaf.name for leaf in pattern.flat(Option)}
-    required = set(required_leaf_names(pattern))
+    required = set(always_required_names(pattern))
     has_shortcut = bool(pattern.flat(OptionsShortcut))
 
     for option, name_span, default_span in declared:
@@ -144,10 +167,12 @@ def check(doc: str) -> list[Diagnostic]:
                 level="warning",
             )
         )
-    for either in pattern.flat(Either):
+    # Not `flat(Either)`: it returns a matching node without descending into it, and a multi-line usage is
+    # the outermost Either - so an `(a | a)` written inside a usage line would go unseen.
+    for either in _nested_eithers(pattern):
         seen: set[str] = set()
-        for branch in cast("Either", either).children:
-            if repr(branch) in seen:
+        for branch in either.children:
+            if _branch_key(branch, usage) in seen:
                 warnings.append(
                     Diagnostic(
                         summary="redundant alternative: this branch repeats an earlier one",
@@ -155,7 +180,7 @@ def check(doc: str) -> list[Diagnostic]:
                         level="warning",
                     )
                 )
-            seen.add(repr(branch))
+            seen.add(_branch_key(branch, usage))
     if has_shortcut and not options:
         at = doc.lower().find("[options]")
         span = (at, at + len("[options]")) if at != -1 else None

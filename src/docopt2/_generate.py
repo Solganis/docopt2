@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import itertools
 import random
 import re
 from typing import TYPE_CHECKING
 
+from docopt2._core import docopt
 from docopt2._diagnostics import Diagnostic
-from docopt2._errors import DocoptLanguageError
+from docopt2._errors import DocoptExit, DocoptLanguageError
 from docopt2._parser import (
     Argument,
     Command,
@@ -102,12 +105,29 @@ def _unknown_option(doc: str) -> str:
     return name
 
 
+def _is_rejected(doc: str, argv: list[str]) -> bool:
+    """Does docopt really refuse this argv, called the way a program calls it?
+
+    An appended unknown option is a guess, not a proof: an argv carrying ``--help`` prints the help and
+    exits 0 first, and a usage with ``[--]`` takes the unknown token as a positional and accepts it.
+    """
+    with contextlib.redirect_stdout(io.StringIO()):  # the help path would print the doc
+        try:
+            docopt(doc, argv, complete=False)
+        except DocoptExit:
+            return True
+        except SystemExit:  # `--help` exits 0: not a refusal
+            return False
+    return False
+
+
 def generate_examples(doc: str, *, count: int = 10, valid: bool = True, seed: int | None = None) -> list[list[str]]:
     """Generate example argument vectors derived from the usage message.
 
     Each returned item is an argv token list (no program name). A ``valid`` example is one ``docopt``
-    accepts; an invalid one (``valid=False``) is a valid argv with an unknown option appended, which
-    ``docopt`` rejects. Duplicates are dropped, so a small grammar may yield fewer than ``count``.
+    accepts; an invalid one (``valid=False``) is one ``docopt`` rejects, and every invalid example is
+    verified against the parser before it is returned - never merely assumed to be rejected. Duplicates are
+    dropped, so a small grammar (or one where few argvs can be made invalid) may yield fewer than ``count``.
     ``seed`` makes the output reproducible. Everything is derived from the ``Usage:`` and ``Options:``
     blocks, so the examples cannot drift from what :func:`docopt` parses.
     """
@@ -125,9 +145,12 @@ def generate_examples(doc: str, *, count: int = 10, valid: bool = True, seed: in
         if not valid:
             argv.append(unknown)
         key = tuple(argv)
-        if key not in seen:
-            seen.add(key)
-            examples.append(argv)
+        if key in seen:
+            continue
+        seen.add(key)
+        if not valid and not _is_rejected(doc, argv):
+            continue  # the appended option did not make it invalid; this argv is not an example of a refusal
+        examples.append(argv)
     return examples
 
 

@@ -10,6 +10,7 @@ from docopt2._parser import (
     Either,
     Option,
     Required,
+    _usage_lines,
     formal_tokens,
     parse_defaults,
     parse_pattern,
@@ -61,10 +62,27 @@ def test_no_near_miss_without_evidence_of_a_line():
     assert_that(str(exc_info.value)).does_not_contain("came closest to")
 
 
-def test_single_line_usage_has_no_near_miss():
+def test_a_positional_only_usage_has_no_literal_to_take_as_evidence():
+    # Positionals match any token, so `onlyhost` is evidence of nothing and there is no line to caret.
     with raises(DocoptExit) as exc_info:
         docopt("Usage: prog <host> <port>", "onlyhost", complete=False)
-    assert_that(str(exc_info.value)).does_not_contain("came closest to")
+    assert_that(str(exc_info.value)).does_not_contain("required here")
+
+
+def test_a_single_line_usage_carets_its_unmet_element():
+    # The caret was gated off below two usage lines - the commonest shape there is. Ranking needs
+    # alternatives; the caret does not, and a lone line still has an element the argv failed to supply.
+    with raises(DocoptExit) as exc_info:
+        docopt("Usage: prog push [--force] <remote>", "push", complete=False)
+    rendered = str(exc_info.value)
+    assert_that(rendered).contains("missing required `<remote>`").contains("^^^^^^^^ required here")
+    assert_that(rendered).does_not_contain("came closest to")  # nothing to rank against, so no such note
+
+
+def test_a_single_line_usage_carets_a_required_choice_group():
+    with raises(DocoptExit) as exc_info:
+        docopt("Usage: prog move (up | down) <n>", "move", complete=False)
+    assert_that(str(exc_info.value)).contains("missing required `(up|down)`").contains("required here")
 
 
 def _vocabulary(doc):
@@ -216,3 +234,12 @@ def test_near_miss_names_a_genuinely_required_unmet_element(data):
     if "came closest to" in message:
         named = message.split("missing required `")[1].split("`")[0]
         assert_that(named).is_in(*_required_names(doc))
+
+
+def test_usage_lines_returns_a_pattern_it_cannot_unwrap_as_the_single_line():
+    # The two shapes a parsed usage takes are Required(Either(...)) and Required(Required(...)). Anything
+    # else is not a usage tree, and the helper hands it back whole rather than guessing at its children.
+    leaf = Command("x")
+    assert_that(_usage_lines(leaf)).is_equal_to([leaf])
+    shallow = Required(Argument("<x>"))  # a Required whose child is neither an Either nor a Required
+    assert_that(_usage_lines(shallow)).is_equal_to([shallow])

@@ -4,12 +4,12 @@ import keyword
 from typing import TYPE_CHECKING, Literal
 
 from docopt2._parser import (
+    always_required_names,
     expand_options_shortcut,
     formal_tokens,
     parse_argument_defaults,
     parse_defaults,
     parse_pattern,
-    required_leaf_names,
     single_usage_section,
 )
 from docopt2._typed import _key_to_field
@@ -46,7 +46,7 @@ def _key_annotations(doc: str) -> dict[str, str]:
     pattern = parse_pattern(formal_tokens(usage), options)
     expand_options_shortcut(pattern, options)  # so keys reachable only via `[options]` are included
     fixed = pattern.fix()
-    required = set(required_leaf_names(fixed))
+    required = set(always_required_names(fixed))
     defaults = parse_argument_defaults(doc)
     key_types: dict[str, str] = {}
     for leaf in fixed.flat():

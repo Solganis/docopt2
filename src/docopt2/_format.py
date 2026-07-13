@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from docopt2._core import Arguments, docopt
+from docopt2._core import Arguments, Source, docopt
 from docopt2._errors import DocoptExit, DocoptLanguageError
 from docopt2._generate import _usage_pattern
 from docopt2._parser import (
@@ -34,7 +34,7 @@ def _get(result: Arguments, name: str | None) -> object:
 
 
 def _leaves_provided(node: Pattern, provided: Collection[str]) -> bool:
-    """Whether any element under ``node`` was supplied on the command line."""
+    """Whether any element under ``node`` carries a value (from argv, env or config)."""
     return any(leaf.name in provided for leaf in node.flat(Argument, Command, Option))
 
 
@@ -154,18 +154,21 @@ def format_argv(result: Arguments, doc: str) -> list[str]:
     """Synthesize a canonical argument vector that :func:`docopt` parses back to ``result`` - the inverse of parsing.
 
     Given an :class:`Arguments` mapping returned by ``docopt(doc, ...)``, return an argv token list (no program
-    name) that round-trips: ``docopt(doc, format_argv(result, doc)) == result``. The canonical form emits exactly
-    the elements the user supplied (``result.provided``), in usage order, options in long ``--name=value`` form.
-    It is *a* valid argv, not necessarily the shortest or the one originally typed.
+    name) that round-trips: ``docopt(doc, format_argv(result, doc)) == result``. The canonical form emits every
+    element that carries a value - what the user supplied, plus whatever ``[env:]`` or ``[config:]`` resolved -
+    in usage order, options in long ``--name=value`` form. Elements left at their ``[default: ...]`` are
+    omitted. It is *a* valid argv, not necessarily the shortest or the one originally typed.
+
+    An env- or config-sourced value is emitted rather than skipped so the argv reproduces the result on its own,
+    without that environment: the round trip is the point, and a persisted command that silently depends on an
+    unrecorded variable does not reproduce the run.
 
     Each candidate usage line is generated and then re-parsed to verify it round-trips, so the output is never
     a *wrong* argv - only ever a valid one or none. Raises :class:`ValueError` when no usage pattern reproduces
-    ``result``: every result from a conventional grammar round-trips, so this fires only on a hand-built or
-    inconsistent mapping, or a degenerate grammar where one value is reachable through differently-shaped
-    positions (``(<name> | <name> ...)``, ``(-a | -b)...``, ``[<name>] <path> <name>``) - constructs that do
-    not arise in practice.
+    ``result``: a hand-built or inconsistent mapping, or a degenerate grammar where one value is reachable
+    through differently-shaped positions (``(<name> | <name> ...)``, ``(-a | -b)...``, ``[<name>] <path> <name>``).
     """
-    provided = result.provided
+    provided = {name for name in result if result.source(name) is not Source.DEFAULT}
     candidates: list[list[str]] = []
     for line in _usage_lines(_usage_pattern(doc)):
         tokens: list[str] = []

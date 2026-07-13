@@ -672,10 +672,31 @@ def required_leaf_names(pattern: Pattern) -> list[str]:
 
 
 def _usage_lines(pattern: Pattern) -> list[Pattern]:
-    """The alternative usage lines: the children of the top-level ``Required(Either(...))``, else one line."""
-    if isinstance(pattern, Required) and pattern.children and isinstance(pattern.children[0], Either):
-        return pattern.children[0].children
+    """The alternative usage lines, each shaped like a branch of the top-level ``Either``.
+
+    A lone usage line sits one ``Required`` deeper than a branch of an ``Either``, so it is unwrapped to the
+    same shape: otherwise its elements are a level below where a caller looks for them, and a scan for leaves
+    finds a branch instead.
+    """
+    if isinstance(pattern, Required) and pattern.children:
+        first = pattern.children[0]
+        if isinstance(first, Either):
+            return first.children
+        if len(pattern.children) == 1 and isinstance(first, Required):
+            return [first]
     return [pattern]
+
+
+def always_required_names(pattern: Pattern) -> list[str]:
+    """Names EVERY usage line requires: the required leaves intersected over the alternatives.
+
+    :func:`required_leaf_names` stops at an ``Either``, and a multi-line usage *is* one, so it answers
+    "nothing" for the very case this question is asked about.
+    """
+    lines = _usage_lines(pattern)
+    per_line = [set(required_leaf_names(line)) for line in lines]
+    common = set.intersection(*per_line)
+    return [name for name in required_leaf_names(lines[0]) if name in common]
 
 
 def _unmet_target(node: Pattern) -> tuple[str, Span] | None:
@@ -743,10 +764,11 @@ def nearest_usage_line(pattern: Pattern, argv_leaves: list[Pattern]) -> tuple[st
     any token, so a garbage argv would otherwise resemble every line. The score cannot gate it, because a
     matched command (+2) is cancelled by the next missing one (-2) - the partial-subcommand case
     (`git remote`) the diagnostic exists for.
+
+    A single-line usage has nothing to rank, but it still has an unmet element, so it is carets too - the
+    ranking is what needs alternatives, not the caret.
     """
     lines = _usage_lines(pattern)
-    if len(lines) < 2:
-        return None
     ranked: list[tuple[int, int, int, tuple[str, Span] | None]] = []
     for index, line in enumerate(lines):
         score, evidence, unmet = _line_partial_score(line, argv_leaves)
@@ -905,6 +927,19 @@ def _section_pattern(name: str) -> re.Pattern[str]:
 def parse_section(name: str, source: str) -> list[str]:
     """Return the stripped text of every section whose header contains ``name``."""
     return [section.strip() for section in _section_pattern(name).findall(source)]
+
+
+def section_line_numbers(name: str, source: str) -> set[int]:
+    """The 0-based line indices every ``name`` section covers - the same span :func:`parse_section` reads.
+
+    So a caller that must agree with the parser on which lines are options (``format_usage``) asks it.
+    """
+    covered: set[int] = set()
+    for match in _section_pattern(name).finditer(source):
+        first = source.count("\n", 0, match.start())
+        last = source.count("\n", 0, match.end() - 1)
+        covered.update(range(first, last + 1))
+    return covered
 
 
 def expand_options_shortcut(pattern: Pattern, options: list[Option]) -> None:

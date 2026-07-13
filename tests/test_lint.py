@@ -1,3 +1,6 @@
+import ast
+from pathlib import Path
+
 from assertpy2 import assert_that
 from hypothesis import given
 
@@ -140,3 +143,53 @@ def test_corpus_of_valid_grammars_is_warning_free():
     git = "usage: git [--version] [--help] <command> [<args>...]\n\nOptions:\n  --version  V.\n  --help     H.\n"
     for doc in (naval, git):
         assert_that(check(doc)).described_as(doc).is_empty()
+
+
+# Both rules below were dead for any doc with more than one usage line - the case they exist for.
+def test_a_dead_default_is_caught_when_every_usage_line_requires_the_option():
+    doc = "Usage:\n  prog a --port=<n>\n  prog b --port=<n>\n\nOptions:\n  --port=<n>  Port [default: 8].\n"
+    assert_that([d.summary for d in check(doc)]).contains("dead default on `--port`, which the usage always requires")
+
+
+def test_a_default_is_not_dead_when_only_one_usage_line_requires_the_option():
+    # The other half of the rule: an option required by one line and absent from another can still default.
+    doc = "Usage:\n  prog a --port=<n>\n  prog b\n\nOptions:\n  --port=<n>  Port [default: 8].\n"
+    assert_that(check(doc)).is_empty()
+
+
+def test_a_dead_argument_default_is_caught_across_usage_lines():
+    doc = "Usage:\n  prog a <host>\n  prog b <host>\n\nArguments:\n  <host>  Host [default: local].\n"
+    assert_that([d.summary for d in check(doc)]).contains("dead default on `<host>`, which the usage always requires")
+
+
+def test_a_redundant_alternative_is_caught_inside_a_usage_line():
+    # A multi-line usage is itself the outermost Either, so an `(add | add)` inside a line went unseen.
+    for doc in ("Usage:\n  prog (add | add)\n  prog rm\n", "Usage: prog ((add | add) | rm)"):
+        summaries = [d.summary for d in check(doc)]
+        assert_that(summaries).described_as(doc).contains("redundant alternative: this branch repeats an earlier one")
+
+
+def test_distinct_usage_lines_are_not_redundant_alternatives():
+    assert_that(check("Usage:\n  prog add\n  prog rm\n")).is_empty()
+
+
+def test_check_never_raises_on_a_doc_with_no_usage_section():
+    # `check` is documented never to raise: a usage too malformed to parse is the parser's error to report,
+    # not the linter's. `single_usage_section` throws when there is no `Usage:` at all, so it must sit
+    # inside the guard - a refactor that lifted it out slipped past the whole suite.
+    assert_that(check("No usage here at all.")).is_empty()
+    assert_that(check("")).is_empty()
+    assert_that(check("Options:\n  -v  Verbose.\n")).is_empty()
+
+
+def test_the_canonical_naval_fate_example_is_warning_free():
+    # `-h | --help` is one option under its two spellings, so it parses to two identical leaves - and the
+    # redundant-alternative rule saw a duplicate in the most famous usage message docopt has. It is an
+    # idiom, not a slip: a linter that fires on the canonical example is a linter people switch off.
+    doc = Path(__file__).parent.parent.joinpath("examples/naval_fate.py").read_text(encoding="utf-8")
+    assert_that(check(ast.get_docstring(ast.parse(doc)))).is_empty()
+
+
+def test_the_same_option_written_twice_is_still_redundant():
+    # The other side of it: `(-h | -h)` is the same spelling twice, which is the slip the rule exists for.
+    assert_that(_summaries("Usage: prog (-h | -h)\n\nOptions:\n  -h --help  H.\n")[0]).contains("redundant")

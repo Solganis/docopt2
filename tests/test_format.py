@@ -125,3 +125,30 @@ def _make_roundtrip_test(doc):
 def test_format_round_trips_every_accepted_argv():
     for doc in _ROUNDTRIP_DOCS:
         _make_roundtrip_test(doc)()
+
+
+def test_a_config_sourced_value_is_emitted_so_the_argv_stands_alone(monkeypatch):
+    # format_argv used to emit only `result.provided` (argv-supplied), so an env- or config-resolved value
+    # was dropped: the persisted command silently depended on an environment it did not record.
+    monkeypatch.delenv("APP_PORT", raising=False)
+    doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [config: server.port]."
+    result = docopt(doc, "", complete=False, config={"server": {"port": 8080}})
+    argv = format_argv(result, doc)
+    assert_that(argv).is_equal_to(["--port=8080"])
+    assert_that(docopt(doc, argv, complete=False)).is_equal_to(result)  # reproduces WITHOUT the config
+
+
+def test_an_env_sourced_value_is_emitted_so_the_argv_stands_alone(monkeypatch):
+    doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: APP_PORT]."
+    monkeypatch.setenv("APP_PORT", "7000")
+    result = docopt(doc, "", complete=False)
+    argv = format_argv(result, doc)
+    monkeypatch.delenv("APP_PORT")
+    assert_that(argv).is_equal_to(["--port=7000"])
+    assert_that(docopt(doc, argv, complete=False)).is_equal_to(result)  # reproduces WITHOUT the variable
+
+
+def test_a_value_left_at_its_default_is_still_omitted(monkeypatch):
+    monkeypatch.delenv("APP_PORT", raising=False)
+    doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: APP_PORT]."
+    assert_that(format_argv(docopt(doc, "", complete=False), doc)).is_empty()

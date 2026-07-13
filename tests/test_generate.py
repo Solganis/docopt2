@@ -1,3 +1,6 @@
+import contextlib
+import io
+
 from assertpy2 import assert_that
 from pytest import raises
 
@@ -16,6 +19,8 @@ _DOCS = [
     "Usage: prog [<a> <b>] <c>",
     "Usage: prog (a [<x>] | b <y>)... [-v]\n\nOptions:\n  -v  V.",
     "Usage: prog [options] <f>\n\nOptions:\n  -v  V.\n  --port=<n>  P.",
+    # `[--]` takes every later token as a positional, so an appended unknown option does not reject.
+    "Usage: prog [--] <cmd> <args>...",
 ]
 
 
@@ -27,10 +32,12 @@ def test_every_valid_example_parses():
 
 
 def test_every_invalid_example_is_rejected():
+    # `help=True`, the way a program really calls docopt: the old `help=False` here switched off the very
+    # short-circuit that broke the promise, so an argv carrying `--help` exited 0 unseen.
     for doc in _DOCS:
         for argv in generate_examples(doc, count=25, valid=False, seed=1):
-            with raises(DocoptExit):
-                docopt(doc, argv, help=False, complete=False)
+            with contextlib.redirect_stdout(io.StringIO()), raises(DocoptExit):
+                docopt(doc, argv, complete=False)
 
 
 def test_examples_are_distinct_and_reproducible():

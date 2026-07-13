@@ -164,3 +164,12 @@ def test_generated_field_names_are_unique(doc):
             if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
         ]
         assert len(fields) == len(set(fields)), f"duplicate field in {style} style: {fields}"
+
+
+def test_a_positional_required_by_every_usage_line_is_not_optional():
+    # Required on both lines, so it is always present: `str`, not `str | None`.
+    assert_that(generate_stub("Usage:\n  prog add <h>\n  prog rm <h>\n")).contains("    h: str\n")
+
+
+def test_a_positional_missing_from_one_usage_line_stays_optional():
+    assert_that(generate_stub("Usage:\n  prog add <h>\n  prog rm\n")).contains("    h: str | None")

@@ -3,7 +3,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from docopt2 import docopt, format_usage
-from docopt2._parser import parse_defaults
+from docopt2._parser import parse_defaults, section_line_numbers
 from docopt2.hypothesis import argv_strategy
 
 
@@ -63,7 +63,13 @@ def test_formatting_is_layout_only_and_preserves_every_parse(data):
 
 @st.composite
 def _option_doc(draw: st.DrawFn) -> str:
-    """A usage doc whose Options lines have random misalignment, trailing spaces, and optional defaults."""
+    """A usage doc whose Options lines have random misalignment, trailing spaces, and optional defaults.
+
+    It also grows a PROSE section with `-`-led bullets. That is not decoration: the generator used to emit
+    docs whose only indented block was `Options:`, which is exactly the condition under which the old
+    formatter's assumption ("every `-`-led line is an option") happened to hold - so the layout-only
+    property could not fail, and did not, while `fmt` was silently rewriting prose and deleting its commas.
+    """
     count = draw(st.integers(min_value=1, max_value=4))
     usage = " ".join(f"[--opt{index}=<v{index}>]" for index in range(count))
     lines = [f"Usage: prog {usage} <x>", "", "Options:"]
@@ -73,7 +79,17 @@ def _option_doc(draw: st.DrawFn) -> str:
         default = draw(st.none() | st.text(alphabet="abc123", min_size=1, max_size=4))
         default_part = "" if default is None else f" [default: {default}]"
         lines.append(f"  --opt{index}=<v{index}>{gap}Description {index}{default_part}.{trailing}")
+    if draw(st.booleans()):
+        lines += ["", draw(st.sampled_from(["Notes:", "Examples:", "See also:"]))]
+        for index in range(draw(st.integers(min_value=1, max_value=3))):
+            lines.append(f"  - bullet {index}, with a comma  and a wide gap")
     return "\n".join(lines) + "\n"
+
+
+def _outside_options(doc: str) -> list[str]:
+    """Every line the parser does NOT read options from - the lines fmt has no business rewriting."""
+    covered = section_line_numbers("options:", doc)
+    return [line.rstrip() for index, line in enumerate(doc.splitlines()) if index not in covered]
 
 
 @given(doc=_option_doc())
@@ -83,3 +99,13 @@ def test_formatting_preserves_the_parse_over_arbitrary_layouts(doc):
     formatted = format_usage(doc)
     assert _signature(formatted) == _signature(doc)
     assert format_usage(formatted) == formatted  # idempotent
+    # A line outside `options:` is prose: fmt may strip its trailing whitespace and nothing else.
+    assert _outside_options(formatted) == _outside_options(doc)
+
+
+def test_a_dash_led_line_outside_options_is_prose_and_is_left_alone():
+    # A prose bullet used to go through the option-spec tidier, which turns `,` into a separator.
+    doc = "Tool.\n\nNotes:\n  - alpha, beta  gamma\n\nUsage:\n  prog [-v]\n\nOptions:\n  -v,--verbose   Loud.\n"
+    formatted = format_usage(doc)
+    assert_that(formatted).contains("  - alpha, beta  gamma")  # prose, untouched, commas intact
+    assert_that(formatted).contains("  -v --verbose  Loud.")  # the option, tidied and aligned to ITS width

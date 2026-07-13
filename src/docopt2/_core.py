@@ -464,13 +464,13 @@ def docopt(
     # one shared span, which would caret the wrong line when a name repeats (e.g. `<y>` in several lines).
     near_miss = nearest_usage_line(parse_pattern(formal_tokens(usage), parse_defaults(doc)), argv_patterns)
     if near_miss is not None:
-        # A multi-line usage: caret the one element the closest line still needs (Snippet shows that line).
+        # Caret the one element the closest line still needs. Ranking needs alternatives; the caret does not.
         name, span, total = near_miss
         snippet = Snippet(usage, "in the usage:", [Caret(*span, "required here")])
         diagnostic = Diagnostic(
             summary=f"missing required `{name}`",
             snippets=[snippet],
-            note=f"of {total} usage patterns, your arguments came closest to this one",
+            note=f"of {total} usage patterns, your arguments came closest to this one" if total > 1 else None,
         )
         raise _exit(diagnostic, collected=collected, left=left)
     required = required_leaf_names(fixed)
