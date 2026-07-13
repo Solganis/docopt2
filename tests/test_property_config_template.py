@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import sys
+
 from hypothesis import given
 from hypothesis import strategies as st
 from pytest import importorskip
 
 from docopt2 import DocoptLanguageError, generate_config_template
+
+# tomllib is stdlib from 3.11; on the 3.10 floor the dev group installs tomli, so these properties
+# hold on every supported version instead of quietly skipping on the oldest one.
+_TOML = "tomllib" if sys.version_info >= (3, 11) else "tomli"
 
 # Fuzz the two string-assembly points: a config-key segment (drives _toml_key quoting) and a
 # default value (drives _toml_value quoting). Segments exclude "." (the separator) and "]" (which
@@ -43,7 +49,7 @@ def _config_doc(draw: st.DrawFn) -> str:
 def test_config_template_is_always_valid_round_trippable_toml(doc):
     # The template's whole contract is "valid TOML you can feed back as config=". Whatever keys and
     # defaults the usage declares, the output must parse - this guards _toml_key/_toml_value escaping.
-    tomllib = importorskip("tomllib")  # stdlib on 3.11+
+    tomllib = importorskip(_TOML)
     try:
         out = generate_config_template(doc)
     except DocoptLanguageError:
@@ -67,7 +73,7 @@ def _maybe_colliding_doc(draw: st.DrawFn) -> str:
 def test_config_template_never_emits_silent_invalid_toml(doc):
     # The strong invariant that closes the collision hole: for ANY config keys, generate_config_template
     # either produces valid TOML or fails loudly with DocoptLanguageError - it never writes a broken file.
-    tomllib = importorskip("tomllib")
+    tomllib = importorskip(_TOML)
     try:
         out = generate_config_template(doc)
     except DocoptLanguageError:

@@ -1,8 +1,14 @@
+import sys
+
 from assertpy2 import assert_that
 from pytest import importorskip
 
 from docopt2 import DocoptLanguageError, generate_config_template
 from docopt2._generate import _toml_value
+
+# tomllib is stdlib from 3.11; on the 3.10 floor the dev group installs tomli, so the round-trip
+# below is verified on every supported version instead of quietly skipping on the oldest one.
+_TOML = "tomllib" if sys.version_info >= (3, 11) else "tomli"
 
 _DOC = (
     "Usage: p [--port=<n>] [--host=<h>] [--verbose] [--token=<t>]\n\nOptions:\n"
@@ -30,7 +36,7 @@ def test_config_template_with_only_nested_keys_has_no_root_block():
 
 
 def test_config_template_is_valid_round_trippable_toml():
-    tomllib = importorskip("tomllib")  # stdlib on 3.11+; the string tests below cover 3.10
+    tomllib = importorskip(_TOML)
     parsed = tomllib.loads(generate_config_template(_DOC))
     assert_that(parsed).is_equal_to(
         {"verbose": False, "server": {"port": 8080, "host": "0.0.0.0", "token": ""}}
