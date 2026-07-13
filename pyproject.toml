@@ -1,6 +1,6 @@
 [project]
 name = "docopt2"
-version = "1.0.1"
+version = "1.0.2"
 description = "Typed successor to docopt: the usage message is the parser spec."
 readme = "README.md"
 license = "MIT"
@@ -11,7 +11,7 @@ authors = [
 ]
 keywords = ["docopt", "cli", "command-line", "argument-parser", "usage", "posix", "typed"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
@@ -73,6 +73,9 @@ dev = [
     "typing_extensions>=4.6",
     # Dev-only: property-based tests (differential vs vanilla docopt, coercion round-trips).
     "hypothesis>=6",
+    # Dev-only: tomllib is stdlib only from 3.11, and without it the config-template round-trip
+    # would go unverified on the 3.10 floor - the one place a skip could hide a defect.
+    "tomli>=2 ; python_version < '3.11'",
 ]
 # Documentation site (mkdocs-material + mkdocstrings). Build-only; not shipped with the
 # package and not part of the zero runtime-dependency guarantee (that concerns
