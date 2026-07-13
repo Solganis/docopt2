@@ -13,9 +13,9 @@
 <p align="center">
   <a href="https://github.com/Solganis/docopt2/actions/workflows/ci.yml"><img src="https://github.com/Solganis/docopt2/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://pypi.org/project/docopt2/"><img src="https://img.shields.io/pypi/v/docopt2" alt="PyPI version"></a>
-  <a href="https://pepy.tech/projects/docopt2"><img src="https://static.pepy.tech/badge/docopt2/month" alt="Downloads"></a>
   <a href="https://pypi.org/project/docopt2/"><img src="https://img.shields.io/pypi/pyversions/docopt2" alt="Python"></a>
   <a href="https://codecov.io/gh/Solganis/docopt2"><img src="https://codecov.io/gh/Solganis/docopt2/graph/badge.svg" alt="Coverage"></a>
+  <a href="https://pepy.tech/projects/docopt2"><img src="https://static.pepy.tech/badge/docopt2/month" alt="Downloads"></a>
   <br>
   <a href="https://solganis.github.io/docopt2/"><img src="https://img.shields.io/badge/Docs-online-black" alt="Documentation"></a>
   <a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
