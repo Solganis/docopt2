@@ -177,7 +177,9 @@ def test_the_docs_show_only_output_the_tool_really_produces():
 # coercion table in typed-results.md calls its set CLOSED, yet `datetime.time` was added to the code and
 # never to the table. This holds the two together in BOTH directions - a type the code coerces but the
 # docs omit, and a row the docs invent - which is why `_SCALAR_COERCERS` is data and not an if-chain.
-_TABLE_ROW = re.compile(r"^\| (`.+?`(?:, `.+?`)*)(?: subclass)? \|", re.M)
+# `[^`]+`, not `.+?`: a backtick-quoted token cannot contain a backtick, and a lazy `.` that can match one
+# lets a run of them be grouped exponentially many ways - catastrophic backtracking (CodeQL py/redos).
+_TABLE_ROW = re.compile(r"^\| (`[^`]+`(?:, `[^`]+`)*)(?: subclass)? \|", re.M)
 # The forms whose coercion carries its own semantics, so they are spelled out in `_coerce`, not in the map.
 _SPELLED_OUT = {"str", "bool", "list[T]", "list", "T | None", 'Literal["a", "b"]', "enum.Enum"}
 
