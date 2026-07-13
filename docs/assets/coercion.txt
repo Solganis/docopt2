@@ -1,0 +1,11 @@
+error: invalid value for `--port`
+   |
+   |  in the arguments:
+   |    --port=abc
+   |           ^^^ expected int
+   |
+   |  in the usage:
+   |    Usage: prog --port=<n>
+   |                ^^^^^^^^^^ typed as int
+   |
+   = note: `abc` is not a valid int

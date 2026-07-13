@@ -1,0 +1,11 @@
+error: unknown option `--forcce`
+   |
+   |  in the arguments:
+   |    push --forcce origin
+   |         ^^^^^^^^ not a known option
+   |
+   |  in the usage:
+   |      git push [--force] <remote>
+   |                ^^^^^^^ `--force` is defined here
+   |
+   = help: did you mean `--force`?

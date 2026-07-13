@@ -1,0 +1,9 @@
+<span class="dt-fg">Serve a directory over HTTP.</span>
+
+<span class="dt-fg dt-b">Usage:</span>
+<span class="dt-fg">  serve [--port=&lt;n&gt;] [--host=&lt;h&gt;] [--log=&lt;lvl&gt;] &lt;root&gt;</span>
+
+<span class="dt-fg dt-b">Options:</span>
+<span class="dt-fg">  </span><span class="dt-help">--port=&lt;n&gt; </span><span class="dt-fg">  Port to bind.</span><span class="dt-dim">  [env: PORT, config: server.port, default: 8080]</span>
+<span class="dt-fg">  </span><span class="dt-help">--host=&lt;h&gt; </span><span class="dt-fg">  Interface to bind.</span><span class="dt-dim">  [env: HOST, default: 127.0.0.1]</span>
+<span class="dt-fg">  </span><span class="dt-help">--log=&lt;lvl&gt;</span><span class="dt-fg">  Log verbosity.</span><span class="dt-dim">  [config: logging.level, default: info]</span>

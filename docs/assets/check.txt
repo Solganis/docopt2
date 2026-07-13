@@ -1,0 +1,7 @@
+warning: option `--verbose` is declared but never used
+   |
+   |  in the options:
+   |      --verbose     Extra logging.
+   |      ^^^^^^^^^ declared here
+   |
+   = help: add `--verbose` to a usage line, or add `[options]` to accept it
