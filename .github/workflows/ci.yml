@@ -46,16 +46,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
 
+      # --locked: a lockfile that has drifted from pyproject.toml is an error. Plain `uv sync` would
+      # silently re-resolve and test a dependency set that is in nobody's checkout.
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --locked
 
       - name: Test with coverage (100% gate)
         if: matrix.coverage
         run: uv run pytest --cov-report=xml
 
+      # --no-cov, not `-o addopts=`: clearing addopts would drop --strict-markers along with coverage.
       - name: Test
         if: '!matrix.coverage'
-        run: uv run pytest -o addopts=
+        run: uv run pytest --no-cov
 
       - name: Upload coverage to Codecov
         if: matrix.coverage
@@ -80,7 +83,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install dependencies
-        run: uv sync --group typecheck
+        run: uv sync --group typecheck --locked
 
       - name: Ruff check
         run: uv run ruff check src tests tools
@@ -126,7 +129,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh fish
 
       - name: Complete in a real terminal
-        run: uv run python tools/shell_check.py
+        run: uv run --locked python tools/shell_check.py
 
   ci-ok:
     needs: [test, lint, shells]

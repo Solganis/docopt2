@@ -29,4 +29,4 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
       - name: Property tests, wide and randomised
-        run: uv run pytest --hypothesis-profile=explore -q --no-cov
+        run: uv run --locked pytest --hypothesis-profile=explore -q --no-cov
