@@ -25,9 +25,25 @@ from uuid import UUID
 from docopt2._errors import DocoptExit, DocoptLanguageError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
 SchemaT = TypeVar("SchemaT")
+
+# The annotations whose coercion is nothing but "call this on the value". Data rather than an if-chain,
+# so the documented table can be held against the real set: `_coerce` claims a CLOSED set, and a closed
+# set that only the code knows drifts from the docs the moment a type is added. Iterated, not looked up,
+# so an unhashable annotation still reaches the "unsupported" error instead of raising TypeError.
+# The forms with their own semantics (str, bool, Enum, list, Literal, `| None`) stay spelled out below.
+_SCALAR_COERCERS: dict[Any, Callable[[Any], Any]] = {
+    int: int,
+    float: float,
+    Path: Path,
+    Decimal: Decimal,
+    UUID: UUID,
+    datetime: datetime.fromisoformat,
+    date: date.fromisoformat,
+    time: time.fromisoformat,
+}
 
 # Required/NotRequired markers for TypedDict optionality, gathered from typing (3.11+) and
 # typing_extensions (present iff the caller uses it, e.g. for NotRequired on Python 3.10).
@@ -108,26 +124,13 @@ def _coerce(value: Any, annotation: Any) -> Any:
                 f"a bool field maps to a flag, but the usage element yields the string {value!r}; use a flag or str"
             )
         return bool(value)
-    if annotation is int:
-        return int(value)
-    if annotation is float:
-        return float(value)
     if annotation is str:
         return value
     if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
         return annotation(value)
-    if annotation is Path:
-        return Path(value)
-    if annotation is Decimal:
-        return Decimal(value)
-    if annotation is UUID:
-        return UUID(value)
-    if annotation is datetime:
-        return datetime.fromisoformat(value)
-    if annotation is date:
-        return date.fromisoformat(value)
-    if annotation is time:
-        return time.fromisoformat(value)
+    for supported, coercer in _SCALAR_COERCERS.items():
+        if annotation is supported:
+            return coercer(value)
     raise DocoptLanguageError(f"typed docopt cannot coerce to unsupported annotation {annotation!r}")
 
 
