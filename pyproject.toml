@@ -1,6 +1,6 @@
 [project]
 name = "docopt2"
-version = "1.0.0"
+version = "1.0.1"
 description = "Typed successor to docopt: the usage message is the parser spec."
 readme = "README.md"
 license = "MIT"
@@ -91,6 +91,8 @@ typecheck = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The repo root, so tests can import `tools.screenshots` - the single source of what each screenshot shows.
+pythonpath = ["."]
 # --strict-markers: an unknown @pytest.mark.* is an error, not a silent typo.
 # Coverage is always measured and gated at 100% (line + branch).
 addopts = [
