@@ -5,7 +5,7 @@ import enum
 import sys
 import types
 import weakref
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import (
@@ -126,6 +126,8 @@ def _coerce(value: Any, annotation: Any) -> Any:
         return datetime.fromisoformat(value)
     if annotation is date:
         return date.fromisoformat(value)
+    if annotation is time:
+        return time.fromisoformat(value)
     raise DocoptLanguageError(f"typed docopt cannot coerce to unsupported annotation {annotation!r}")
 
 

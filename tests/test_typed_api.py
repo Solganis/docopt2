@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, ClassVar
@@ -159,18 +159,20 @@ class RichTypes:
     ident: UUID
     when: datetime
     day: date
+    at: time
 
 
-def test_decimal_uuid_date_datetime_coercion():
+def test_decimal_uuid_date_datetime_time_coercion():
     result = docopt(
-        "usage: prog <amount> <ident> <when> <day>",
-        "3.14 12345678-1234-5678-1234-567812345678 2024-01-15T10:30 2024-01-15",
+        "usage: prog <amount> <ident> <when> <day> <at>",
+        "3.14 12345678-1234-5678-1234-567812345678 2024-01-15T10:30 2024-01-15 10:30:00",
         schema=RichTypes,
     )
     assert_that(result.amount).is_equal_to(Decimal("3.14"))
     assert_that(result.ident).is_equal_to(UUID("12345678-1234-5678-1234-567812345678"))
     assert_that(result.when).is_equal_to(datetime(2024, 1, 15, 10, 30))
     assert_that(result.day).is_equal_to(date(2024, 1, 15))
+    assert_that(result.at).is_equal_to(time(10, 30))
 
 
 @dataclasses.dataclass
