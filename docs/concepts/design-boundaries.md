@@ -61,9 +61,8 @@ truth; typed schemas, stubs, linting, and completion are all derived from that s
 This is the core docopt idea, and it sets the direction of the whole design. Frameworks like argparse,
 Click, and Typer build the parser in code (`add_argument` calls, decorators, parameter annotations) and
 generate the help text from that construction. docopt2 reverses the arrow: you write the help text, and
-the parser is derived from it. So there is deliberately no `add_argument`, no parser object to assemble,
-and, as a direct consequence, no separate rich `--help` generator. The help output is the usage message,
-printed verbatim.
+the parser is derived from it. So there is deliberately no `add_argument` and no parser object to
+assemble. By default, `--help` prints the usage message verbatim.
 
 ```python
 from docopt2 import docopt
@@ -79,10 +78,15 @@ docopt(doc, "--help")
 #   --speed=<kn>  Speed in knots [default: 10].
 ```
 
-A generated help layout would be a second source of truth to keep in sync with the string that actually
-drives parsing. Because there is only one string, the [stub generator](../guides/stub.md),
-[usage linter](../guides/check.md), and [shell completion](../guides/completion.md) all read the same
-grammar the parser reads, and cannot drift from it.
+The boundary here is against a second *source of truth*, not against presentation.
+[`help_style="rich"`](../guides/help.md) renders an aligned, colored help screen, and it does not cross
+that line: it is rendered from the same string, out of the annotations the parser already reads, so there
+is nothing to keep in sync. What docopt2 will not have is a help layout you *define* separately from the
+usage - a second definition that could disagree with the string that actually drives parsing.
+
+Because there is only one string, the [stub generator](../guides/stub.md), the
+[usage linter](../guides/check.md), [shell completion](../guides/completion.md) and the
+[rich help](../guides/help.md) all read the same grammar the parser reads, and cannot drift from it.
 
 ## A parser, not an interaction framework
 
@@ -90,16 +94,17 @@ docopt2 turns an argv into values and stops. It never reads from stdin, never pr
 value, and never renders a TUI, a menu, or a progress display. A missing required argument produces a
 [diagnostic](../guides/diagnostics.md) and a non-zero exit, not a "please enter host:" prompt.
 
-The public surface reflects this. There is no `prompt`, `input`, `confirm`, or widget in the API: the
-exported names are `docopt`, the typed entry points (`Cli`, `Dispatch`), the derived tools (`check`,
-`generate_stub`, `generate_completion`, `parse_tree`), and the parser primitives kept for
-compatibility. `Dispatch` routes a parsed command to a handler, but it is still routing, not
-interaction - it calls your function, it does not talk to the user.
+The public surface reflects this. There is no `prompt`, `input`, `confirm`, or widget in the API: every
+exported name is a parse entry point (`docopt`, `Cli`, `Dispatch`), a tool derived from the same usage
+string, or a parser primitive kept for compatibility. `Dispatch` routes a parsed command to a handler,
+but it is still routing, not interaction - it calls your function, it does not talk to the user.
 
 Keeping docopt2 to the deterministic parse step is what makes it composable and trivially testable: pass
-an argv, get values or a diagnostic, with no I/O to stub. Prompting, spinners, tables, and colors beyond
-the diagnostic itself belong to the surrounding program or a dedicated library, layered on top of the
-parsed result.
+an argv, get values or a diagnostic. The only outside state a parse reads is what an option explicitly
+asks for - an [`[env: VAR]`](../guides/usage-dsl.md#environment-and-config-fallback) annotation reads
+that one variable, and a config mapping is one you hand in yourself - so a test sets the inputs rather
+than stubbing a channel. Prompting, spinners, tables, and colors beyond the diagnostic itself belong to
+the surrounding program or a dedicated library, layered on top of the parsed result.
 
 ## Typing without runtime magic
 
