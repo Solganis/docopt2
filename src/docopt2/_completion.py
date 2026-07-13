@@ -188,35 +188,70 @@ def _function_name(prog: str) -> str:
 
 
 def _render_bash(prog: str, function: str) -> str:
-    # bash completion shows names only, so strip the tab-joined description column with `cut -f1`.
+    # COMP_WORDBREAKS holds `=` and `:`, so bash splits `--opt=value` into three COMP_WORDS. Forwarding the
+    # shards destroys the parse context and kills every later completion; bash emits the separator as its
+    # own word, so the loop glues them back.
+    template = (
+        "__FUNC__() {\n"
+        "    local -a typed=()\n"
+        "    local index part\n"
+        "    for (( index = 1; index < COMP_CWORD; index++ )); do\n"
+        "        part=${COMP_WORDS[index]}\n"
+        "        if [[ ${#typed[@]} -gt 0 && ( $part == [:=] || ${COMP_WORDS[index-1]} == [:=] ) ]]; then\n"
+        "            typed[$(( ${#typed[@]} - 1 ))]+=$part\n"
+        "        else\n"
+        '            typed+=("$part")\n'
+        "        fi\n"
+        "    done\n"
+        "    local IFS=$'\\n'\n"
+        '    local words="${typed[*]}"\n'  # completed tokens, glued back, without the program name
+        '    local reply; reply="$(__TRIGGER__=1 __WORDS__="$words" "${COMP_WORDS[0]}" 2>/dev/null | cut -f1)"\n'
+        '    COMPREPLY=( $(compgen -W "$reply" -- "${COMP_WORDS[COMP_CWORD]}") )\n'
+        "}\n"
+        "complete -F __FUNC__ __PROG__\n"
+    )
     return (
-        f"{function}() {{\n"
-        f"    local IFS=$'\\n'\n"
-        f'    local words="${{COMP_WORDS[*]:1:COMP_CWORD-1}}"\n'  # completed tokens, not the current word
-        f'    local reply; reply="$({_TRIGGER_ENV}=1 {_WORDS_ENV}="$words" "${{COMP_WORDS[0]}}" | cut -f1)"\n'
-        f'    COMPREPLY=( $(compgen -W "$reply" -- "${{COMP_WORDS[COMP_CWORD]}}") )\n'
-        f"}}\n"
-        f"complete -F {function} {prog}\n"
+        template.replace("__PROG__", prog)
+        .replace("__FUNC__", function)
+        .replace("__TRIGGER__", _TRIGGER_ENV)
+        .replace("__WORDS__", _WORDS_ENV)
     )
 
 
 def _render_zsh(prog: str, function: str) -> str:
-    # Split each `name\tdescription` reply line and hand it to `_describe`, which renders the two-column
-    # name/description list and filters by the word being completed. Template, not an f-string, to keep
-    # the brace- and quote-heavy zsh readable.
+    # Commands reply with an empty description, and `_describe` renders one as a dangling `--`, so bare
+    # names go to `compadd` instead. The two groups are added under `if`, not `&&`: an empty group would
+    # otherwise leave a non-zero status and zsh would read that as "nothing matched".
     template = (
         "#compdef __PROG__\n"
         "__FUNC__() {\n"
         '    local joined="${(pj:\\n:)words[2,CURRENT-1]}"\n'  # completed tokens, not the current word
-        "    local -a lines described\n"
+        "    local -a lines described bare\n"
         '    lines=("${(@f)$(__TRIGGER__=1 __WORDS__=$joined ${words[1]})}")\n'
-        "    local line\n"
+        "    local line desc\n"
         "    for line in $lines; do\n"
-        "        described+=(\"${line%%$'\\t'*}:${line#*$'\\t'}\")\n"
+        "        desc=\"${line#*$'\\t'}\"\n"
+        "        if [[ -n $desc ]]; then\n"
+        "            described+=(\"${line%%$'\\t'*}:$desc\")\n"
+        "        else\n"
+        "            bare+=(\"${line%%$'\\t'*}\")\n"
+        "        fi\n"
         "    done\n"
-        "    _describe -t candidates candidate described\n"
+        "    if (( $#described )); then\n"
+        "        _describe -t candidates candidate described\n"
+        "    fi\n"
+        "    if (( $#bare )); then\n"
+        "        compadd -a bare\n"
+        "    fi\n"
         "}\n"
-        "compdef __FUNC__ __PROG__\n"
+        # Autoloaded from `$fpath`, zsh runs this file's body AS the completion function, so a body that
+        # only defines and registers offers nothing on the first Tab. `CURRENT` exists only while the
+        # completion system runs, which tells that install apart from a plain `source`.
+        "if (( ${+CURRENT} )); then\n"
+        '    __FUNC__ "$@"\n'
+        "else\n"
+        "    compdef __FUNC__ __PROG__\n"
+        "fi\n"
     )
     return (
         template.replace("__PROG__", prog)
@@ -232,7 +267,10 @@ def _render_fish(prog: str, function: str) -> str:
         # `commandline -opc` is the completed tokens before the cursor (the partial word is excluded);
         # fish filters the candidates we return by that partial word itself.
         f"    set -l tokens (commandline -opc)\n"
-        f"    env {_TRIGGER_ENV}=1 {_WORDS_ENV}=(string join \\n -- $tokens[2..-1]) $tokens[1]\n"
+        # fish documents that a command substitution splits its output on newlines. A completion function
+        # happens not to re-split today, but that is undocumented; `string collect` states the intent rather
+        # than depending on the accident.
+        f"    env {_TRIGGER_ENV}=1 {_WORDS_ENV}=(string join \\n -- $tokens[2..-1] | string collect) $tokens[1]\n"
         f"end\n"
         f"complete -c {prog} -f -a '({function})'\n"
     )
@@ -244,15 +282,22 @@ def _render_powershell(prog: str, _function: str) -> str:
     template = (
         "Register-ArgumentCompleter -Native -CommandName __PROG__ -ScriptBlock {\n"
         "    param($wordToComplete, $commandAst, $cursorPosition)\n"
-        "    $words = @($commandAst.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.ToString() })\n"
+        # PowerShell hands over the whole line, so a mid-line Tab would read the tokens right of the cursor.
+        "    $typed = @($commandAst.CommandElements | Where-Object { $_.Extent.EndOffset -le $cursorPosition })\n"
+        # A quoted token arrives with its quotes attached; the program must get the value, not the quoting.
+        "    $words = @($typed | Select-Object -Skip 1 | ForEach-Object {\n"
+        "        if ($_ -is [System.Management.Automation.Language.StringConstantExpressionAst])"
+        " { $_.Value } else { $_.ToString() }\n"
+        "    })\n"
         "    if ($wordToComplete -ne '' -and $words.Count -gt 0) { $words = @($words | Select-Object -SkipLast 1) }\n"
         "    $env:__TRIGGER__ = '1'\n"
         '    $env:__WORDS__ = ($words -join "`n")\n'
         "    try {\n"
-        "        & $commandAst.CommandElements[0].ToString() | ForEach-Object {\n"
+        "        & $commandAst.CommandElements[0].ToString() 2>$null | ForEach-Object {\n"
         '            $parts = $_ -split "`t", 2\n'  # reply line is name`tdescription
         "            $name = $parts[0]\n"
-        '            if ($name -like "$wordToComplete*") {\n'
+        # StartsWith, not -like: a `*` or `[` in the partial word is a literal prefix, not a wildcard.
+        "            if ($name.StartsWith($wordToComplete, [System.StringComparison]::Ordinal)) {\n"
         "                $tip = if ($parts.Count -ge 2 -and $parts[1]) { $parts[1] } else { $name }\n"
         "                [System.Management.Automation.CompletionResult]::new($name, $name, 'ParameterValue', $tip)\n"
         "            }\n"

@@ -1,5 +1,6 @@
 import dataclasses
 import os
+from pathlib import Path
 
 from assertpy2 import assert_that
 from hypothesis import given, settings
@@ -366,6 +367,25 @@ def test_bash_script_is_a_callback_that_re_invokes_the_program():
     assert_that(script).contains("_DOCOPT2_COMPLETE=1").contains("COMP_WORDS")
 
 
+_COMPLETION_GUIDE = (Path(__file__).parent.parent / "docs" / "guides" / "completion.md").read_text(encoding="utf-8")
+
+
+def test_the_completion_guide_prints_the_script_the_tool_really_emits():
+    # The guide shows the bash script verbatim, and a stale script in the docs is a script people paste.
+    # Nothing else guards the guides, which is how this one came to show a script we no longer generate.
+    assert_that(_COMPLETION_GUIDE).contains(generate_completion(_GIT_DOC, "naval", "bash").strip())
+
+
+def test_bash_script_glues_back_the_words_bash_split_at_a_wordbreak():
+    # COMP_WORDBREAKS holds `=` and `:`, so bash hands us `--opt=value` as three words (`--opt`, `=`,
+    # `value`). Forwarding those shards destroys the parse context and silently kills every completion
+    # after them - and `--opt=value` is the very form the usage DSL teaches. bash emits the separator as
+    # its own word, so the shards glue back unambiguously.
+    script = generate_completion(_GIT_DOC, "git-tool", "bash")
+    assert_that(script).contains("$part == [:=]").contains("${COMP_WORDS[index-1]} == [:=]")
+    assert_that(script).contains("typed[$(( ${#typed[@]} - 1 ))]+=$part")
+
+
 def test_bash_is_the_default_shell():
     assert_that(generate_completion(_GIT_DOC, "git-tool")).contains("COMPREPLY")
 
@@ -377,10 +397,50 @@ def test_zsh_script_has_a_compdef_header_and_a_sanitized_name():
     assert_that(script).contains("_my_tool_completion").contains("compdef _my_tool_completion my-tool")
 
 
+def test_zsh_script_completes_when_autoloaded_and_registers_when_sourced():
+    # Saved as `_prog` on $fpath - the install our own docs recommend - zsh runs the file's BODY as the
+    # completion function. A body that only defines the function and calls compdef therefore adds no
+    # candidates at all on the first Tab. `CURRENT` is set only while the completion system is running, so
+    # it tells the two installs apart.
+    script = generate_completion(_GIT_DOC, "my-tool", "zsh")
+    assert_that(script).contains("if (( ${+CURRENT} )); then")
+    assert_that(script).contains('_my_tool_completion "$@"')
+    assert_that(script).contains("compdef _my_tool_completion my-tool")
+
+
+def test_zsh_script_adds_undescribed_candidates_with_compadd_not_describe():
+    # Commands reply with an empty description; feeding that to _describe makes zsh print a dangling
+    # `--`, so only described names go there and bare ones are added with compadd.
+    script = generate_completion(_GIT_DOC, "my-tool", "zsh")
+    assert_that(script).contains("if [[ -n $desc ]]").contains("compadd -a bare")
+    assert_that(script).contains("_describe -t candidates candidate described")
+
+
+def test_powershell_script_reads_only_up_to_the_cursor_and_unquotes_the_tokens():
+    # PowerShell hands the completer the WHOLE line, so a Tab pressed mid-line would feed the tokens to the
+    # RIGHT of the cursor to the program as if they had been typed, and a quoted token arrives with its
+    # quotes attached. The partial word is a literal prefix, so it is matched with StartsWith, never `-like`
+    # (which would read a `*` or `[` in it as a wildcard).
+    script = generate_completion(_GIT_DOC, "git-tool", "powershell")
+    assert_that(script).contains("$_.Extent.EndOffset -le $cursorPosition")
+    assert_that(script).contains("StringConstantExpressionAst")
+    assert_that(script).contains("$name.StartsWith($wordToComplete")
+    assert_that(script).does_not_contain("-like")
+
+
 def test_fish_script_registers_a_callback_completion():
     script = generate_completion(_GIT_DOC, "git-tool", "fish")
     assert_that(script).contains("function _git_tool_completion").contains("commandline -opc")
     assert_that(script).contains("complete -c git-tool -f -a '(_git_tool_completion)'")
+
+
+def test_fish_script_joins_the_words_explicitly_rather_than_relying_on_no_resplit():
+    # fish documents that a command substitution splits its output on newlines. Inside a completion function
+    # it does not, which is why the words survive without this - but that is undocumented, and a script that
+    # works only by relying on it is one fish release away from silently dropping every token but the last.
+    # `string collect` states the intent instead of depending on the accident.
+    script = generate_completion(_GIT_DOC, "git-tool", "fish")
+    assert_that(script).contains("| string collect)")
 
 
 def test_powershell_script_registers_a_native_argument_completer():

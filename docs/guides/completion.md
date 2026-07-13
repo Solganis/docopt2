@@ -29,9 +29,19 @@ the usage text. For `prog="naval"`, the bash script is:
 
 ```bash
 _naval_completion() {
+    local -a typed=()
+    local index part
+    for (( index = 1; index < COMP_CWORD; index++ )); do
+        part=${COMP_WORDS[index]}
+        if [[ ${#typed[@]} -gt 0 && ( $part == [:=] || ${COMP_WORDS[index-1]} == [:=] ) ]]; then
+            typed[$(( ${#typed[@]} - 1 ))]+=$part
+        else
+            typed+=("$part")
+        fi
+    done
     local IFS=$'\n'
-    local words="${COMP_WORDS[*]:1:COMP_CWORD-1}"
-    local reply; reply="$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" | cut -f1)"
+    local words="${typed[*]}"
+    local reply; reply="$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" 2>/dev/null | cut -f1)"
     COMPREPLY=( $(compgen -W "$reply" -- "${COMP_WORDS[COMP_CWORD]}") )
 }
 complete -F _naval_completion naval
@@ -39,6 +49,12 @@ complete -F _naval_completion naval
 
 It invokes the command the user typed (`${COMP_WORDS[0]}`), so `naval` must be on `PATH` under the name
 you passed as `prog`.
+
+The loop is not decoration. `COMP_WORDBREAKS` contains `=` and `:`, so bash hands the completion function
+`--port=8080` as three separate words - `--port`, `=`, `8080` - and `host:port` as three more. Passing those
+shards to the program would destroy the parse context and silently return no candidates at all for the rest
+of the line, and `--opt=<value>` is exactly the form the usage DSL teaches. bash emits the separator as its
+own word, so the shards glue back together unambiguously.
 
 ### Installing it
 
