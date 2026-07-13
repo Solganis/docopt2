@@ -110,6 +110,7 @@
 [data-md-color-scheme="slate"] .docopt2-term .dt-warn  { color: #e3b341; }
 [data-md-color-scheme="slate"] .docopt2-term .dt-label { color: #e3b341; }
 [data-md-color-scheme="slate"] .docopt2-term .dt-help  { color: #56d364; }
+[data-md-color-scheme="slate"] .docopt2-term .dt-note  { color: #56d4dd; }
 [data-md-color-scheme="slate"] .docopt2-term .dt-dim   { color: #8b949e; }
 
 /* Light scheme: GitHub-light surface with the light-theme equivalents. */
@@ -124,4 +125,5 @@
 [data-md-color-scheme="default"] .docopt2-term .dt-warn  { color: #9a6700; }
 [data-md-color-scheme="default"] .docopt2-term .dt-label { color: #9a6700; }
 [data-md-color-scheme="default"] .docopt2-term .dt-help  { color: #1a7f37; }
+[data-md-color-scheme="default"] .docopt2-term .dt-note  { color: #1b7c83; }
 [data-md-color-scheme="default"] .docopt2-term .dt-dim   { color: #57606a; }

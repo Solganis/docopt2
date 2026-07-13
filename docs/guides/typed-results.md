@@ -196,7 +196,7 @@ docopt("Usage: prog <port>", "eighty", schema=P)   # raises the diagnostic below
 <span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog &lt;port&gt;</span>
 <span class="dt-fg">   |</span><span class="dt-fg">                </span><span class="dt-caret">^^^^^^</span><span class="dt-label"> typed as int</span>
 <span class="dt-fg">   |</span>
-<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: `eighty` is not a valid int</span></div>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `eighty` is not a valid int</span></div>
 
 A **schema** that disagrees with the usage raises `DocoptLanguageError` (a programmer error, not a user
 one): a field with no matching element, two elements colliding on one field, a non-optional field bound to

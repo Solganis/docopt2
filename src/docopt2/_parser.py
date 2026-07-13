@@ -678,54 +678,87 @@ def _usage_lines(pattern: Pattern) -> list[Pattern]:
     return [pattern]
 
 
-def _line_partial_score(line: Pattern, argv_leaves: list[Pattern]) -> tuple[int, LeafPattern | None]:
-    """Greedily match a usage line's top-level elements against argv: return (score, first unmet leaf).
+def _unmet_target(node: Pattern) -> tuple[str, Span] | None:
+    """The (name, span) a near-miss caret points at, seeing through groups.
 
-    A matched command scores 2 (a strong intent signal), an any-token positional or option 1, a missing
-    command -2; optional groups contribute what they consume. The first required leaf the argv cannot
-    supply is the near-miss target.
+    A required choice reports as ``(a|b)`` and carets the whole group: that is what the argv failed to
+    supply, and blaming the leaf after it would be advice that still fails.
+    """
+    if isinstance(node, LeafPattern):
+        return (node.name, node.span) if node.name is not None and node.span is not None else None
+    if not isinstance(node, BranchPattern) or not node.children:  # pragma: no cover - no such pattern parses
+        return None
+    targets: list[tuple[str, Span]] = []
+    for child in node.children:
+        target = _unmet_target(child)
+        if target is None:  # pragma: no cover - every parsed leaf carries a name and a span; a fail-safe
+            return None
+        targets.append(target)
+    if len(targets) == 1:  # a bare repetition has no span of its own, so it borrows its child's
+        name, span = targets[0]
+        return name, node.span if node.span is not None else span
+    joiner = "|" if isinstance(node, Either) else " "
+    return "(" + joiner.join(name for name, _ in targets) + ")", node.span
+
+
+def _line_partial_score(line: Pattern, argv_leaves: list[Pattern]) -> tuple[int, int, tuple[str, Span] | None]:
+    """Greedily match a usage line's top-level elements against argv: (score, evidence, first unmet target).
+
+    ``score`` ranks the lines against each other. ``evidence`` counts only matched LITERALS: a positional
+    matches any token, so it says nothing about which line the user meant, and the caller needs a signal
+    the missing-command penalty cannot cancel out. A group can be the unmet target just as a leaf can.
     """
     left = list(argv_leaves)
     score = 0
-    missing: LeafPattern | None = None
+    evidence = 0
+    unmet: tuple[str, Span] | None = None
+    found_unmet = False
     for element in line.children if isinstance(line, Required) else [line]:
         if isinstance(element, LeafPattern):
             position, _node = element.single_match(left)
             if position is not None:
                 score += 2 if isinstance(element, Command) else 1
+                if isinstance(element, Command | Option):
+                    evidence += 1
                 left = left[:position] + left[position + 1 :]
             else:
                 score -= 2 if isinstance(element, Command) else 0
-                if missing is None:
-                    missing = element
-        else:  # a branch (optional group, repetition, nested alternation): credit only what it consumes
+                if not found_unmet:
+                    found_unmet, unmet = True, _unmet_target(element)
+        else:
             matched, reduced, _ = element.match(left, [])
-            if matched:
+            if matched:  # an Optional never fails, so this is the usual path for `[ ... ]`
                 score += len(left) - len(reduced)
                 left = reduced
-    return score, missing
+            elif not found_unmet:  # a required group the argv cannot satisfy is itself the unmet element
+                found_unmet, unmet = True, _unmet_target(element)
+    return score, evidence, unmet
 
 
 def nearest_usage_line(pattern: Pattern, argv_leaves: list[Pattern]) -> tuple[str, tuple[int, int], int] | None:
     """The unmet required element of the usage line the argv came closest to, with the line count.
 
-    Generalizes a leading-command guess into a ranking: every line is scored by how many of its leading
-    elements the argv actually supplied, and the best line's first missing required leaf is returned as
-    ``(name, span, line_count)`` for a caret. Fires only with real evidence - the best line must have
-    matched something - so an argv that resembles no line yields None and the caller falls back.
+    Every line is scored by how much of it the argv supplied, and the best one's first unmet element comes
+    back as ``(name, span, line_count)`` for a caret. Fires only on a matched literal: a positional matches
+    any token, so a garbage argv would otherwise resemble every line. The score cannot gate it, because a
+    matched command (+2) is cancelled by the next missing one (-2) - the partial-subcommand case
+    (`git remote`) the diagnostic exists for.
     """
     lines = _usage_lines(pattern)
     if len(lines) < 2:
         return None
-    ranked: list[tuple[int, int, LeafPattern | None]] = []
+    ranked: list[tuple[int, int, int, tuple[str, Span] | None]] = []
     for index, line in enumerate(lines):
-        score, missing = _line_partial_score(line, argv_leaves)
-        ranked.append((score, -index, missing))  # ties break to the earliest line (highest -index)
-    ranked.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
-    best_score, _, missing = ranked[0]
-    if best_score <= 0 or missing is None or missing.name is None or missing.span is None:
+        score, evidence, unmet = _line_partial_score(line, argv_leaves)
+        ranked.append((evidence, score, -index, unmet))  # ties break to the earliest line
+    ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True)
+    best_evidence, _score, _index, unmet = ranked[0]
+    if best_evidence == 0 or unmet is None:
         return None
-    return missing.name, missing.span, len(lines)
+    name, span = unmet
+    if span is None:  # pragma: no cover - only a bare Either could carry none, and `(...)` always wraps it
+        return None
+    return name, span, len(lines)
 
 
 def parse_expr(tokens: Tokens, options: list[Option]) -> list[Pattern]:

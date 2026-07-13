@@ -145,7 +145,7 @@ and exits non-zero. Move a ship, but forget the second coordinate:
 <span class="dt-fg">   |</span><span class="dt-fg">      naval_fate ship &lt;name&gt; move &lt;x&gt; &lt;y&gt; [--speed=&lt;kn&gt;]</span>
 <span class="dt-fg">   |</span><span class="dt-fg">                                      </span><span class="dt-caret">^^^</span><span class="dt-label"> required here</span>
 <span class="dt-fg">   |</span>
-<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: closest of 6 usage patterns</span></div>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: of 6 usage patterns, your arguments came closest to this one</span></div>
 
 docopt2 finds the usage line you got closest to and carets the one element it still needs (the full usage
 is printed beneath, trimmed here). Other mismatches - an unknown option, a value that will not fit its

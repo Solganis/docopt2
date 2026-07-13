@@ -188,7 +188,7 @@ def _reject_colliding_config_keys(keys: list[str]) -> None:
             raise DocoptLanguageError(
                 Diagnostic(
                     summary=f"config key `{'.'.join(prefix)}` collides with `{'.'.join(collides)}`",
-                    help="one is used as a value and the other as a table; they cannot share a TOML file",
+                    note="one is used as a value and the other as a table; they cannot share a TOML file",
                 ).render()
             )
 

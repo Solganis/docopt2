@@ -19,5 +19,3 @@ exported names in `docopt2.__all__`.
   re-exported for drop-in compatibility with the original docopt.
 
 For a task-oriented view, start from the [Guides](../guides/typed-results.md) instead.
-
-<!-- TODO: keep this list in sync with docopt2.__all__ if the public surface changes. -->

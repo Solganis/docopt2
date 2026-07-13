@@ -72,10 +72,12 @@ def test_error_caret_matches_the_tool():
         docopt(_naval_doc(), "ship Titanic move 1", complete=False)
     message = str(exc_info.value)
     # the tool produces the near-miss caret under the closest line's <y> (the ship/move line)
-    assert_that(message).contains("missing required `<y>`").contains("closest of 6 usage patterns")
+    assert_that(message).contains("missing required `<y>`")
+    assert_that(message).contains("of 6 usage patterns, your arguments came closest to this one")
     assert_that(message).contains("naval_fate ship <name> move <x> <y> [--speed=<kn>]").contains("^^^ required here")
     # the colored .docopt2-term block in the doc mirrors that output, HTML-escaped
-    assert_that(GETTING_STARTED).contains("missing required `&lt;y&gt;`").contains("closest of 6 usage patterns")
+    assert_that(GETTING_STARTED).contains("missing required `&lt;y&gt;`")
+    assert_that(GETTING_STARTED).contains("of 6 usage patterns, your arguments came closest to this one")
     assert_that(GETTING_STARTED).contains("naval_fate ship &lt;name&gt; move &lt;x&gt; &lt;y&gt; [--speed=&lt;kn&gt;]")
     assert_that(GETTING_STARTED).contains('<span class="dt-caret">^^^</span>')
 

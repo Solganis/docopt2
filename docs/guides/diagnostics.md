@@ -6,8 +6,11 @@ token, in the argument vector and in the usage that rejected it, with a two-span
 
 Every error, whether the user mistyped an argument or the developer wrote a malformed usage, is lowered
 to one shape: a bold `error:` heading with a one-line summary, then captioned source snippets with
-carets, then optional `note:` and `help:` lines. The static [usage linter](check.md) reuses the same
-grammar with a yellow `warning:` heading, so a warning and a hard error read the same way.
+carets, then optional `note:` and `help:` lines. The two are not interchangeable, and follow rustc's
+split: a `note:` gives context - why the input was rejected, or why this usage line is the one shown - while
+a `help:` proposes a concrete fix, such as a "did you mean". A diagnostic with nothing to suggest carries no
+`help:` at all. The static [usage linter](check.md) reuses the same grammar with a yellow `warning:` heading,
+so a warning and a hard error read the same way.
 
 ## A mismatch at parse time
 
@@ -116,7 +119,7 @@ docopt(doc, "push")
 <span class="dt-fg">   |</span><span class="dt-fg">      git push [--force] &lt;remote&gt;</span>
 <span class="dt-fg">   |</span><span class="dt-fg">                         </span><span class="dt-caret">^^^^^^^^</span><span class="dt-label"> required here</span>
 <span class="dt-fg">   |</span>
-<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: closest of 3 usage patterns</span></div>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: of 3 usage patterns, your arguments came closest to this one</span></div>
 
 The snippet shows only the closest line - `git push`, not `commit` or `add` - because the caret is placed
 in *that* line. Typing `git commit` instead carets `--message=<msg>` on the second line; `git deploy prod`
@@ -155,7 +158,7 @@ docopt(doc, "--port=abc", schema=Args)   # raises the diagnostic below
 <span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog --port=&lt;n&gt;</span>
 <span class="dt-fg">   |</span><span class="dt-fg">                </span><span class="dt-caret">^^^^^^^^^^</span><span class="dt-label"> typed as int</span>
 <span class="dt-fg">   |</span>
-<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: `abc` is not a valid int</span></div>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `abc` is not a valid int</span></div>
 
 Only a **user value** gets this two-span treatment. A schema that disagrees with the usage - a field with
 no matching element, an unsupported annotation - is the developer's error, not the user's, and raises

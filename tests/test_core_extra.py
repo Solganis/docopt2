@@ -146,21 +146,22 @@ def test_multi_line_usage_carets_the_missing_element_of_the_closest_line():
     with raises(DocoptExit) as exc_info:
         docopt(_MULTILINE_DOC, "ship")
     message = str(exc_info.value)
-    assert_that(message).contains("missing required").contains("<name>").contains("closest of 2 usage patterns")
+    assert_that(message).contains("missing required").contains("<name>")
+    assert_that(message).contains("of 2 usage patterns, your arguments came closest to this one")
 
 
 def test_multi_line_usage_without_a_matching_subcommand_falls_back():
     # An unknown leading command is no evidence of intent, so no near-miss is claimed - just the usage.
     with raises(DocoptExit) as exc_info:
         docopt(_MULTILINE_DOC, "fly")
-    assert_that(str(exc_info.value)).does_not_contain("closest of")
+    assert_that(str(exc_info.value)).does_not_contain("came closest to")
 
 
 def test_multi_line_usage_without_a_positional_token_falls_back():
     # No positional token to match against any line's leading command.
     with raises(DocoptExit) as exc_info:
         docopt(_MULTILINE_DOC, "--nope")
-    assert_that(str(exc_info.value)).does_not_contain("closest of")
+    assert_that(str(exc_info.value)).does_not_contain("came closest to")
 
 
 def test_near_miss_ranks_the_line_the_argv_got_furthest_into():
@@ -171,7 +172,8 @@ def test_near_miss_ranks_the_line_the_argv_got_furthest_into():
     with raises(DocoptExit) as exc_info:
         docopt(doc, "ship new")
     message = str(exc_info.value)
-    assert_that(message).contains("missing required").contains("<name>").contains("closest of 2 usage patterns")
+    assert_that(message).contains("missing required").contains("<name>")
+    assert_that(message).contains("of 2 usage patterns, your arguments came closest to this one")
 
 
 def test_near_miss_carets_the_closest_line_when_the_missing_name_repeats():

@@ -126,15 +126,17 @@ def _coercion_diagnostic(doc: str, argv: list[str] | tuple[str, ...] | str, err:
         caret = Caret(*where, f"typed as {err.expected}")
         snippets.append(Snippet(usage, "in the usage:", [caret]))
     # "one of `a`, `b`" reads as "is not one of ..."; a plain type reads as "is not a valid int".
+    hint = None
     if err.expected.startswith("one of "):
-        advice = f"`{err.raw}` is not {err.expected}"
+        reason = f"`{err.raw}` is not {err.expected}"
         choices = [match.group(1) for match in re.finditer(r"`([^`]+)`", err.expected)]
         suggestion = _closest(str(err.raw), choices)  # a mistyped choice gets a spell-checked "did you mean"
         if suggestion is not None:
-            advice += f" - did you mean `{suggestion}`?"
+            hint = f"did you mean `{suggestion}`?"
     else:
-        advice = f"`{err.raw}` is not a valid {err.expected}"
-    return Diagnostic(summary=f"invalid value for `{err.key}`", snippets=snippets, help=advice)
+        reason = f"`{err.raw}` is not a valid {err.expected}"
+    # Why it failed is context (a note); only the spell-checked suggestion proposes a fix (a help).
+    return Diagnostic(summary=f"invalid value for `{err.key}`", snippets=snippets, note=reason, help=hint)
 
 
 def _config_lookup(config: Mapping[str, Any], key: str) -> Any:
@@ -417,13 +419,15 @@ def docopt(
         name, span, total = near_miss
         snippet = Snippet(usage, "in the usage:", [Caret(*span, "required here")])
         diagnostic = Diagnostic(
-            summary=f"missing required `{name}`", snippets=[snippet], help=f"closest of {total} usage patterns"
+            summary=f"missing required `{name}`",
+            snippets=[snippet],
+            note=f"of {total} usage patterns, your arguments came closest to this one",
         )
         raise _exit(diagnostic, collected=collected, left=left)
     required = required_leaf_names(fixed)
     if required:
         missing = Diagnostic(
-            summary="missing or mismatched arguments", help=f"the usage requires: {' '.join(required)}"
+            summary="missing or mismatched arguments", note=f"the usage requires: {' '.join(required)}"
         )
         raise _exit(missing, collected=collected, left=left)
     raise _exit(Diagnostic(summary="the arguments do not match the usage"), collected=collected, left=left)

@@ -183,7 +183,7 @@ _EXPECTED_COERCION = (
     "   |    Usage: prog --port=<n>\n"
     "   |                ^^^^^^^^^^ typed as int\n"
     "   |\n"
-    "   = help: `abc` is not a valid int"
+    "   = note: `abc` is not a valid int"
 )
 
 

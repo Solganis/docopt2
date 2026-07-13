@@ -403,9 +403,9 @@ def test_matching_paren():
 def test_allow_double_dash():
     assert docopt("usage: prog [-o] [--] <arg>\nkptions: -o", "-- -o") == {"-o": False, "<arg>": "-o", "--": True}
     assert docopt("usage: prog [-o] [--] <arg>\nkptions: -o", "-o 1") == {"-o": True, "<arg>": "1", "--": False}
-    # docopt2 divergence: `--` is the POSIX separator even when the usage lacks a `--`, so it
-    # is dropped rather than leaked as a positional. Vanilla raised here (upstream marked it
-    # "FIXME?"). See tests/test_divergences.py.
+    # docopt2 divergence: `--` is the POSIX separator even when the usage lacks a `--`, so it is dropped
+    # rather than leaked as a positional. Vanilla raised here, and its own source flags the case as
+    # questionable. See tests/test_divergences.py.
     assert docopt("usage: prog [-o] <arg>\noptions:-o", "-- -o") == {"-o": False, "<arg>": "-o"}
 
 

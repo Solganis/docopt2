@@ -200,7 +200,7 @@ Usage:
 The same two carets flag a [malformed usage](https://solganis.github.io/docopt2/guides/diagnostics/#a-malformed-usage-at-import-time) at import time - a broken spec fails loudly, not silently - and [a value that will not coerce](https://solganis.github.io/docopt2/guides/diagnostics/#a-value-that-does-not-fit-its-type) to its typed field:
 
 <p align="center">
-  <img src="docs/assets/coercion.png" width="511" alt="A docopt2 error: 'invalid value for --port' with a caret under abc in the argument vector and a second caret under --port=<n> in the usage, plus 'help: abc is not a valid int'">
+  <img src="docs/assets/coercion.png" width="511" alt="A docopt2 error: 'invalid value for --port' with a caret under abc in the argument vector and a second caret under --port=<n> in the usage, plus 'note: abc is not a valid int'">
 </p>
 
 **[Closest usage line.](https://solganis.github.io/docopt2/guides/diagnostics/#the-usage-line-you-were-closest-to)** When several invocations are possible, docopt2 finds the one you got furthest into and carets the single element it still needs - not a generic "no match".

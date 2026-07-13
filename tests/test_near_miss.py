@@ -33,7 +33,8 @@ def test_near_miss_carets_a_missing_positional():
     with raises(DocoptExit) as exc_info:
         docopt(_DOC, "push", complete=False)
     message = str(exc_info.value)
-    assert_that(message).contains("missing required `<remote>`").contains("closest of 3 usage patterns")
+    assert_that(message).contains("missing required `<remote>`")
+    assert_that(message).contains("of 3 usage patterns, your arguments came closest to this one")
     assert_that(message).contains("git push [--force] <remote>")  # the snippet shows the closest line
     assert_that(message).contains("^")  # with a caret drawn under the missing element
 
@@ -57,13 +58,13 @@ def test_no_near_miss_without_evidence_of_a_line():
     # A token matching no line's leading command is no evidence; fall back to the generic message.
     with raises(DocoptExit) as exc_info:
         docopt(_DOC, "clone", complete=False)
-    assert_that(str(exc_info.value)).does_not_contain("closest of")
+    assert_that(str(exc_info.value)).does_not_contain("came closest to")
 
 
 def test_single_line_usage_has_no_near_miss():
     with raises(DocoptExit) as exc_info:
         docopt("Usage: prog <host> <port>", "onlyhost", complete=False)
-    assert_that(str(exc_info.value)).does_not_contain("closest of")
+    assert_that(str(exc_info.value)).does_not_contain("came closest to")
 
 
 def _vocabulary(doc):
@@ -85,7 +86,7 @@ def test_near_miss_never_crashes_and_names_a_real_element(argv):
         raise  # a doc error would be a real bug
     except DocoptExit as exit_signal:
         message = str(exit_signal)
-        if "closest of" in message:
+        if "came closest to" in message:
             named = message.split("missing required `")[1].split("`")[0]
             assert_that(named).is_in(*_vocabulary(_DOC))
 
@@ -122,6 +123,81 @@ def test_near_miss_stays_on_the_line_as_the_argv_gets_further_in():
     assert_that(_fail(_DOC, "push --force")).contains("`<remote>`")
 
 
+# --- The near-miss used to break whenever the first unmet requirement was NOT a plain leaf. Every one of
+# --- these slipped past the property test below, which is blind to them three ways over: it runs only when
+# --- the diagnostic fired (so a SUPPRESSED one is skipped), it asserts the named element is *a* required
+# --- element rather than *the* first unmet one (so naming the wrong one passes), and its oracle,
+# --- required_leaf_names, is leaf-only (so a group could never be named at all). No test doc had a
+# --- two-level subcommand either, which is the single most common real-world CLI shape.
+
+_NESTED = "Usage:\n  git remote add <name> <url>\n  git remote rm <name>\n  git push <remote>\n"
+_CHOICE = "Usage:\n  tool db (up|down) <steps>\n  tool serve <port>\n"
+_SEQUENCE = "Usage:\n  tool run (build test) <target>\n  tool clean\n"
+
+
+def test_near_miss_fires_on_a_partial_two_level_subcommand():
+    # `git remote` matches a command (+2) and then misses the next one (-2), netting exactly zero, so the
+    # old score-only gate went silent precisely where a nested CLI (git remote add) leaves the user.
+    message = _fail(_NESTED, "remote")
+    assert_that(message).contains("missing required `add`").contains("came closest to this one")
+
+
+def test_near_miss_carets_the_choice_group_not_the_leaf_after_it():
+    # `tool db` is missing the `(up|down)` group. A branch that matched nothing never recorded itself, so
+    # the scorer walked straight past it and blamed `<steps>` - advice that still fails when followed.
+    message = _fail(_CHOICE, "db")
+    assert_that(message).contains("missing required `(up|down)`").does_not_contain("`<steps>`")
+
+
+def test_near_miss_names_a_missing_repetition():
+    # `git add` needs `<path>...`; a OneOrMore is a branch, so `missing` was never set and the diagnostic
+    # went silent even though that line was the outright winner.
+    message = _fail(_DOC, "add")
+    assert_that(message).contains("missing required `<path>`").contains("came closest to this one")
+
+
+def test_near_miss_carets_a_missing_parenthesised_sequence():
+    assert_that(_fail(_SEQUENCE, "run")).contains("missing required `(build test)`")
+
+
+def test_near_miss_stays_silent_without_a_matched_literal():
+    # A positional matches ANY token, so a garbage argv "resembles" every line. Only a matched command or
+    # option is evidence of intent - which is why the score alone cannot gate the diagnostic.
+    assert_that(_fail(_NESTED, "bogus")).does_not_contain("came closest to")
+
+
+_PREFIX_DOCS = [_DOC, _DISPATCH, _NESTED, _CHOICE]
+
+
+def _literals(doc):
+    """Every command and option the usage writes down - tokens a user could only have typed on purpose."""
+    pattern = parse_pattern(formal_tokens(single_usage_section(doc)), parse_defaults(doc))
+    return {leaf.name for leaf in pattern.flat() if isinstance(leaf, Command | Option) and leaf.name}
+
+
+@given(data=st.data())
+def test_near_miss_never_goes_silent_on_a_real_prefix_of_a_valid_argv(data):
+    # The oracle here is a VALID argv: truncate it and the user is provably on their way somewhere. If that
+    # truncation named a literal, the diagnostic MUST help instead of falling back to the generic error.
+    # This is exactly the assertion the older property cannot make - it skips every case where nothing fired,
+    # so a silently suppressed near-miss is invisible to it.
+    doc = data.draw(st.sampled_from(_PREFIX_DOCS))
+    full = data.draw(argv_strategy(doc))
+    if len(full) < 2:
+        return
+    cut = data.draw(st.integers(min_value=1, max_value=len(full) - 1))
+    prefix = full[:cut]
+    if not (_literals(doc) & {token.split("=")[0] for token in prefix}):
+        return  # no literal typed: the diagnostic is meant to stay silent, and another test pins that
+    try:
+        docopt(doc, prefix, help=False, complete=False)
+    except DocoptExit as exit_signal:
+        message = str(exit_signal)
+    else:
+        return  # the prefix still parses (the rest was optional) - not a near-miss case at all
+    assert "came closest to this one" in message, f"went silent on {prefix!r}, a real prefix of {full!r}"
+
+
 @given(data=st.data())
 def test_near_miss_names_a_genuinely_required_unmet_element(data):
     # Cross-validation against an independent oracle: take a valid argv, drop its last token so it fails,
@@ -137,6 +213,6 @@ def test_near_miss_names_a_genuinely_required_unmet_element(data):
         message = str(exit_signal)
     else:
         return  # dropping the token still matched (it was optional) - not a near-miss case
-    if "closest of" in message:
+    if "came closest to" in message:
         named = message.split("missing required `")[1].split("`")[0]
         assert_that(named).is_in(*_required_names(doc))
