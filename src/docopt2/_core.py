@@ -6,7 +6,11 @@ import os
 import re
 import sys
 from collections.abc import Callable, Iterable, Mapping
+from datetime import date, datetime, time
+from decimal import Decimal
+from pathlib import Path
 from typing import Any, ClassVar, TypeVar, cast, overload
+from uuid import UUID
 
 from docopt2._completion import reply_to_completion_request
 from docopt2._diagnostics import Caret, Diagnostic, Snippet, use_color
@@ -139,6 +143,42 @@ def _coercion_diagnostic(doc: str, argv: list[str] | tuple[str, ...] | str, err:
     return Diagnostic(summary=f"invalid value for `{err.key}`", snippets=snippets, note=reason, help=hint)
 
 
+# What a `[config: key]` may hold. A config value is normalized with str(), so the type set is the one
+# whose str() is a faithful, coercible-back rendering: everything `_coerce` accepts as a schema annotation
+# (_typed.py), plus `time`, which a TOML loader yields and no annotation names. A whitelist, not a
+# container blacklist: an opaque object is not a container either, and str(object()) is a memory address.
+_CONFIG_VALUE = (str, bool, int, float, Decimal, Path, UUID, datetime, date, time)
+
+
+class _ConfigShapeError(Exception):
+    """A `[config: key]` annotation that lands on something that is not a value: raised in the fallback resolver."""
+
+    def __init__(self, name: str, key: str, found: Any) -> None:
+        super().__init__(key)
+        self.name = name
+        self.key = key
+        self.found = found
+
+
+def _config_shape_diagnostic(doc: str, err: _ConfigShapeError) -> Diagnostic:
+    """Caret the option whose config key resolves to a table, a list or an opaque object, not to a value."""
+    usage = single_usage_section(doc)
+    snippets = []
+    where = _span_of(parse_pattern(formal_tokens(usage), parse_defaults(doc)).flat(), err.name)
+    if where is not None:
+        snippets.append(Snippet(usage, "in the usage:", [Caret(*where, f"declared [config: {err.key}]")]))
+    hint = None
+    if isinstance(err.found, Mapping) and err.found:  # one level short of the value: name the keys under it
+        leaves = ", ".join(f"`{err.key}.{child}`" for child in list(err.found)[:3])
+        hint = f"point the annotation at a single value: {leaves}"
+    return Diagnostic(
+        summary=f"invalid config value for `{err.name}`",
+        snippets=snippets,
+        note=f"`{err.key}` has type `{type(err.found).__name__}` in the config, and an option takes one value",
+        help=hint,
+    )
+
+
 def _config_lookup(config: Mapping[str, Any], key: str) -> Any:
     """Walk a dotted `[config: a.b.c]` key into the config mapping, or None if any level is absent."""
     node: Any = config
@@ -161,8 +201,14 @@ def _fallback_value(option: Option, config: Mapping[str, Any] | None) -> tuple[s
             return env_value, Source.ENV
     if option.config_key is not None and config is not None:
         found = _config_lookup(config, option.config_key)
-        if found is not None and str(found):  # non-empty; a null or blank config value falls through
-            return str(found), Source.CONFIG  # normalize to a string, so the schema coerces it like a CLI value
+        if found is not None:
+            # Anything outside the value set would reach the option as a repr - `{'c': 1}`, `[1, 2]`, or a
+            # memory address - and the program would run on garbage. It fails here rather than at the
+            # schema: without one, a config value is never coerced, and nothing downstream would notice.
+            if not isinstance(found, _CONFIG_VALUE):
+                raise _ConfigShapeError(cast("str", option.name), option.config_key, found)
+            if str(found):  # non-empty; a null or blank config value falls through
+                return str(found), Source.CONFIG  # a string, so the schema coerces it like a CLI value
     return None
 
 
@@ -364,7 +410,10 @@ def docopt(
         result = Arguments((cast("str", leaf.name), leaf.value) for leaf in [*fixed.flat(), *complete_match])
         result.provided = frozenset(cast("str", leaf.name) for leaf in complete_match)
         result.extra = extra_tokens
-        _apply_fallbacks(result, options, config)
+        try:
+            _apply_fallbacks(result, options, config)
+        except _ConfigShapeError as exc:
+            raise _exit(_config_shape_diagnostic(doc, exc), collected=complete_match, left=left) from exc
         for name, default in argument_defaults.items():
             if name in result and result[name] is None:
                 result[name] = default

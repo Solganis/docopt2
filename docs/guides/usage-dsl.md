@@ -151,6 +151,11 @@ documents the same source chain, so users see where a value resolves from withou
     an empty `APP_PORT=` never silently overrides the config or the default with an empty string. The same
     holds for a `null` or empty config value.
 
+!!! warning "A config key must name a value, not a table"
+    An option takes one value, so `[config: server]` against `{"server": {"port": 80}}` is a mistake: the
+    key stops one level short. docopt2 says so, with a caret and the keys that would have worked, instead
+    of handing `--server` the string `{'port': 80}`. Scalars, dates and times pass through as written.
+
 ### Generate a config skeleton
 
 Once options declare `[config: key]`, [`generate_config_template`](../reference/config-templates.md) turns
