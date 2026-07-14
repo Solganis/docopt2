@@ -4,10 +4,12 @@ import importlib.util
 from collections import Counter
 from pathlib import Path
 
+import pytest
+from assertpy2 import assert_that
 from hypothesis import given
 
 from _strategies import argv_strategy, doc_strategy
-from docopt2 import DocoptExit, DocoptLanguageError, docopt
+from docopt2 import DocoptExit, DocoptLanguageError, docopt, generate_examples
 
 # Load the vendored original docopt as a differential oracle.
 _oracle_path = Path(__file__).parent / "_vendor" / "docopt_original.py"
@@ -118,3 +120,73 @@ def test_docopt2_matches_vanilla_docopt(doc, argv):
     # no value vanilla lacks - its assigned-token multiset is within vanilla's.
     surplus = Counter(_assigned_tokens(got_map)) - Counter(_assigned_tokens(want_map))
     assert not surplus, f"docopt2 assigned a value vanilla did not:\n{context}"
+
+
+# A PRISTINE oracle: the module above is deliberately patched with docopt2's two fixes, so it can no
+# longer see them. These tests need the original as shipped.
+_pristine_spec = importlib.util.spec_from_file_location("docopt_pristine", _oracle_path)
+assert _pristine_spec is not None and _pristine_spec.loader is not None
+_pristine = importlib.util.module_from_spec(_pristine_spec)
+_pristine_spec.loader.exec_module(_pristine)
+
+
+# The three places docopt2 diverges from the original on an argv the original ACCEPTS. The docs state this
+# set as closed ("exactly these three, and nothing else"), so it has to be a test, not a sentence: a fourth
+# divergence, or one of these silently disappearing, must fail here and send someone to rewrite the page.
+_DIVERGENCES = [
+    (
+        "Usage:\n  prog [--to <a>]... <f>...\n  prog [--to <a>]... --config <c> <f>...\n\n"
+        "Options:\n  --to <a>  To.\n  --config <c>  C.\n",
+        ["--to", "a", "--to", "b", "c"],
+        {"--to": ["a", "b", "b"]},  # the original duplicates the last value across usage lines
+        {"--to": ["a", "b"]},
+    ),
+    (
+        "Usage: prog [-s=<kn>] <x>\n\nOptions:\n  -s=<kn>  Speed.\n",
+        ["-s=25", "a"],
+        {"-s": "=25"},  # the original keeps the `=` separator inside the value
+        {"-s": "25"},
+    ),
+    (
+        "Usage: prog [-v] <args>...\n\nOptions:\n  -v  V.\n",
+        ["-v", "--", "-x"],
+        {"<args>": ["--", "-x"]},  # the original leaks an undeclared `--` into the positionals
+        {"<args>": ["-x"]},
+    ),
+]
+
+
+@pytest.mark.parametrize(("doc", "argv", "original", "ours"), _DIVERGENCES)
+def test_the_documented_divergences_are_exactly_what_the_original_does(doc, argv, original, ours):
+    from_original = _pristine.docopt(doc, argv, help=False)
+    from_docopt2 = docopt(doc, argv, help=False, complete=False)
+    for key, value in original.items():
+        assert_that(from_original[key]).described_as(f"original {key}").is_equal_to(value)
+    for key, value in ours.items():
+        assert_that(from_docopt2[key]).described_as(f"docopt2 {key}").is_equal_to(value)
+
+
+_AGREEMENT_DOCS = [
+    "Usage: prog [-o <o>]...\n\nOptions:\n  -o <o>  Out.\n",
+    "Usage: prog [--tag=<t>]...\n\nOptions:\n  --tag=<t>  Tag.\n",
+    "Usage: prog [-p <n>] [-q <s>] <f>\n\nOptions:\n  -p <n>  P.\n  -q <s>  Q.\n",
+    "Usage: prog [options]\n\nOptions:\n  --version  V.\n  --verbose  L.\n",
+    "Usage: prog [--speed=<kn>] <x> <y>\n\nOptions:\n  --speed=<kn>  Speed [default: 10].\n",
+    "Usage:\n  prog add <x>\n  prog rm <x> [--force]\n\nOptions:\n  --force  F.\n",
+]
+
+
+@pytest.mark.parametrize("doc", _AGREEMENT_DOCS)
+def test_a_well_formed_usage_agrees_with_the_original_on_every_sampled_argv(doc):
+    # The other half of the closed set: outside those three, docopt2 returns exactly what the original does.
+    # (Ill-formed docs - an `Options:` header sharing its line with an option - are not in scope: the two
+    # read them differently, but so does every docopt port, and such a doc is not a usage message.)
+    for seed in (1, 2, 3, 4):
+        for argv in generate_examples(doc, count=40, seed=seed):
+            try:
+                expected = _pristine.docopt(doc, argv, help=False)
+            except SystemExit:
+                continue  # the original rejects it: the superset direction, not a break
+            assert_that(dict(docopt(doc, argv, help=False, complete=False))).described_as(
+                f"{doc!r} {argv}"
+            ).is_equal_to(dict(expected))

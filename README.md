@@ -77,7 +77,7 @@ Opt into a colored, scoped help that shows where each value resolves from - env,
 </td>
 <td valign="top">
 <a href="#example-generation"><b>Example generation</b></a><br>
-Sample every argv your usage accepts - for drift detection, fuzzing, and a Hypothesis strategy.
+Sample the argvs your usage accepts - for drift detection, fuzzing, and a Hypothesis strategy.
 </td>
 </tr>
 <tr>
@@ -125,8 +125,7 @@ args = docopt(__doc__)
 # args is a dict: {"ship": True, "<name>": ["titanic"], "move": True, "--speed": "10", ...}
 ```
 
-Every argument vector the original docopt accepts, docopt2 accepts identically -<br>
-so switching over is a one-line import change, and everything else is opt-in.
+docopt2 parses the same usage grammar, so switching over is a one-line import change and everything else is opt-in.
 
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/usage-dsl/">Usage syntax</a></h2>
 
@@ -191,7 +190,7 @@ Usage:
   git push [--force] <remote>
 ```
 
-**docopt2** [points at it](https://solganis.github.io/docopt2/guides/diagnostics/#a-mismatch-at-parse-time) - in the argv *and* the usage that rejected it:
+**docopt2** [points at it](https://solganis.github.io/docopt2/guides/diagnostics/#a-mismatch-at-parse-time) - in the argv *and* the usage that rejected it. The "did you mean" hint is opt-in: pass `suggest=True`.
 
 <p align="center">
   <img src="docs/assets/diagnostic.png" width="620" alt="A docopt2 error: 'unknown option --forcce' with a caret under the token in the argument vector and a second caret under --force in the usage, plus a 'did you mean --force?' hint">
@@ -203,7 +202,7 @@ The same two carets flag a [malformed usage](https://solganis.github.io/docopt2/
   <img src="docs/assets/coercion.png" width="511" alt="A docopt2 error: 'invalid value for --port' with a caret under abc in the argument vector and a second caret under --port=<n> in the usage, plus 'note: abc is not a valid int'">
 </p>
 
-**[Closest usage line.](https://solganis.github.io/docopt2/guides/diagnostics/#the-usage-line-you-were-closest-to)** When several invocations are possible, docopt2 finds the one you got furthest into and carets the single element it still needs - not a generic "no match".
+**[Closest usage line.](https://solganis.github.io/docopt2/guides/diagnostics/#the-usage-line-you-were-closest-to)** docopt2 finds the usage line you got furthest into and carets the single element it still needs, rather than reprinting the whole usage. It needs a matched command or option to go on: an argv that matches no line at all falls back to the plain mismatch message.
 
 <a name="subcommand-dispatch"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/dispatch/">Subcommand dispatch</a></h2>
@@ -372,7 +371,7 @@ Options:
   -v --verbose  Be loud.
 ```
 
-The change is layout-only and idempotent, so `docopt2 fmt` drops into a pre-commit hook or a format-check step in CI.
+The change is layout-only and idempotent. `docopt2 fmt` prints to stdout - pipe it back to rewrite the file, or diff it in CI to flag a usage that is not formatted.
 
 <a name="round-trip"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/round-trip/">Round-trip: results back to argv</a></h2>
@@ -385,8 +384,9 @@ args = docopt(doc, "a b --force")
 format_argv(args, doc)   # ['a', 'b', '--force'] - which docopt parses straight back to args
 ```
 
-It emits exactly what was provided and verifies each candidate by re-parsing, so `docopt(format_argv(x)) == x` always holds -<br>
-a round-trip for reproducible commands, safe subprocess argv, and property tests.
+It emits every element that carries a value - what you supplied, plus whatever `[env:]` or `[config:]` resolved - so the argv stands on its own.<br>
+Each candidate is verified by re-parsing: the argv it returns always parses straight back to `x`, and an ambiguous grammar raises rather than return a wrong one.<br>
+A round-trip for reproducible commands, safe subprocess argv, and property tests.
 
 <a name="compat"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/compat/">Compatibility checking</a></h2>

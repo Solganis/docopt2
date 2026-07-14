@@ -6,12 +6,15 @@
 pip install docopt2
 ```
 
-docopt2 has zero runtime dependencies: the core imports nothing outside the Python standard library.
+docopt2 has zero runtime dependencies: `[project.dependencies]` is empty, and the core needs nothing
+outside the Python standard library.
 pydantic support is reflective and optional (`docopt2[pydantic]`).
 
 !!! tip "Coming from the original docopt?"
-    docopt2 is a drop-in replacement on Python 3.10+. Change the import and every argument vector the
-    original accepts still parses identically; everything else is opt-in.
+    docopt2 is a drop-in replacement on Python 3.10+. Change the import and the same usage message parses
+    to the same mapping. It is a compatible superset rather than a bit-identical clone: it also accepts
+    argvs the original rejects, and it corrects three of the original's parsing bugs
+    ([every divergence is pinned by name](concepts/design-boundaries.md#drop-in-compatibility)).
 
 ## Your first parse
 
@@ -57,8 +60,9 @@ args["add"]     # True
 args["<file>"]  # ['a.txt', 'b.txt']
 ```
 
-Positionals, options with defaults, flags, commands, repetition - that is the whole vocabulary, and a real
-program just combines them. Save this as `naval_fate.py`:
+Positionals, options with defaults, flags, commands, repetition - that is most of the vocabulary, and a real
+program just combines them (add groups, alternation, `[options]` and `--`, and you have all of it). Save this
+as `naval_fate.py`:
 
 ```python
 """Naval Fate.
@@ -110,8 +114,9 @@ $ python naval_fate.py ship new Titanic Bismarck
  'shoot': False}
 ```
 
-Every element in the usage becomes a key: each command is `True` or `False`, each positional holds its
-string (or a list under `...`, or `None` when absent), and `--speed` already carries its
+Each element in the usage becomes a key, under one name: a command is `True` or `False` (a count once it
+repeats), a positional holds its string (or a list under `...`, or `None` when absent), and an option keyed
+by its long form if it has one - so `-h --help` is a single `--help` key. `--speed` already carries its
 `[default: 10]`. Read the values back by name. A second call fills different keys:
 
 ```console
@@ -127,8 +132,9 @@ arguments["--speed"]   # '15'
 ```
 
 !!! note "Help and version are handled for you"
-    Because `-h`/`--help` and `--version` appear in the usage, docopt2 answers them before your code
-    runs: `--help` prints the docstring and exits, and `--version` prints the `version` you passed.
+    `--help` prints the docstring and exits; `--version` prints the `version=` you passed. Both are driven
+    by the `help=` and `version=` keywords, not by their presence in the usage - deleting the
+    `naval_fate -h | --help` line does not turn `--help` off. Pass `help=False` to take it over yourself.
 
     ```console
     $ python naval_fate.py --version
@@ -181,8 +187,9 @@ checkers see `args.port` as an `int`. A schema can be a dataclass, a `TypedDict`
 how a coercion failure surfaces are covered in [Typed results](guides/typed-results.md).
 
 You do not have to write the schema by hand. `docopt2 stub naval_fate.py` reads the usage and prints a
-ready-to-edit dataclass (or a `TypedDict`, or a `Cli` subclass) with every field typed from the grammar;
-widen a field like `speed: int` and the coercion follows. See [Schema stubs](guides/stub.md).
+ready-to-edit dataclass (or a `TypedDict`, or a `Cli` subclass) with every field typed from the grammar.
+The grammar only knows `--speed` holds a string, so it emits `speed: str`; narrow it to `speed: int` and
+the coercion follows. See [Schema stubs](guides/stub.md).
 
 ## Next steps
 

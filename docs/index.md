@@ -2,14 +2,19 @@
 
 Typed successor to docopt. The usage message is the parser spec.
 
-`docopt2` is a drop-in replacement for [docopt](https://github.com/docopt/docopt): every argument
-vector the original accepts, docopt2 accepts identically, so switching over is a one-line import
-change. Everything beyond that - typed results, diagnostics, linting, stubs, completion, dispatch -
-is opt-in.
+`docopt2` is a drop-in replacement for [docopt](https://github.com/docopt/docopt): it parses the same
+usage grammar and returns the same mapping, so switching over is a one-line import change. It is a
+compatible superset rather than a bit-identical clone - it also accepts argvs the original rejects, and
+it corrects three of the original's parsing bugs
+([every divergence is pinned by name](concepts/design-boundaries.md#drop-in-compatibility)).
+
+Diagnostics come with it. Everything else - typed results, linting, stubs, completion, dispatch - is opt-in.
 
 !!! note "Zero dependencies"
-    The core imports nothing outside the Python standard library. pydantic support is optional and
-    reflective (`pip install docopt2[pydantic]`), needed only when you pass a pydantic model as a schema.
+    The core needs nothing outside the Python standard library: `[project.dependencies]` is empty. (It uses
+    `typing_extensions` for `Required`/`NotRequired` on Python 3.10 if you happen to have it installed, and
+    works without it.) pydantic support is optional and reflective (`pip install docopt2[pydantic]`), needed
+    only when you pass a pydantic model as a schema; the Hypothesis strategy needs `docopt2[hypothesis]`.
 
 ## Why docopt2
 
@@ -28,9 +33,9 @@ is opt-in.
 
     ---
 
-    On a mismatch, a two-span caret ties the offending token in the argument vector to the usage that
-    rejected it, in color. Typos get a "did you mean" hint; a multi-line usage gets the closest line and
-    the one element it still needs - never a bare reprint.
+    On a mismatch, a caret marks the offending token in the argument vector, cross-referenced to the usage
+    that rejected it when the usage names that token. An argv that gets partway into a usage line gets a
+    caret under the one element it still needs. Pass `suggest=True` for a spell-checked "did you mean" hint.
 
     [:octicons-arrow-right-24: Diagnostics](guides/diagnostics.md)
 
@@ -111,8 +116,9 @@ is opt-in.
 
     ---
 
-    `format_argv` is the inverse of `docopt`: it rebuilds a canonical argv from a parsed result, verified
-    by a re-parse, so `docopt(format_argv(x)) == x`. One usage spec drives both parsing and synthesis.
+    `format_argv` is the inverse of `docopt`: it rebuilds a canonical argv from a parsed result and verifies
+    it by re-parsing, so the argv it returns always parses back to `x` (a grammar whose argv is genuinely
+    ambiguous raises rather than return a wrong one). One usage spec drives both parsing and synthesis.
 
     [:octicons-arrow-right-24: Round-trip to argv](guides/round-trip.md)
 
@@ -121,7 +127,8 @@ is opt-in.
     ---
 
     `check_compat` (or `docopt2 compat`) reports the invocations an old usage accepts that a new one
-    rejects - the breaking changes to your CLI - so it drops into a release gate. Never a false all-clear.
+    rejects - the breaking changes to your CLI - so it drops into a release gate. It reports only breaks it
+    can prove; an empty result means none was found, never that the two are compatible.
 
     [:octicons-arrow-right-24: Compatibility checking](guides/compat.md)
 

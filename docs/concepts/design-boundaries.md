@@ -6,13 +6,10 @@ that keeps the tool small and the reasoning you can check against the code.
 
 ## Drop-in compatibility
 
-Every argument vector the original docopt accepts, docopt2 accepts identically. Switching over is a
-one-line import change - `from docopt import docopt` becomes `from docopt2 import docopt` - and every
-added capability is opt-in.
-
-"Identically" is concrete: `docopt()` returns the same mapping the original returns, keyed by usage
-element name. The return type is `Arguments`, a plain `dict` subclass, so existing code that treats the
-result as a dictionary keeps working unchanged.
+docopt2 parses the same usage grammar and returns the same mapping the original returns, keyed by usage
+element name. Switching over is a one-line import change - `from docopt import docopt` becomes
+`from docopt2 import docopt` - and every added capability is opt-in. The return type is `Arguments`, a
+plain `dict` subclass, so existing code that treats the result as a dictionary keeps working unchanged.
 
 ```python
 from docopt2 import docopt
@@ -21,11 +18,22 @@ docopt("Usage: prog <host> <port>", "127.0.0.1 8080")
 # {'<host>': '127.0.0.1', '<port>': '8080'}   -> an Arguments, a dict subclass
 ```
 
-The superset behavior begins only in one place: the match strategy. docopt2 computes the greedy match
-first - the exact result the original produces - so every argv the original accepts returns the same
-values. Only when that greedy match leaves tokens unconsumed does docopt2 keep looking, bounded by a
-match limit, for an alternative that consumes the whole argv. The search can accept an argv the original
-rejected; it never changes an argv the original already accepted.
+It is a compatible **superset**, not a bit-identical clone, and the difference is worth being precise
+about. docopt2 computes the greedy match first - the exact result the original produces - and only when
+that leaves tokens unconsumed does it keep looking, bounded by a match limit, for an alternative that
+consumes the whole argv. So it accepts argvs the original rejects.
+
+It also **corrects three of the original's parsing bugs**, and where the original misbehaved, the result
+differs. A differential run over a corpus of usage messages found exactly these three, and nothing else:
+
+| argv | the original | docopt2 |
+| --- | --- | --- |
+| `--to a --to b c`, where `--to` repeats across two usage lines | `{'--to': ['a', 'b', 'b']}` - the last value is duplicated | `{'--to': ['a', 'b']}` |
+| `-s=25`, a short option written with `=` | `{'-s': '=25'}` - the separator is kept in the value | `{'-s': '25'}` |
+| `-v -- -x`, where the usage does not declare `--` | `{'<args>': ['--', '-x']}` - the separator leaks in | `{'<args>': ['-x']}` |
+
+A program that leaned on one of those will notice; nothing else changes. Every divergence is pinned by
+name in [`tests/test_divergences.py`](https://github.com/Solganis/docopt2/blob/main/tests/test_divergences.py).
 
 !!! note
     The extra keyword parameters (`schema`, `suggest`, `allow_extra`, `negative_numbers`, and the rest)
