@@ -1,11 +1,15 @@
+from importlib.metadata import version
+
 from assertpy2 import assert_that
 
 import docopt2
 
 
-def test_version_is_exposed_lazily_as_a_string():
+def test_version_is_exposed_lazily_as_the_installed_distribution_version():
     # __version__ is resolved on access (PEP 562 __getattr__), not imported eagerly, yet still reads.
-    assert_that(docopt2.__version__).is_instance_of(str).matches(r"^\d+\.\d+")
+    # Asserting only its SHAPE would also accept "0.0.0" - what the lookup falls back to when the
+    # distribution is not found - so looking up the wrong name entirely would still read as a pass.
+    assert_that(docopt2.__version__).is_equal_to(version("docopt2"))
 
 
 def test_lazy_tooling_loads_on_first_access_and_is_callable():

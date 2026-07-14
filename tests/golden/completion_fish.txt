@@ -1,0 +1,5 @@
+function _git_tool_completion
+    set -l tokens (commandline -opc)
+    env _DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS=(string join \n -- $tokens[2..-1] | string collect) $tokens[1]
+end
+complete -c git-tool -f -a '(_git_tool_completion)'

@@ -1,0 +1,23 @@
+Register-ArgumentCompleter -Native -CommandName git-tool -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    $typed = @($commandAst.CommandElements | Where-Object { $_.Extent.EndOffset -le $cursorPosition })
+    $words = @($typed | Select-Object -Skip 1 | ForEach-Object {
+        if ($_ -is [System.Management.Automation.Language.StringConstantExpressionAst]) { $_.Value } else { $_.ToString() }
+    })
+    if ($wordToComplete -ne '' -and $words.Count -gt 0) { $words = @($words | Select-Object -SkipLast 1) }
+    $env:_DOCOPT2_COMPLETE = '1'
+    $env:_DOCOPT2_WORDS = ($words -join "`n")
+    try {
+        & $commandAst.CommandElements[0].ToString() 2>$null | ForEach-Object {
+            $parts = $_ -split "`t", 2
+            $name = $parts[0]
+            if ($name.StartsWith($wordToComplete, [System.StringComparison]::Ordinal)) {
+                $tip = if ($parts.Count -ge 2 -and $parts[1]) { $parts[1] } else { $name }
+                [System.Management.Automation.CompletionResult]::new($name, $name, 'ParameterValue', $tip)
+            }
+        }
+    } finally {
+        Remove-Item Env:_DOCOPT2_COMPLETE -ErrorAction SilentlyContinue
+        Remove-Item Env:_DOCOPT2_WORDS -ErrorAction SilentlyContinue
+    }
+}

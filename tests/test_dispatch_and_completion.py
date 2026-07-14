@@ -2,10 +2,12 @@ import dataclasses
 import os
 from pathlib import Path
 
+import pytest
 from assertpy2 import assert_that
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from pytest import raises
+from tools import regolden  # the one definition of what the golden scripts are generated from
 
 from docopt2 import (
     Argument,
@@ -167,16 +169,8 @@ def test_dispatch_run_rejects_a_schema_it_cannot_route_on():
 
 # --- completion resolver (context-aware) --------------------------------------------------------
 
-_GIT_DOC = """Usage:
-  git-tool clone <url> [--depth=<n>]
-  git-tool commit [-m <msg>] [--amend]
-  git-tool remote add <name> <url>
-
-Options:
-  --depth=<n>  Clone depth.
-  -m <msg>     Message.
-  --amend      Amend commit.
-"""
+# The usage the golden scripts are generated from, so the two can never describe different CLIs.
+_GIT_DOC = regolden.DOC
 
 _PKG_DOC = """Usage:
   prog [options] push <remote>
@@ -230,7 +224,7 @@ def test_complete_after_a_double_dash_offers_commands_but_not_options():
 
 
 def test_complete_returns_nothing_while_completing_an_option_value():
-    # the prefix ends at an option that needs an argument; we do not complete arbitrary values
+    # the prefix ends at an option that needs an argument; arbitrary values are not completed
     assert_that(complete(_GIT_DOC, ["commit", "-m", ""])).is_equal_to([])
 
 
@@ -391,7 +385,7 @@ _COMPLETION_GUIDE = (Path(__file__).parent.parent / "docs" / "guides" / "complet
 
 def test_the_completion_guide_prints_the_script_the_tool_really_emits():
     # The guide shows the bash script verbatim, and a stale script in the docs is a script people paste.
-    # Nothing else guards the guides, which is how this one came to show a script we no longer generate.
+    # Nothing else guards the guides, which is how this one came to show a script no longer generated.
     assert_that(_COMPLETION_GUIDE).contains(generate_completion(_GIT_DOC, "naval", "bash").strip())
 
 
@@ -417,7 +411,7 @@ def test_zsh_script_has_a_compdef_header_and_a_sanitized_name():
 
 
 def test_zsh_script_completes_when_autoloaded_and_registers_when_sourced():
-    # Saved as `_prog` on $fpath - the install our own docs recommend - zsh runs the file's BODY as the
+    # Saved as `_prog` on $fpath - the install the docs recommend - zsh runs the file's BODY as the
     # completion function. A body that only defines the function and calls compdef therefore adds no
     # candidates at all on the first Tab. `CURRENT` is set only while the completion system is running, so
     # it tells the two installs apart.
@@ -485,3 +479,17 @@ def test_generate_completion_without_a_usage_section_raises_language_error():
 def test_generate_completion_rejects_a_prog_with_shell_metacharacters():
     # `prog` is interpolated into sourced shell scripts, so a name that could inject is refused.
     assert_that(generate_completion).raises(ValueError).when_called_with("usage: prog cmd", "foo; rm -rf ~")
+
+
+@pytest.mark.parametrize("shell", regolden.SHELLS)
+def test_the_generated_script_matches_its_golden_copy(shell):
+    """A shell script is an artifact a user sources and their shell then EXECUTES.
+
+    The assertions above pin the lines that once carried bugs; they say nothing about the rest of the
+    template, so a stray character anywhere else yields a script that does not run and no test objects.
+    zsh and PowerShell cannot be driven in CI, which leaves a byte-for-byte copy as the only guard.
+    After an intentional change to a template: `uv run python tools/regolden.py`.
+    """
+    script = generate_completion(_GIT_DOC, regolden.PROG, shell)
+    golden = (Path(__file__).parent / "golden" / f"completion_{shell}.txt").read_text(encoding="utf-8")
+    assert_that(script).is_equal_to(golden)

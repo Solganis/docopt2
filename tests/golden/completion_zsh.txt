@@ -1,0 +1,26 @@
+#compdef git-tool
+_git_tool_completion() {
+    local joined="${(pj:\n:)words[2,CURRENT-1]}"
+    local -a lines described bare
+    lines=("${(@f)$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS=$joined ${words[1]})}")
+    local line desc
+    for line in $lines; do
+        desc="${line#*$'\t'}"
+        if [[ -n $desc ]]; then
+            described+=("${line%%$'\t'*}:$desc")
+        else
+            bare+=("${line%%$'\t'*}")
+        fi
+    done
+    if (( $#described )); then
+        _describe -t candidates candidate described
+    fi
+    if (( $#bare )); then
+        compadd -a bare
+    fi
+}
+if (( ${+CURRENT} )); then
+    _git_tool_completion "$@"
+else
+    compdef _git_tool_completion git-tool
+fi

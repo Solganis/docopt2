@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import inspect
 import sys
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -13,6 +14,7 @@ from assertpy2 import assert_that
 from pytest import raises
 
 from docopt2 import Cli, DocoptExit, DocoptLanguageError, docopt
+from docopt2 import _core as core
 
 if sys.version_info >= (3, 11):
     from typing import NotRequired, Required, TypedDict
@@ -318,6 +320,75 @@ def test_cli_parse_defaults_help_on_and_forwards_it():
         HelpDefaultCli.parse(["-h"])
 
 
+def test_a_dataclass_field_with_a_default_factory_may_be_absent():
+    # `default_factory` is the one thing a dataclass carries that a plain class does not: it leaves NO
+    # class attribute behind, so the plain-class fallback ("does the class have this name?") cannot see
+    # it and would refuse the absent element. Nothing tested it - which meant `_is_dataclass` could have
+    # answered False for every schema and the whole dataclass path would have gone unexercised.
+    @dataclasses.dataclass
+    class WithFactory:
+        host: str
+        tag: str = dataclasses.field(default_factory=lambda: "none")
+
+    absent = docopt("Usage: prog <host> [<tag>]", "h", schema=WithFactory)
+    assert_that(absent.host).is_equal_to("h")
+    assert_that(absent.tag).is_equal_to("none")  # the factory supplied it; the usage did not
+    given = docopt("Usage: prog <host> [<tag>]", "h t", schema=WithFactory)
+    assert_that(given.tag).is_equal_to("t")
+
+
+def test_cli_parse_defaults_are_the_same_as_docopts():
+    # Cli.parse restates docopt()'s keywords, so its defaults are a second copy that can drift from
+    # the first. Read them off both signatures rather than writing the values down a third time.
+    docopt_defaults = inspect.signature(docopt).parameters
+    for name, parameter in inspect.signature(Cli.parse).parameters.items():
+        if name in ("cls", "argv"):
+            continue
+        assert_that(parameter.default).described_as(name).is_equal_to(docopt_defaults[name].default)
+
+
+def test_cli_parse_forwards_every_option_to_docopt(monkeypatch):
+    # Cli.parse is a pure forwarder, and nothing checked that each keyword actually arrives: dropping
+    # `suggest=suggest` from the call left every test passing while the caller's argument vanished.
+    seen: dict[str, object] = {}
+
+    def spy(doc, argv=None, *positional, **keywords):
+        seen.update(keywords, doc=doc, argv=argv, positional=positional)
+        return Server(host="h", port=1)
+
+    monkeypatch.setattr(core, "docopt", spy)
+    Server.parse(
+        ["h", "80"],
+        help=False,
+        version="2.0",
+        options_first=True,
+        suggest=True,
+        negative_numbers=True,
+        allow_abbrev=False,
+        allow_extra=True,
+        exit_code=7,
+        complete=False,
+        config={"a": 1},
+        help_style="rich",
+    )
+    assert_that(seen).is_equal_to(
+        {
+            "doc": Server.__cli_doc__,
+            "argv": ["h", "80"],
+            "positional": (False, "2.0", True),  # help, version and options_first go by position
+            "suggest": True,
+            "negative_numbers": True,
+            "allow_abbrev": False,
+            "allow_extra": True,
+            "exit_code": 7,
+            "complete": False,
+            "schema": Server,
+            "config": {"a": 1},
+            "help_style": "rich",
+        }
+    )
+
+
 class WithClassVarConst(Cli):
     __cli_doc__ = "usage: prog <host>"
     host: str
@@ -384,7 +455,7 @@ class FakeModel:
 def test_pydantic_style_model_validate_is_delegated():
     result = docopt("Usage: prog <host> <port>", "h 80", schema=FakeModel)
     assert_that(result.host).is_equal_to("h")
-    # Delegated to model_validate; our own coercion is not applied, so port stays a str.
+    # Delegated to model_validate; docopt2's own coercion is not applied, so port stays a str.
     assert_that(result.port).is_equal_to("80")
 
 

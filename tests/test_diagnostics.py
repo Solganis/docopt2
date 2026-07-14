@@ -135,6 +135,24 @@ def test_render_a_caretless_snippet_shows_the_source_with_no_underline():
     assert_that(text).contains("hello").does_not_contain("^")
 
 
+def test_a_caretless_snippet_shows_the_first_line_of_a_multi_line_source():
+    # With no caret to anchor on, the snippet falls back to the source's opening line. Nothing pinned
+    # WHICH line, so reaching for the last one instead would have gone unnoticed.
+    text = Diagnostic("no carets", [Snippet("first line\nsecond line\nthird line", "src:", [])]).render()
+    assert_that(text).contains("first line").does_not_contain("second line").does_not_contain("third line")
+
+
+def test_a_source_that_opens_with_a_newline_still_carets_the_right_line():
+    # `"""\nUsage: ...` is the ordinary way to write a docstring, so a snippet source can begin with a
+    # newline - and then the line a caret sits on starts at index 1, not 0. Nothing exercised that.
+    source = "\nUsage: prog [options]\n"
+    at = source.index("[options]")
+    text = Diagnostic("empty shortcut", [Snippet(source, "in the usage:", [Caret(at, at + 9, "expands to nothing")])])
+    source_row, underline = _underlines(text.render())[0]
+    assert_that(source_row).is_equal_to("Usage: prog [options]")
+    assert_that(source_row[underline.index("^") :][:9]).is_equal_to("[options]")
+
+
 def test_render_shows_only_the_line_that_holds_the_caret():
     source = "line one\nline two <x> here\nline three"
     at = source.index("<x>")

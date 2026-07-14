@@ -1,0 +1,17 @@
+_git_tool_completion() {
+    local -a typed=()
+    local index part
+    for (( index = 1; index < COMP_CWORD; index++ )); do
+        part=${COMP_WORDS[index]}
+        if [[ ${#typed[@]} -gt 0 && ( $part == [:=] || ${COMP_WORDS[index-1]} == [:=] ) ]]; then
+            typed[$(( ${#typed[@]} - 1 ))]+=$part
+        else
+            typed+=("$part")
+        fi
+    done
+    local IFS=$'\n'
+    local words="${typed[*]}"
+    local reply; reply="$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" 2>/dev/null | cut -f1)"
+    COMPREPLY=( $(compgen -W "$reply" -- "${COMP_WORDS[COMP_CWORD]}") )
+}
+complete -F _git_tool_completion git-tool
