@@ -35,7 +35,9 @@ docopt2 is a command-line argument parser for Python. Most CLI libraries have yo
 
 Put the `Usage:` and `Options:` text in your module docstring - the help you would write anyway - and docopt2 parses the command line against it. The help your users read and the parser that runs are the same text, so they can never drift.
 
-The [full documentation](https://solganis.github.io/docopt2/) walks through [Getting started](https://solganis.github.io/docopt2/getting-started/) and the guides.
+<p align="center">
+The <a href="https://solganis.github.io/docopt2/">full documentation</a> walks through <a href="https://solganis.github.io/docopt2/getting-started/">Getting started</a> and the guides.
+</p>
 
 <h2 align="center">Features</h2>
 
