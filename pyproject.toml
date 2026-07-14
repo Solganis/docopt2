@@ -34,7 +34,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-# Reflective only: we never `import pydantic`. This extra is a convenience pin for
+# Reflective only: pydantic is never imported. This extra is a convenience pin for
 # users who pass a pydantic model as `schema=`. The core stays zero-dependency.
 pydantic = ["pydantic>=2"]
 # Opt-in only: imported solely by `docopt2.hypothesis`, never by the core. Enables the
@@ -64,7 +64,7 @@ dev = [
     "ruff>=0.15.20",
     "ty>=0.0.58",
     # Dev-only. Does not affect the zero runtime-dependency guarantee (that concerns
-    # [project.dependencies]). Used to dogfood our own test modules; the ported
+    # [project.dependencies]). Used to dogfood the project's own test modules; the ported
     # compatibility suites stay on plain assert/pytest.raises on purpose.
     "assertpy2>=2.15",
     # Dev-only: verifies the reflective pydantic binding path against the real library.
@@ -91,6 +91,19 @@ typecheck = [
     "mypy>=2.2.0",
     "pyright>=1.1.411",
 ]
+# Mutation testing. Its own group because mutmut forks and calls os.wait: it does not run on
+# Windows at all, so it must not sit in the dev group every contributor installs.
+mutation = [
+    "mutmut>=3.3.1",
+]
+
+[tool.mutmut]
+source_paths = ["src/docopt2/"]
+# mutmut runs the suite from a copy of the tree, and these are read by tests at runtime, not
+# imported: the README examples, the doc guides' verbatim tool output, the example programs, and
+# the screenshot manifest. Without them those tests error on collection and every mutant would
+# score as killed.
+also_copy = ["README.md", "docs/", "examples/", "tools/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -123,23 +136,23 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-# 120 feeds both `ruff format` and the E501 lint. We do NOT disable E501 (see the
+# 120 feeds both `ruff format` and the E501 lint. E501 stays enabled (see the
 # empty `ignore` below): line length is a hard rule, not just a formatter hint.
 line-length = 120
-target-version = "py310"  # lowest Python we support; UP rewrites target this floor
+target-version = "py310"  # the lowest supported Python; UP rewrites target this floor
 src = ["src", "tests"]
 # Vendored copies of the original docopt, kept verbatim as a differential oracle and a
-# reference checkout; never linted (they are not our code and must not be modernized).
+# reference checkout; never linted (not this project's code, and must not be modernized).
 extend-exclude = ["tests/_vendor", "docopt-master"]
 
 [tool.ruff.lint]
 # Enable preview rules, but ONLY the ones named explicitly in `select`
-# (explicit-preview-rules), so we opt into a single preview rule (E301) without
+# (explicit-preview-rules), so a single preview rule (E301) is opted into without
 # pulling in every unstable rule ruff ships behind the preview flag.
 preview = true
 explicit-preview-rules = true
 
-# Curated set, not "ALL": each prefix is here on purpose. Plugin name + why we keep it.
+# Curated set, not "ALL": each prefix is here on purpose. Plugin name + why it earns a place.
 select = [
     "E",     # pycodestyle errors
     "E301",  # pycodestyle, preview-gated: blank line between methods (not in stable "E")
@@ -147,7 +160,7 @@ select = [
     "W",     # pycodestyle warnings
     "N",     # pep8-naming - naming conventions across the Pattern hierarchy
     "I",     # isort - import ordering (all imports at top of file)
-    "UP",    # pyupgrade - modernize syntax to our py310 floor
+    "UP",    # pyupgrade - modernize syntax to the py310 floor
     "B",     # flake8-bugbear - likely bugs and footguns
     "A",     # flake8-builtins - don't shadow builtins (help= is an explained exception)
     "C4",    # flake8-comprehensions - drop redundant list()/dict()/set() wrappers

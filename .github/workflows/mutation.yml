@@ -1,0 +1,63 @@
+name: Mutation
+
+# Coverage says a line ran; mutation testing asks whether anything would have NOTICED had it been
+# wrong. It is a review tool, not a gate: most survivors are equivalent mutants (error-message text
+# the tests do not assert on, shell-script templates, `cast()`, `__repr__`), so this job always ends
+# green and publishes the survivor list to triage. Weekly, not nightly - the score only moves when
+# src/ or tests/ move, and a recurring red that means nothing is a red people learn to ignore.
+#
+# Linux only: mutmut forks and calls os.wait, and does not run on Windows.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # mutmut replays a SUBSET of the suite per mutant, so the 100% coverage gate in `addopts` would
+      # fail every replay - and mutmut reads a failing run as "mutant killed", scoring all of them
+      # killed. `--no-cov` switches the gate off without touching pyproject.
+      #
+      # 25 hypothesis examples, not the full 300. Derandomised, they are the first 25 the full profile
+      # draws, so this can only under-kill: measured over all 4558 mutants, the full profile kills 3
+      # more, and those 3 come back as survivors to look at. It over-reports suspects, never hides one.
+      PYTEST_ADDOPTS: "--no-cov --hypothesis-profile=mutation"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Baseline suite must pass before any mutant is judged
+        # A red baseline would make mutmut score every mutant killed, and the report would read as a
+        # perfect score. Fail loudly here instead.
+        run: uv run --locked pytest -q --no-cov
+
+      - name: Run the mutants
+        run: uv run --locked --group mutation mutmut run
+
+      - name: Report
+        # The tally comes from the per-module result files mutmut writes, not from its progress line:
+        # that line is emoji, carriage returns and ANSI, and scraping it would break on a locale change.
+        run: |
+          uv run python tools/mutation_report.py >> "$GITHUB_STEP_SUMMARY"
+          uv run --locked --group mutation mutmut results > survivors.txt
+
+      - name: Upload the survivor list
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: surviving-mutants
+          path: survivors.txt

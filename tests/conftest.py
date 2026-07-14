@@ -20,6 +20,12 @@ settings.register_profile(
     "docopt2", max_examples=300, derandomize=True, deadline=None, suppress_health_check=[HealthCheck.too_slow]
 )
 settings.register_profile("explore", max_examples=10000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+# Mutation testing replays the suite once per mutant, thousands of times over. Derandomised, these are
+# the first 25 examples the full profile draws, so it can only ever under-kill - measured against the
+# full 300 over 4558 mutants, it misses 3 of them, and reports those 3 as survivors to look at anyway.
+settings.register_profile(
+    "mutation", max_examples=25, derandomize=True, deadline=None, suppress_health_check=[HealthCheck.too_slow]
+)
 settings.load_profile("docopt2")
 
 Case = tuple[str, str, Any]
