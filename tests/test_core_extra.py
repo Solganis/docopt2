@@ -1,9 +1,21 @@
+import itertools
+import random
 import sys
 
+import pytest
 from assertpy2 import assert_that
 from pytest import raises
 
 from docopt2 import Arguments, DocoptExit, DocoptLanguageError, Option, Tokens, docopt
+from docopt2._parser import (
+    OneOrMore,
+    expand_options_shortcut,
+    formal_usage,
+    parse_argv,
+    parse_defaults,
+    parse_pattern,
+    single_usage_section,
+)
 
 
 def test_none_doc_raises_language_error():
@@ -26,9 +38,75 @@ def test_deeply_nested_pattern_fails_cleanly_not_with_a_recursion_error():
     assert_that(str(exc_info.value)).contains("too deeply")
 
 
-def test_deeply_repeated_argv_fails_cleanly_not_with_a_recursion_error():
-    # A very long repetition match must exit cleanly (DocoptExit), not crash with a RecursionError.
-    assert_that(docopt).raises(DocoptExit).when_called_with("usage: prog <x>...", ["a"] * 4000)
+def _recursively_matched(self, left, collected):
+    """`OneOrMore.matches` as it was written before it was made iterative, kept as the reference.
+
+    The rewrite exists to stop the stack growing with the argv (see the long-repetition test below), and
+    it is only correct if it yields the SAME SEQUENCE - not merely the same first result. docopt() pumps
+    the generator past the greedy outcome looking for one that consumes everything, so the order of what
+    comes after decides which argv is accepted.
+    """
+
+    def walk(cur_left, cur_collected):
+        for next_left, next_collected in self.children[0].matches(cur_left, cur_collected):
+            if len(next_left) < len(cur_left):
+                yield from walk(next_left, next_collected)
+                yield next_left, next_collected
+            else:
+                yield next_left, next_collected
+
+    yield from walk(left, collected)
+
+
+_REPETITION_GRAMMARS = [
+    "Usage: prog <x>...",
+    "Usage: prog <x>... <y>",
+    "Usage: prog (<a> <b>)...",
+    "Usage: prog [<x>]...",
+    "Usage: prog -v...\n\nOptions:\n  -v  Verbosity.\n",
+    "Usage: prog --to=<a>... <c>\n\nOptions:\n  --to=<a>  Target.\n",
+    "Usage: prog (a | b)... <x>",
+    "Usage: prog <x>... | <y> <z>",
+]
+_ARGV_TOKENS = ["a", "b", "c", "-v", "--to=q", "1", "2"]
+
+
+@pytest.mark.parametrize("doc", _REPETITION_GRAMMARS)
+def test_the_iterative_repetition_yields_what_the_recursive_one_did(doc, monkeypatch):
+    options = parse_defaults(doc)
+    pattern = parse_pattern(formal_usage(single_usage_section(doc)), options)
+    expand_options_shortcut(pattern, options)
+    fixed = pattern.fix()
+    iterative = OneOrMore.matches
+    rng = random.Random(7)
+
+    for _ in range(200):
+        argv = [rng.choice(_ARGV_TOKENS) for _ in range(rng.randint(0, 6))]
+        leaves = parse_argv(Tokens(argv), list(options))
+
+        monkeypatch.setattr(OneOrMore, "matches", _recursively_matched)
+        before = [(len(rest), repr(acc)) for rest, acc in itertools.islice(fixed.matches(leaves, []), 400)]
+        monkeypatch.setattr(OneOrMore, "matches", iterative)
+        after = [(len(rest), repr(acc)) for rest, acc in itertools.islice(fixed.matches(leaves, []), 400)]
+
+        assert_that(after).described_as(f"argv={argv}").is_equal_to(before)
+
+
+def test_a_usage_line_too_wide_to_match_fails_cleanly():
+    # Matching a sequence descends once per element it satisfies, so a usage line of thousands of
+    # elements exhausts the stack. That is a pathological usage MESSAGE, not a long argv, and it has to
+    # exit cleanly rather than let a RecursionError escape.
+    names = [f"a{index}" for index in range(1500)]
+    assert_that(docopt).raises(DocoptExit).when_called_with("usage: prog " + " ".join(names), names)
+
+
+def test_a_long_repetition_is_parsed_rather_than_refused():
+    # `prog <files>...` over a shell glob of a few thousand files is ordinary use, and the original
+    # parses it - its OneOrMore is a `while` loop. Matching used to recurse once per argv token, so it
+    # blew the stack past ~1000 and reported "the arguments are too deeply nested"; this test used to
+    # assert that refusal, pinning the regression in place as though it were the contract.
+    result = docopt("usage: prog <x>...", ["a"] * 4000, help=False)
+    assert_that(result["<x>"]).is_length(4000)
 
 
 def test_alternation_heavy_usage_does_not_blow_up_during_fix():

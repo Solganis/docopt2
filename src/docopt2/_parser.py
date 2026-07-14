@@ -168,7 +168,6 @@ class LeafPattern(Pattern):
 
     @value.setter
     def value(self, new_value: LeafValue) -> None:
-        # The setter drops the repr cache so the next compare recomputes it after a value mutation.
         self._value = new_value
         self._cached_repr = None
 
@@ -402,17 +401,29 @@ class OneOrMore(BranchPattern):
     """The single child must match one or more times."""
 
     def matches(self, left: list[Pattern], collected: list[Pattern]) -> Iterator[MatchOutcome]:
-        # Greedy-first: repeat while the child makes progress ("continue" before "stop"), so the greedy
-        # outcome comes first; also yielding the shorter match lets `<a>... <b>` back off and match.
-        def _rec(cur_left: list[Pattern], cur_collected: list[Pattern]) -> Iterator[MatchOutcome]:
-            for next_left, next_collected in self.children[0].matches(cur_left, cur_collected):
-                if len(next_left) < len(cur_left):  # progress: repeat more, or stop here
-                    yield from _rec(next_left, next_collected)
-                    yield next_left, next_collected
-                else:  # child matched without consuming (e.g. `[NAME]...` with nothing left)
-                    yield next_left, next_collected
+        """Greedy-first: the longest run of the child comes out first, then progressively shorter ones.
 
-        yield from _rec(left, collected)
+        Iterative, on an explicit stack. A repetition consumes one token per round, so a recursive walk
+        would nest once per argv token - and `prog <files>...` over a shell glob of a few thousand files
+        is ordinary use, which the original parses (its ``OneOrMore`` is a ``while`` loop) and a recursive
+        one cannot. Each frame holds the outcome that opened it and yields it once its own run is spent,
+        which is what puts the deepest (greediest) run first.
+        """
+        child = self.children[0]
+        stack: list[tuple[Iterator[MatchOutcome], int, MatchOutcome | None]] = [
+            (child.matches(left, collected), len(left), None)
+        ]
+        while stack:
+            outcomes, remaining_count, opener = stack[-1]
+            outcome = next(outcomes, None)
+            if outcome is None:  # this run is spent; the outcome that opened it comes after everything it led to
+                stack.pop()
+                if opener is not None:
+                    yield opener
+            elif len(outcome[0]) < remaining_count:  # progress: try to repeat before settling for this run
+                stack.append((child.matches(*outcome), len(outcome[0]), outcome))
+            else:  # matched without consuming (`[NAME]...` with nothing left): repeating would not terminate
+                yield outcome
 
 
 class Either(BranchPattern):
