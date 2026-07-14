@@ -2,6 +2,7 @@
 
 Usage:
   rich_help [--port=<n>] [--host=<h>] [--log=<lvl>] <root>
+  rich_help -h | --help
 
 Options:
   --port=<n>   Port to bind [default: 8080] [env: PORT] [config: server.port].
