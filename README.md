@@ -31,9 +31,9 @@
 
 <h2 align="center">What is docopt2?</h2>
 
-docopt2 is a command-line argument parser for Python. Most CLI libraries have you build the parser in code and generate a `--help` out of it; docopt2 goes the other way: **you write the usage message, and that message *is* the parser.**
+docopt2 is a command-line argument parser for Python. Most CLI libraries have you build the parser in code and generate a `--help`; docopt2 inverts that: **you write the usage message, and that message *is* the parser.**
 
-Put the `Usage:` and `Options:` text in your module docstring - the help you would write anyway - and docopt2 parses the command line against it. The help your users read and the parser that runs are the same text, so they can never drift.
+Put the `Usage:` and `Options:` text in your docstring - the help you would write anyway - and docopt2 parses the command line against it. The help users read and the parser that runs are the same, and cannot drift.
 
 <p align="center">
 The <a href="https://solganis.github.io/docopt2/">full documentation</a> walks through <a href="https://solganis.github.io/docopt2/getting-started/">Getting started</a> and the guides.
