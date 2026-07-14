@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import enum
+import functools
 import itertools
 import os
 import re
 import sys
 from collections.abc import Callable, Iterable, Mapping
-from datetime import date, datetime, time
-from decimal import Decimal
-from pathlib import Path
 from typing import Any, ClassVar, TypeVar, cast, overload
-from uuid import UUID
 
 from docopt2._completion import reply_to_completion_request
 from docopt2._diagnostics import Caret, Diagnostic, Snippet, use_color
@@ -143,11 +140,24 @@ def _coercion_diagnostic(doc: str, argv: list[str] | tuple[str, ...] | str, err:
     return Diagnostic(summary=f"invalid value for `{err.key}`", snippets=snippets, note=reason, help=hint)
 
 
-# What a `[config: key]` may hold. A config value is normalized with str(), so the type set is the one
-# whose str() is a faithful, coercible-back rendering: everything `_coerce` accepts as a schema annotation
-# (_typed.py), plus `time`, which a TOML loader yields and no annotation names. A whitelist, not a
-# container blacklist: an opaque object is not a container either, and str(object()) is a memory address.
-_CONFIG_VALUE = (str, bool, int, float, Decimal, Path, UUID, datetime, date, time)
+@functools.cache
+def _config_value_types() -> tuple[type, ...]:
+    """What a `[config: key]` may hold.
+
+    A config value is normalized with str(), so the type set is the one whose str() is a faithful,
+    coercible-back rendering: everything `_coerce` accepts as a schema annotation (_typed.py), plus
+    `time`, which a TOML loader yields and no annotation names. A whitelist, not a container blacklist:
+    an opaque object is not a container either, and str(object()) is a memory address.
+
+    Built on first use, not at import, for the reason given in :func:`docopt2._typed._scalar_coercers`:
+    a usage with no `[config:]` annotation never asks, and must not pay.
+    """
+    from datetime import date, datetime, time  # deferred: see the docstring
+    from decimal import Decimal  # deferred: see the docstring
+    from pathlib import Path  # deferred: see the docstring
+    from uuid import UUID  # deferred: see the docstring
+
+    return (str, bool, int, float, Decimal, Path, UUID, datetime, date, time)
 
 
 class _ConfigShapeError(Exception):
@@ -205,7 +215,7 @@ def _fallback_value(option: Option, config: Mapping[str, Any] | None) -> tuple[s
             # Anything outside the value set would reach the option as a repr - `{'c': 1}`, `[1, 2]`, or a
             # memory address - and the program would run on garbage. It fails here rather than at the
             # schema: without one, a config value is never coerced, and nothing downstream would notice.
-            if not isinstance(found, _CONFIG_VALUE):
+            if not isinstance(found, _config_value_types()):
                 raise _ConfigShapeError(cast("str", option.name), option.config_key, found)
             if str(found):  # non-empty; a null or blank config value falls through
                 return str(found), Source.CONFIG  # a string, so the schema coerces it like a CLI value
@@ -380,7 +390,7 @@ def docopt(
                 break
     _extras(show_help, version, argv_patterns, doc, help_style)
     # Greedy-first: the first outcome is the greedy result, so every argv vanilla accepts is unchanged;
-    # if it leaves leaves over we keep looking (bounded) for a fully-consuming match.
+    # if it leaves leaves over, the search continues (bounded) for a fully-consuming match.
     left: list[Pattern]
     collected: list[Pattern]
     complete_match: list[Pattern] | None
@@ -464,7 +474,6 @@ def docopt(
     # one shared span, which would caret the wrong line when a name repeats (e.g. `<y>` in several lines).
     near_miss = nearest_usage_line(parse_pattern(formal_tokens(usage), parse_defaults(doc)), argv_patterns)
     if near_miss is not None:
-        # Caret the one element the closest line still needs. Ranking needs alternatives; the caret does not.
         name, span, total = near_miss
         snippet = Snippet(usage, "in the usage:", [Caret(*span, "required here")])
         diagnostic = Diagnostic(

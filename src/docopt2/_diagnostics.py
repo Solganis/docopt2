@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import TextIO
+
+# The three classes below are written out by hand rather than declared with @dataclass: `dataclasses` pulls
+# in `inspect`, and the two together are a quarter of what importing docopt2 costs - paid by every CLI on
+# every run, for three small value objects. `__repr__` and `__eq__` are spelled out to match what the
+# decorator generated, because `check()` hands Diagnostics to callers and they are part of that contract.
 
 # Zero-dependency ANSI. Rendering defaults to plain text (color off), since the message travels on
 # an exception and is often inspected as a string; color belongs at the print site, not in str(exc).
@@ -31,22 +35,38 @@ def use_color(stream: TextIO | None) -> bool:
         return False
 
 
-@dataclass
 class Caret:
     """A ``[start, end)`` range in a snippet's source, drawn as ``^`` with a short label beneath."""
 
-    start: int
-    end: int
-    label: str = ""
+    def __init__(self, start: int, end: int, label: str = "") -> None:
+        self.start = start
+        self.end = end
+        self.label = label
+
+    def __repr__(self) -> str:
+        return f"Caret(start={self.start!r}, end={self.end!r}, label={self.label!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Caret):
+            return NotImplemented
+        return (self.start, self.end, self.label) == (other.start, other.end, other.label)
 
 
-@dataclass
 class Snippet:
     """One captioned source (a usage string or an argv line) and the carets drawn under it."""
 
-    source: str
-    intro: str
-    carets: list[Caret]
+    def __init__(self, source: str, intro: str, carets: list[Caret]) -> None:
+        self.source = source
+        self.intro = intro
+        self.carets = carets
+
+    def __repr__(self) -> str:
+        return f"Snippet(source={self.source!r}, intro={self.intro!r}, carets={self.carets!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Snippet):
+            return NotImplemented
+        return (self.source, self.intro, self.carets) == (other.source, other.intro, other.carets)
 
 
 def _source_line(source: str, offset: int) -> tuple[int, str]:
@@ -72,7 +92,6 @@ def _caret_lines(snippet: Snippet) -> list[tuple[int, str, list[Caret]]]:
     return [(start, _source_line(snippet.source, start)[1], carets) for start, carets in sorted(grouped.items())]
 
 
-@dataclass
 class Diagnostic:
     """An error lowered to a uniform shape: a summary, captioned snippets, and note/help lines.
 
@@ -80,11 +99,32 @@ class Diagnostic:
     source lets a single error point a caret at both the input and the usage that rejected it.
     """
 
-    summary: str
-    snippets: list[Snippet] = field(default_factory=list)
-    note: str | None = None
-    help: str | None = None
-    level: str = "error"  # "error" (red) or "warning" (yellow, used by the static linter)
+    def __init__(
+        self,
+        summary: str,
+        snippets: list[Snippet] | None = None,
+        note: str | None = None,
+        help: str | None = None,  # noqa: A002 - the diagnostic's own "help:" line, not the builtin
+        level: str = "error",  # "error" (red) or "warning" (yellow, used by the static linter)
+    ) -> None:
+        self.summary = summary
+        self.snippets = snippets if snippets is not None else []
+        self.note = note
+        self.help = help
+        self.level = level
+
+    def __repr__(self) -> str:
+        return (
+            f"Diagnostic(summary={self.summary!r}, snippets={self.snippets!r}, "
+            f"note={self.note!r}, help={self.help!r}, level={self.level!r})"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Diagnostic):
+            return NotImplemented
+        mine = (self.summary, self.snippets, self.note, self.help, self.level)
+        theirs = (other.summary, other.snippets, other.note, other.help, other.level)
+        return mine == theirs
 
     def render(self, *, color: bool = False) -> str:
         def paint(code: str, text: str) -> str:

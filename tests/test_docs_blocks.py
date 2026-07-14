@@ -17,7 +17,7 @@ from docopt2 import (
     generate_examples,
 )
 from docopt2._help import render_help
-from docopt2._typed import _SCALAR_COERCERS
+from docopt2._typed import _scalar_coercers
 
 # Every `.docopt2-term` block in the docs is verbatim tool output, and almost nothing checked it: only
 # README.md and getting-started.md had guards, so the guides quietly kept a stale bash completion script
@@ -176,7 +176,7 @@ def test_the_docs_show_only_output_the_tool_really_produces():
 # The block guard above only sees verbatim TOOL OUTPUT. A prose claim drifts silently, and one did: the
 # coercion table in typed-results.md calls its set CLOSED, yet `datetime.time` was added to the code and
 # never to the table. This holds the two together in BOTH directions - a type the code coerces but the
-# docs omit, and a row the docs invent - which is why `_SCALAR_COERCERS` is data and not an if-chain.
+# docs omit, and a row the docs invent - which is why `_scalar_coercers()` is data and not an if-chain.
 # `[^`]+`, not `.+?`: a backtick-quoted token cannot contain a backtick, and a lazy `.` that can match one
 # lets a run of them be grouped exponentially many ways - catastrophic backtracking (CodeQL py/redos).
 _TABLE_ROW = re.compile(r"^\| (`[^`]+`(?:, `[^`]+`)*)(?: subclass)? \|", re.M)
@@ -209,6 +209,6 @@ def _documented_name(annotation: type) -> str:
 
 def test_the_coercion_table_documents_exactly_the_types_the_code_coerces():
     documented = _documented_annotations()
-    coercible = {_documented_name(annotation) for annotation in _SCALAR_COERCERS}
+    coercible = {_documented_name(annotation) for annotation in _scalar_coercers()}
     assert_that(coercible - documented).described_as("coerced by the code, missing from the table").is_empty()
     assert_that(documented - _SPELLED_OUT - coercible).described_as("in the table, coerced by nothing").is_empty()

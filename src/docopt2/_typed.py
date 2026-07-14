@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import dataclasses
 import enum
+import functools
 import sys
 import types
 import weakref
-from datetime import date, datetime, time
-from decimal import Decimal
-from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -20,7 +17,6 @@ from typing import (
     get_origin,
     get_type_hints,
 )
-from uuid import UUID
 
 from docopt2._errors import DocoptExit, DocoptLanguageError
 
@@ -29,39 +25,57 @@ if TYPE_CHECKING:
 
 SchemaT = TypeVar("SchemaT")
 
-# The annotations whose coercion is nothing but "call this on the value". Data rather than an if-chain,
-# so the documented table can be held against the real set: `_coerce` claims a CLOSED set, and a closed
-# set that only the code knows drifts from the docs the moment a type is added. Iterated, not looked up,
-# so an unhashable annotation still reaches the "unsupported" error instead of raising TypeError.
-# The forms with their own semantics (str, bool, Enum, list, Literal, `| None`) stay spelled out below.
-_SCALAR_COERCERS: dict[Any, Callable[[Any], Any]] = {
-    int: int,
-    float: float,
-    Path: Path,
-    Decimal: Decimal,
-    UUID: UUID,
-    datetime: datetime.fromisoformat,
-    date: date.fromisoformat,
-    time: time.fromisoformat,
-}
 
-# Required/NotRequired markers for TypedDict optionality, gathered from typing (3.11+) and
-# typing_extensions (present iff the caller uses it, e.g. for NotRequired on Python 3.10).
-_REQUIRED_MARKERS: tuple[Any, ...] = ()
-_NOTREQUIRED_MARKERS: tuple[Any, ...] = ()
-if sys.version_info >= (3, 11):  # pragma: no branch - always taken on the 3.11+ interpreter the suite runs under
-    from typing import NotRequired, Required
+@functools.cache
+def _scalar_coercers() -> dict[Any, Callable[[Any], Any]]:
+    """The annotations whose coercion is nothing but "call this on the value".
 
-    _REQUIRED_MARKERS = (Required,)
-    _NOTREQUIRED_MARKERS = (NotRequired,)
-try:
-    from typing_extensions import NotRequired as _TeNotRequired
-    from typing_extensions import Required as _TeRequired
+    Data rather than an if-chain, so the documented table can be held against the real set: `_coerce`
+    claims a CLOSED set, and a closed set that only the code knows drifts from the docs the moment a type
+    is added. The forms with their own semantics (str, bool, Enum, list, Literal, `| None`) stay spelled
+    out in `_coerce`.
 
-    _REQUIRED_MARKERS += (_TeRequired,)
-    _NOTREQUIRED_MARKERS += (_TeNotRequired,)
-except ImportError:  # pragma: no cover - typing_extensions is optional
-    pass
+    Built on first use, not at import: `datetime`, `decimal`, `pathlib` and `uuid` together are most of
+    what importing docopt2 costs, and a docopt() call without a schema never coerces anything at all.
+    """
+    from datetime import date, datetime, time  # deferred: see the docstring
+    from decimal import Decimal  # deferred: see the docstring
+    from pathlib import Path  # deferred: see the docstring
+    from uuid import UUID  # deferred: see the docstring
+
+    return {
+        int: int,
+        float: float,
+        Path: Path,
+        Decimal: Decimal,
+        UUID: UUID,
+        datetime: datetime.fromisoformat,
+        date: date.fromisoformat,
+        time: time.fromisoformat,
+    }
+
+
+@functools.cache
+def _optionality_markers() -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    """The ``Required`` / ``NotRequired`` markers a TypedDict field can carry, from both sources.
+
+    ``typing`` has them from 3.11; ``typing_extensions`` is the only source on the 3.10 floor, and a
+    caller may use it on any version. It is looked up on first use, not at import: it sits in most
+    environments as somebody else's dependency, it drags in `inspect`, and together they cost more than
+    the rest of docopt2 put together - for a marker only a TypedDict schema can even carry.
+    """
+    required: tuple[Any, ...] = ()
+    not_required: tuple[Any, ...] = ()
+    if sys.version_info >= (3, 11):  # pragma: no branch - always taken on the interpreter the suite runs under
+        from typing import NotRequired, Required  # deferred: see the docstring
+
+        required, not_required = (Required,), (NotRequired,)
+    try:
+        from typing_extensions import NotRequired as TeNotRequired  # deferred: see the docstring
+        from typing_extensions import Required as TeRequired  # deferred: see the docstring
+    except ImportError:  # pragma: no cover - typing_extensions is optional
+        return required, not_required
+    return (*required, TeRequired), (*not_required, TeNotRequired)
 
 
 # get_type_hints (compiling the forward refs from `from __future__ import annotations`) dominates
@@ -128,15 +142,28 @@ def _coerce(value: Any, annotation: Any) -> Any:
         return value
     if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
         return annotation(value)
-    for supported, coercer in _SCALAR_COERCERS.items():
+    # Iterated, not looked up, so an unhashable annotation reaches the "unsupported" error below rather
+    # than raising TypeError from the dict lookup itself.
+    for supported, coercer in _scalar_coercers().items():
         if annotation is supported:
             return coercer(value)
     raise DocoptLanguageError(f"typed docopt cannot coerce to unsupported annotation {annotation!r}")
 
 
+def _is_dataclass(schema: type[Any]) -> bool:
+    """Whether ``schema`` is a dataclass - the dunder ``dataclasses.is_dataclass`` itself looks for.
+
+    Asked directly so the module is not imported: `dataclasses` drags in `inspect`, and the pair is a
+    quarter of what importing docopt2 costs, on every run of every CLI, schema or no schema.
+    """
+    return hasattr(schema, "__dataclass_fields__")
+
+
 def _field_names(schema: type[Any], hints: dict[str, Any]) -> list[str]:
     """The names to bind on ``schema``, excluding ClassVars, dunders, and non-fields."""
-    if dataclasses.is_dataclass(schema):
+    if _is_dataclass(schema):
+        import dataclasses  # deferred; only a real dataclass schema pays for it
+
         return [field.name for field in dataclasses.fields(schema)]
     if _is_typeddict(schema):
         return list(hints)
@@ -177,20 +204,23 @@ def _is_typeddict(schema: type[Any]) -> bool:
 
 def _typeddict_optional_keys(schema: type[Any]) -> set[str]:
     # From __total__ + per-field Required/NotRequired, not __optional_keys__ (misses stringized wrappers).
+    required_markers, not_required_markers = _optionality_markers()
     total = getattr(schema, "__total__", True)
     optional: set[str] = set()
     for name, annotation in _resolved_hints(schema).items():
         origin = get_origin(annotation)
-        if origin in _REQUIRED_MARKERS:
+        if origin in required_markers:
             continue
-        if origin in _NOTREQUIRED_MARKERS or not total:
+        if origin in not_required_markers or not total:
             optional.add(name)
     return optional
 
 
 def _omittable_fields(schema: type[Any], field_names: list[str]) -> set[str]:
     """Fields that may be left out when their value is None (default, or NotRequired)."""
-    if dataclasses.is_dataclass(schema):
+    if _is_dataclass(schema):
+        import dataclasses  # deferred; only a real dataclass schema pays for it
+
         return {
             field.name
             for field in dataclasses.fields(schema)
@@ -205,8 +235,9 @@ def _omittable_fields(schema: type[Any], field_names: list[str]) -> set[str]:
 def _unwrap_annotation(annotation: Any) -> Any:
     # include_extras=True keeps Required/NotRequired and Annotated wrappers (get_type_hints does not
     # strip typing_extensions' markers on 3.10); coerce the underlying type.
+    required_markers, not_required_markers = _optionality_markers()
     origin = get_origin(annotation)
-    if origin in _REQUIRED_MARKERS or origin in _NOTREQUIRED_MARKERS:
+    if origin in required_markers or origin in not_required_markers:
         annotation = get_args(annotation)[0]
     if hasattr(annotation, "__metadata__"):
         annotation = get_args(annotation)[0]
@@ -258,7 +289,7 @@ def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
             an unsupported annotation).
         DocoptExit: A user-supplied value cannot be coerced to the declared type.
     """
-    # Reflective pydantic detection: we never import pydantic, so it stays optional.
+    # Reflective pydantic detection: pydantic is never imported, so it stays optional.
     validator = getattr(schema, "model_validate", None)
     if callable(validator):
         return _bind_pydantic(parsed, schema, validator)

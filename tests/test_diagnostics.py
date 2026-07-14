@@ -142,6 +142,26 @@ def test_render_shows_only_the_line_that_holds_the_caret():
     assert_that(text).contains("line two <x> here").does_not_contain("line one")
 
 
+def test_a_diagnostic_reprs_and_compares_by_value():
+    # `check()` hands Diagnostics to callers, so their repr is what a failing assertion prints and their
+    # equality is what a caller compares. Both used to come from @dataclass; that decorator is gone (it
+    # dragged `inspect` into every import), and nothing else was watching them.
+    caret = Caret(0, 2, "here")
+    snippet = Snippet("ab", "src:", [caret])
+    diagnostic = Diagnostic("boom", [snippet], note="why", help="fix")
+    assert_that(repr(caret)).is_equal_to("Caret(start=0, end=2, label='here')")
+    assert_that(repr(Caret(0, 2))).is_equal_to("Caret(start=0, end=2, label='')")  # the label defaults to empty
+    assert_that(repr(snippet)).contains("Snippet(source='ab'", "carets=[Caret(start=0")
+    assert_that(repr(diagnostic)).contains("Diagnostic(summary='boom'", "note='why'", "help='fix'", "level='error'")
+    assert_that(diagnostic).is_equal_to(
+        Diagnostic("boom", [Snippet("ab", "src:", [Caret(0, 2, "here")])], "why", "fix")
+    )
+    assert_that(diagnostic).is_not_equal_to(Diagnostic("boom", [snippet], note="why", help="other"))
+    assert_that(diagnostic.__eq__("not a diagnostic")).is_equal_to(NotImplemented)
+    assert_that(caret.__eq__(3)).is_equal_to(NotImplemented)
+    assert_that(snippet.__eq__(3)).is_equal_to(NotImplemented)
+
+
 def test_two_carets_on_different_lines_are_each_drawn_under_their_own_line():
     # A snippet is not always one line. Drawing both carets under the first one pointed at columns that
     # line does not have - and silently claimed the second token was somewhere it is not.
