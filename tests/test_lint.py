@@ -193,3 +193,17 @@ def test_the_canonical_naval_fate_example_is_warning_free():
 def test_the_same_option_written_twice_is_still_redundant():
     # The other side of it: `(-h | -h)` is the same spelling twice, which is the slip the rule exists for.
     assert_that(_summaries("Usage: prog (-h | -h)\n\nOptions:\n  -h --help  H.\n")[0]).contains("redundant")
+
+
+def test_a_malformed_option_line_silences_the_linter_rather_than_misleading_it():
+    # docopt rejects this whole message ("more argument words than flags"), and that error is the one worth
+    # reading. The linter used to skip the broken line, find no options left, and warn that `[options]`
+    # accepts nothing - which is false: an option IS described, it is just malformed.
+    doc = "Usage: prog [options]\n\nOptions:\n  --foo bar baz qux\n"
+    assert_that(check(doc)).is_empty()
+
+
+def test_a_prose_bullet_inside_an_option_description_is_not_read_as_an_option():
+    # `- fast, quick` is a dash and a SPACE: prose, not an option. The parser wants `-\S`.
+    doc = "Usage: prog [--mode=<m>]\n\nOptions:\n  --mode=<m>  Mode:\n              - fast, quick\n"
+    assert_that(check(doc)).is_empty()

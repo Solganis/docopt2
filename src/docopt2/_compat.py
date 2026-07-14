@@ -15,6 +15,21 @@ def _usable(doc: str, kind: type[Pattern]) -> set[str]:
     return {leaf.name for leaf in _usage_pattern(doc).flat(kind) if leaf.name is not None}
 
 
+def _spellings(doc: str) -> set[str]:
+    """Every option spelling ``doc`` accepts, short AND long.
+
+    An option's identity here is what a caller can type, not its canonical name: ``Option.name`` is
+    ``long or short``, so adding ``--verbose`` to a lone ``-v`` renames the option and would read as ``-v``
+    having been deleted - a break reported for a change that breaks nobody.
+    """
+    return {
+        name
+        for leaf in _usage_pattern(doc).flat(Option)
+        for name in (getattr(leaf, "short", None), getattr(leaf, "long", None))
+        if name is not None
+    }
+
+
 def check_compat(old_doc: str, new_doc: str, *, samples: int = 300) -> list[str]:
     """Report backward-incompatible changes from ``old_doc`` to ``new_doc``, most reliable part first.
 
@@ -26,7 +41,7 @@ def check_compat(old_doc: str, new_doc: str, *, samples: int = 300) -> list[str]
     and only ``samples`` invocations are checked, so read it like a passing test ("no breakage detected"),
     never as a guarantee. It never claims "compatible" - it only surfaces breaks it can prove.
     """
-    removed_options = _usable(old_doc, Option) - _usable(new_doc, Option)
+    removed_options = _spellings(old_doc) - _spellings(new_doc)
     removed_commands = _usable(old_doc, Command) - _usable(new_doc, Command)
     breaks = [f"option `{name}` removed" for name in sorted(removed_options)]
     breaks += [f"command `{name}` removed" for name in sorted(removed_commands)]

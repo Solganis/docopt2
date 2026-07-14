@@ -42,6 +42,7 @@ def _variadic_units(node: Pattern) -> int:
 
 
 _DEFAULT = re.compile(r"\[default:.*?]", re.IGNORECASE)
+_OPTION_LINE = re.compile(r"-\S")  # what the parser reads as an option: a dash and a NON-space
 
 
 def _branch_key(branch: Pattern, usage: str) -> str:
@@ -104,12 +105,12 @@ def check(doc: str) -> list[Diagnostic]:
     warnings: list[Diagnostic] = []
     declared: list[tuple[Option, Span, Span]] = []
     for line, offset in _section_lines(doc, "options:"):
-        if not line.lstrip().startswith("-"):
-            continue  # a continuation line of the previous option's description
+        if not _OPTION_LINE.match(line.lstrip()):
+            continue  # a wrapped description, or a prose bullet: `- fast, quick` is not an option
         try:
             option = Option.parse(line)
         except DocoptLanguageError:
-            continue  # a malformed option line; docopt itself would reject the whole message
+            return []  # docopt rejects the whole message; that error is the one worth reading, not ours
         declared.append((option, _token_span(line, offset), _default_span(line, offset)))
     options = [option for option, _name, _default in declared]
     try:
