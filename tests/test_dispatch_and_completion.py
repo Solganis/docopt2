@@ -146,6 +146,25 @@ def test_dispatch_on_returns_the_handler_unchanged():
     assert_that(app.on("status")(handler)).is_same_as(handler)
 
 
+def test_dispatch_run_rejects_a_schema_it_cannot_route_on():
+    # run() forwards its keywords to docopt(), and `schema=` would make docopt return an instance -
+    # which dispatch then tried to route on, failing with `'Args' object has no attribute 'get'`.
+    @dataclasses.dataclass
+    class Args:
+        add: bool
+        x: str
+
+    app = Dispatch("Usage: t add <x>")
+
+    @app.on("add")
+    def add(args):
+        return args
+
+    with raises(TypeError) as exc_info:
+        app.run(["add", "a"], schema=Args)
+    assert_that(str(exc_info.value)).contains("on(..., schema=...)")
+
+
 # --- completion resolver (context-aware) --------------------------------------------------------
 
 _GIT_DOC = """Usage:

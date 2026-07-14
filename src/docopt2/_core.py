@@ -578,6 +578,10 @@ class Dispatch:
         Extra keyword arguments are forwarded to :func:`docopt` (``suggest``, ``exit_code``, ...);
         ``schema`` is not among them, since dispatch matches on the mapping and binds per handler.
         """
+        if "schema" in options:
+            # Forwarding it would hand docopt() a schema, and dispatch would then try to route on the
+            # instance instead of the mapping - an AttributeError deep inside, for a legible mistake.
+            raise TypeError("Dispatch.run() takes no `schema`; register one per handler with `on(..., schema=...)`")
         arguments = cast("Arguments", docopt(self.doc, argv, **options))
         resolved = self._resolve(arguments)
         if resolved is None:
