@@ -80,7 +80,7 @@ def _render(name: str, style: StubStyle, doc: str, fields: list[tuple[str, str]]
 
 
 def generate_stub(doc: str, *, name: str = "Args", style: StubStyle = "dataclass") -> str:
-    """Generate a typed schema class from a usage message, ready to pass as ``docopt(doc, schema=...)``.
+    """Generate a typed schema class from a usage message, to pass as ``docopt(doc, schema=...)``.
 
     Args:
         doc: The usage message (the same string given to :func:`~docopt2.docopt`).
@@ -90,10 +90,14 @@ def generate_stub(doc: str, *, name: str = "Args", style: StubStyle = "dataclass
 
     Returns:
         Python source for the schema class. Every field is typed from the grammar (``str``,
-        ``str | None``, ``int``, ``bool``, ``list[str]``); widen a field by hand (``port: int``) to
-        get coercion for free. A key the typed API cannot represent (two usage names collapsing to
-        one field, or a name that is not a valid identifier) becomes a leading ``# note`` instead of
-        a field, so the output is always valid Python.
+        ``str | None``, ``int``, ``bool``, ``list[str]``); narrow a field by hand (``port: int``) and
+        the value is coerced for free.
+
+        A key the typed API cannot represent - two usage names collapsing to one field
+        (``<foo-bar>`` and ``--foo-bar``), or a name that is not a valid identifier - becomes a
+        leading ``# note`` instead of a field. The output is always valid Python, but a class the
+        note names is **not** usable as a schema: ``docopt(doc, schema=...)`` rejects that usage
+        outright. Fix the usage, as the note says, and regenerate.
 
     Raises:
         DocoptLanguageError: The usage message is malformed (the same error :func:`docopt` raises).

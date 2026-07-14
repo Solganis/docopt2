@@ -1,5 +1,11 @@
+import ast
+import contextlib
+import io
+from pathlib import Path
+
 from assertpy2 import assert_that
 from hypothesis import given, settings
+from pytest import raises
 
 from docopt2 import DocoptLanguageError, docopt
 from docopt2.hypothesis import _DrawChooser, argv_strategy
@@ -33,3 +39,22 @@ def test_draw_chooser_routes_each_decision_through_the_draw():
     assert_that(chooser.integer(1, 2)).is_equal_to("drawn")
     assert_that(chooser.boolean()).is_equal_to("drawn")
     assert_that(seen).is_length(3)
+
+
+_NAVAL = ast.get_docstring(ast.parse(Path(__file__).parent.parent.joinpath("examples/naval_fate.py").read_text()))
+
+
+@given(argv=argv_strategy(_NAVAL))
+@settings(max_examples=200, deadline=None)
+def test_the_documented_recipe_runs_on_the_canonical_naval_fate(argv):
+    # `argv_strategy`'s docstring ships this recipe. Without `help=False` it draws `['--help']` on any usage
+    # declaring `-h`/`--help` - naval-fate does - and docopt answers by printing the doc and exiting the
+    # process. Inside a property test that is a SystemExit, and it aborts the whole pytest run.
+    docopt(_NAVAL, argv, help=False, complete=False)
+
+
+def test_the_recipe_needs_help_false_because_the_strategy_can_draw_help():
+    # Why the docstring insists on `help=False`: naval-fate declares `-h | --help`, so `--help` is an argv
+    # the usage accepts and the strategy will draw it - and docopt answers it by exiting the process.
+    with contextlib.redirect_stdout(io.StringIO()), raises(SystemExit):
+        docopt(_NAVAL, ["--help"], complete=False)
