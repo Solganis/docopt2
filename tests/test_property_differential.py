@@ -21,9 +21,9 @@ _spec.loader.exec_module(_vanilla)
 
 # docopt2 keeps one deliberate, documented deviation from vanilla docopt: vanilla leaks a
 # repeated option's accumulated values across usage alternatives (`--to a --to b` yields
-# ['a', 'b', 'b']), and docopt2 fixes it. We apply the identical fix to the oracle here so
+# ['a', 'b', 'b']), and docopt2 fixes it. The identical fix is applied to the oracle here so
 # this test reads "docopt2 == vanilla docopt EXCEPT that one fix" instead of false-alarming on
-# our intended improvement. Other intentional divergences live in tests/test_divergences.py.
+# the intended improvement. Other intentional divergences live in tests/test_divergences.py.
 def _oracle_option_single_match(self, left):
     for index, pattern in enumerate(left):
         if self.name == pattern.name:
@@ -156,13 +156,13 @@ _DIVERGENCES = [
 ]
 
 
-@pytest.mark.parametrize(("doc", "argv", "original", "ours"), _DIVERGENCES)
-def test_the_documented_divergences_are_exactly_what_the_original_does(doc, argv, original, ours):
+@pytest.mark.parametrize(("doc", "argv", "original", "improved"), _DIVERGENCES)
+def test_the_documented_divergences_are_exactly_what_the_original_does(doc, argv, original, improved):
     from_original = _pristine.docopt(doc, argv, help=False)
     from_docopt2 = docopt(doc, argv, help=False, complete=False)
     for key, value in original.items():
         assert_that(from_original[key]).described_as(f"original {key}").is_equal_to(value)
-    for key, value in ours.items():
+    for key, value in improved.items():
         assert_that(from_docopt2[key]).described_as(f"docopt2 {key}").is_equal_to(value)
 
 

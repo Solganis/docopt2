@@ -137,7 +137,7 @@ def _tab(shell: list[str], setup: str, line: str, tabs: int = 2) -> str:
         os.setsid()
         fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
-    environment = {**os.environ, "TERM": "xterm-256color"}  # TERM=dumb would disable the painting we read
+    environment = {**os.environ, "TERM": "xterm-256color"}  # TERM=dumb would disable the painting read below
     process = subprocess.Popen(
         shell, stdin=slave, stdout=slave, stderr=slave, preexec_fn=_take_controlling_tty, env=environment
     )
@@ -149,7 +149,7 @@ def _tab(shell: list[str], setup: str, line: str, tabs: int = 2) -> str:
         os.write(master, f"{setup}\necho {_READY}\n".encode())
         _read_until(master, _READY, idle=1.0, cap=20.0)  # the script is loaded and the shell is at a prompt
         os.write(master, line.encode())
-        _read_until(master, None, idle=0.3, cap=5.0)  # drain the echo of the line we just typed
+        _read_until(master, None, idle=0.3, cap=5.0)  # drain the echo of the line just typed
         # readline lists only on the SECOND Tab when the first one merely inserts a common prefix, so both
         # are sent and both replies are kept.
         offered = ""

@@ -175,8 +175,6 @@ def format_argv(result: Arguments, doc: str) -> list[str]:
     ``result``: a hand-built or inconsistent mapping, or a degenerate grammar where one value is reachable
     through differently-shaped positions (``(<name> | <name> ...)``, ``(-a | -b)...``, ``[<name>] <path> <name>``).
     """
-    # A source other than DEFAULT is not enough: an `[env: V]` flag read as OFF has source ENV and value
-    # False, and emitting `--verbose` for it would re-parse to True. Only a value actually present is a token.
     provided = {name for name in result if result.source(name) is not Source.DEFAULT and _is_present(result[name])}
     candidates: list[list[str]] = []
     for line in _usage_lines(_usage_pattern(doc)):

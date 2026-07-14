@@ -110,7 +110,7 @@ def check(doc: str) -> list[Diagnostic]:
         try:
             option = Option.parse(line)
         except DocoptLanguageError:
-            return []  # docopt rejects the whole message; that error is the one worth reading, not ours
+            return []  # docopt rejects the whole message; that error is the one worth reading, not a lint
         declared.append((option, _token_span(line, offset), _default_span(line, offset)))
     options = [option for option, _name, _default in declared]
     try:

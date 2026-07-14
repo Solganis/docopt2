@@ -265,7 +265,7 @@ def _render_fish(prog: str, function: str) -> str:
     return (
         f"function {function}\n"
         # `commandline -opc` is the completed tokens before the cursor (the partial word is excluded);
-        # fish filters the candidates we return by that partial word itself.
+        # fish filters the returned candidates by that partial word itself.
         f"    set -l tokens (commandline -opc)\n"
         # fish documents that a command substitution splits its output on newlines. A completion function
         # happens not to re-split today, but that is undocumented; `string collect` states the intent rather
