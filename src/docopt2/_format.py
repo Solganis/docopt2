@@ -23,6 +23,11 @@ if TYPE_CHECKING:
     from docopt2._parser import Pattern
 
 
+def _is_present(value: object) -> bool:
+    """Whether a value puts a token on the argv: an off flag, a zero count or an empty list emit nothing."""
+    return value is not None and value is not False and value != 0 and value != []
+
+
 def _int_value(value: object) -> int | None:
     """The value read as a repetition count (a bare ``int``, never a ``bool`` flag)."""
     return value if type(value) is int else None
@@ -155,9 +160,11 @@ def format_argv(result: Arguments, doc: str) -> list[str]:
 
     Given an :class:`Arguments` mapping returned by ``docopt(doc, ...)``, return an argv token list (no program
     name) that round-trips: ``docopt(doc, format_argv(result, doc)) == result``. The canonical form emits every
-    element that carries a value - what the user supplied, plus whatever ``[env:]`` or ``[config:]`` resolved -
-    in usage order, options in long ``--name=value`` form. Elements left at their ``[default: ...]`` are
-    omitted. It is *a* valid argv, not necessarily the shortest or the one originally typed.
+    element that *carries* a value - what the user supplied, plus whatever ``[env:]`` or ``[config:]`` resolved -
+    in usage order, options in long ``--name=value`` form. An element left at its ``[default: ...]`` is omitted,
+    and so is one whose value is absent (an off flag, a zero count): a source other than ``DEFAULT`` is not
+    enough, since an ``[env: V]`` flag read as off has source ``ENV`` and value ``False``, and emitting its name
+    would parse back to ``True``. It is *a* valid argv, not necessarily the shortest or the one originally typed.
 
     An env- or config-sourced value is emitted rather than skipped so the argv reproduces the result on its own,
     without that environment: the round trip is the point, and a persisted command that silently depends on an
@@ -168,7 +175,9 @@ def format_argv(result: Arguments, doc: str) -> list[str]:
     ``result``: a hand-built or inconsistent mapping, or a degenerate grammar where one value is reachable
     through differently-shaped positions (``(<name> | <name> ...)``, ``(-a | -b)...``, ``[<name>] <path> <name>``).
     """
-    provided = {name for name in result if result.source(name) is not Source.DEFAULT}
+    # A source other than DEFAULT is not enough: an `[env: V]` flag read as OFF has source ENV and value
+    # False, and emitting `--verbose` for it would re-parse to True. Only a value actually present is a token.
+    provided = {name for name in result if result.source(name) is not Source.DEFAULT and _is_present(result[name])}
     candidates: list[list[str]] = []
     for line in _usage_lines(_usage_pattern(doc)):
         tokens: list[str] = []

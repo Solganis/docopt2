@@ -152,3 +152,24 @@ def test_a_value_left_at_its_default_is_still_omitted(monkeypatch):
     monkeypatch.delenv("APP_PORT", raising=False)
     doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [default: 80] [env: APP_PORT]."
     assert_that(format_argv(docopt(doc, "", complete=False), doc)).is_empty()
+
+
+def test_an_env_flag_read_as_off_emits_no_token(monkeypatch):
+    # A source other than DEFAULT is not enough to emit: an `[env: V]` flag read as OFF has source ENV and
+    # value False, and emitting `--verbose` for it re-parses to True, so nothing round-trips and the whole
+    # call raised. Only a value actually present is a token.
+    doc = "Usage: prog [--verbose]\n\nOptions:\n  --verbose  Loud [env: PROG_V]."
+    monkeypatch.setenv("PROG_V", "0")
+    result = docopt(doc, "", complete=False)
+    assert_that(dict(result)).is_equal_to({"--verbose": False})
+    assert_that(format_argv(result, doc)).is_empty()
+
+
+def test_an_env_flag_read_as_on_emits_its_token(monkeypatch):
+    doc = "Usage: prog [--verbose]\n\nOptions:\n  --verbose  Loud [env: PROG_V]."
+    monkeypatch.setenv("PROG_V", "1")
+    result = docopt(doc, "", complete=False)
+    argv = format_argv(result, doc)
+    monkeypatch.delenv("PROG_V")
+    assert_that(argv).is_equal_to(["--verbose"])
+    assert_that(docopt(doc, argv, complete=False)).is_equal_to(result)

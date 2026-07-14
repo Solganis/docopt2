@@ -1,3 +1,5 @@
+import re
+
 from assertpy2 import assert_that
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -79,6 +81,8 @@ def _option_doc(draw: st.DrawFn) -> str:
         default = draw(st.none() | st.text(alphabet="abc123", min_size=1, max_size=4))
         default_part = "" if default is None else f" [default: {default}]"
         lines.append(f"  --opt{index}=<v{index}>{gap}Description {index}{default_part}.{trailing}")
+    if draw(st.booleans()):  # a bullet list wrapped INSIDE an option's description - inside the section
+        lines.append("              - fast,  quick, unsafe")
     if draw(st.booleans()):
         lines += ["", draw(st.sampled_from(["Notes:", "Examples:", "See also:"]))]
         for index in range(draw(st.integers(min_value=1, max_value=3))):
@@ -86,10 +90,21 @@ def _option_doc(draw: st.DrawFn) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _outside_options(doc: str) -> list[str]:
-    """Every line the parser does NOT read options from - the lines fmt has no business rewriting."""
+_OPTION_LINE = re.compile(r"-\S")
+
+
+def _not_option_lines(doc: str) -> list[str]:
+    """Every line the parser does NOT read an option from - the lines fmt has no business rewriting.
+
+    Being outside an `options:` section is not the test: a wrapped description holds prose bullets INSIDE
+    the section, and `- fast, quick` is not an option - the parser wants a dash and a non-space.
+    """
     covered = section_line_numbers("options:", doc)
-    return [line.rstrip() for index, line in enumerate(doc.splitlines()) if index not in covered]
+    return [
+        line.rstrip()
+        for index, line in enumerate(doc.splitlines())
+        if not (index in covered and _OPTION_LINE.match(line.lstrip()))
+    ]
 
 
 @given(doc=_option_doc())
@@ -100,7 +115,7 @@ def test_formatting_preserves_the_parse_over_arbitrary_layouts(doc):
     assert _signature(formatted) == _signature(doc)
     assert format_usage(formatted) == formatted  # idempotent
     # A line outside `options:` is prose: fmt may strip its trailing whitespace and nothing else.
-    assert _outside_options(formatted) == _outside_options(doc)
+    assert _not_option_lines(formatted) == _not_option_lines(doc)
 
 
 def test_a_dash_led_line_outside_options_is_prose_and_is_left_alone():
@@ -109,3 +124,17 @@ def test_a_dash_led_line_outside_options_is_prose_and_is_left_alone():
     formatted = format_usage(doc)
     assert_that(formatted).contains("  - alpha, beta  gamma")  # prose, untouched, commas intact
     assert_that(formatted).contains("  -v --verbose  Loud.")  # the option, tidied and aligned to ITS width
+
+
+def test_a_dash_space_bullet_inside_an_option_description_is_prose():
+    # The parser reads an option line as `-\S` (a dash and a NON-space). A wrapped description may hold a
+    # bullet list - `- fast, quick` - which is prose: restricting fmt to the `options:` section is not enough,
+    # the line must also look like an option, or the spec tidier eats the bullet's commas.
+    doc = (
+        "Usage: prog [--mode=<m>]\n\nOptions:\n  --mode=<m>  Mode:\n"
+        "              - fast,  quick, unsafe\n              [default: fast]\n"
+    )
+    formatted = format_usage(doc)
+    assert_that(formatted).contains("- fast,  quick, unsafe")  # prose, untouched, commas intact
+    assert_that(formatted).contains("--mode=<m>  Mode:")  # the option, tidied
+    assert_that(format_usage(formatted)).is_equal_to(formatted)
