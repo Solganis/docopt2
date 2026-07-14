@@ -35,7 +35,7 @@ docopt2 is a command-line argument parser for Python. Most CLI libraries have yo
 
 Put the `Usage:` and `Options:` text in your module docstring - the help you would write anyway - and docopt2 parses the command line against it. The help your users read and the parser that runs are the same text, so they can never drift.
 
-The full documentation is on the [website](https://solganis.github.io/docopt2/) - it opens on a short introduction, then walks through [Getting started](https://solganis.github.io/docopt2/getting-started/) and the guides.
+The [full documentation](https://solganis.github.io/docopt2/) walks through [Getting started](https://solganis.github.io/docopt2/getting-started/) and the guides.
 
 <h2 align="center">Features</h2>
 
@@ -148,7 +148,7 @@ docopt2 reads the same usage DSL as docopt - the `Usage:` and `Options:` blocks 
 <tr><td><code>[config: &lt;key&gt;]</code></td><td>An option's config-file fallback (CLI &gt; env &gt; config &gt; default).</td></tr>
 </table>
 
-The legend covers the essentials; the [full usage grammar](https://solganis.github.io/docopt2/guides/usage-dsl/) - precedence, edge cases, and how each form maps to the parsed result - lives on the site.
+The legend covers the essentials; precedence and edge cases are in the [full usage grammar](https://solganis.github.io/docopt2/guides/usage-dsl/).
 
 <a name="typed-results"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/typed-results/">Why typed docopt?</a></h2>
@@ -309,8 +309,7 @@ port = 80  # --port, env APP_PORT
 <a name="rich-help"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/help/">Self-documenting <code>--help</code></a></h2>
 
-`--help` prints your usage verbatim by default. Opt into `help_style="rich"` for an aligned, colored screen that also<br>
-documents **where each value resolves from** - the `[env, config, default]` chain no other CLI library surfaces in its help:
+`--help` prints your usage verbatim by default. Opt into `help_style="rich"` for an aligned, colored screen that documents **where each value resolves from** - the `[env, config, default]` chain no other CLI library surfaces:
 
 <p align="center">
   <img src="docs/assets/rich-help.png" width="878" alt="A docopt2 rich --help: a bold Usage, then Options with green option names, aligned descriptions, and a dimmed source chain per option - '[env: PORT, config: server.port, default: 8080]' - documenting the resolution order">
@@ -384,15 +383,13 @@ args = docopt(doc, "a b --force")
 format_argv(args, doc)   # ['a', 'b', '--force'] - which docopt parses straight back to args
 ```
 
-It emits every element that carries a value - what you supplied, plus whatever `[env:]` or `[config:]` resolved - so the argv stands on its own.<br>
-Each candidate is verified by re-parsing: the argv it returns always parses straight back to `x`, and an ambiguous grammar raises rather than return a wrong one.<br>
-A round-trip for reproducible commands, safe subprocess argv, and property tests.
+It emits every element that carries a value: what you supplied, plus whatever `[env:]` or `[config:]` resolved.<br>
+Each candidate is verified by re-parsing, and an ambiguous grammar raises rather than return a wrong argv.
 
 <a name="compat"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/compat/">Compatibility checking</a></h2>
 
-Your usage message is your interface, so `check_compat` (and `docopt2 compat`) reports the changes that would break callers -<br>
-invocations the old usage accepts that the new one rejects:
+Your usage message is your interface, so `check_compat` (and `docopt2 compat`) reports the changes that would break callers - invocations the old usage accepts that the new one rejects:
 
 ```python
 check_compat("Usage: git push [--force] <remote>", "Usage: git push <remote> <branch>")
