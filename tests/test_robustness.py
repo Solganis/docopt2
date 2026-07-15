@@ -22,8 +22,13 @@ from docopt2 import DocoptExit, DocoptLanguageError
 from docopt2._completion import _frontier
 from docopt2._parser import (
     MATCH_LIMIT,
+    Tokens,
+    _MatchBudgetExceededError,
     expand_options_shortcut,
+    formal_tokens,
     formal_usage,
+    match_budget,
+    parse_argv,
     parse_defaults,
     parse_pattern,
     single_usage_section,
@@ -161,31 +166,73 @@ def test_completion_answers_a_real_sized_cli_without_a_visible_pause():
         assert_that(time.perf_counter() - start).described_as(f"complete({words})").is_less_than(1.0)
 
 
-def test_an_ambiguous_pattern_does_not_hang_on_a_long_argv():
-    # 24 optional flags before a required <END>: an argv of all the flags and no END token has 2**24 ways
-    # to assign the optionals, and none is complete. The per-Either cap does not bound this - the dead
-    # branches yield nothing, so nothing is counted - and matching ran for tens of seconds. The global
-    # match budget charges each exploration step, so an unmatchable argv is rejected in well under a second.
+def test_the_budget_stops_an_exponential_match_instead_of_running_it_to_exhaustion():
+    # 24 optional flags before a required <END>: 2**24 ways to assign the optionals, none complete. The match
+    # must be STOPPED by the budget, not explored to exhaustion. Asserted on the descents charged, not the
+    # clock: wall-clock is neither deterministic nor portable here (coverage tracing alone slows the same
+    # match ~15x, and it swings 20x run to run). Trip at a small count so the test is instant even under
+    # coverage; docopt() must catch the exceeded budget and reject.
+    charges = 0
+
+    def counting_spend() -> None:
+        nonlocal charges
+        if docopt2._parser._match_budget.get() is None:
+            return  # unbudgeted (near-miss scoring after the match): do not count or trip
+        charges += 1
+        if charges > 5000:
+            raise docopt2._parser._MatchBudgetExceededError
+
     flags = " ".join(f"[-{chr(97 + index)}]" for index in range(24))
     doc = f"usage: prog {flags} <END>"
     argv = [f"-{chr(97 + index)}" for index in range(24)]
-    start = time.perf_counter()
-    with pytest.raises(DocoptExit):
-        docopt2.docopt(doc, argv, help=False)
-    assert_that(time.perf_counter() - start).described_as("matching a 2**24-ambiguous argv").is_less_than(3.0)
+    original = docopt2._parser._spend_budget
+    docopt2._parser._spend_budget = counting_spend
+    try:
+        with pytest.raises(DocoptExit):
+            docopt2.docopt(doc, argv, help=False)
+    finally:
+        docopt2._parser._spend_budget = original
+    assert_that(charges).described_as("descents before the budget stopped the match").is_equal_to(5001)
 
 
-def test_an_exponential_pattern_with_a_long_argv_still_rejects_in_bounded_time():
-    # The subtler cousin: many optional flags before a MISSING required option, then a long file tail. The
-    # optionals' 2**n dead-ends fail at the missing option before they reach the files, so the fan is
-    # independent of the argv - but the long argv would inflate an argv-scaled budget past that fan and let it
-    # run for tens of seconds. The whole match stays on ONE fixed ceiling, so it rejects fast regardless.
+def test_docopt_installs_one_fixed_match_ceiling_whatever_the_argv_length():
+    # The whole match rides ONE fixed ceiling - MATCH_LIMIT - no matter how long the argv. A per-token budget
+    # (an earlier, reverted attempt) would raise the ceiling for a long argv and let an exponential pattern
+    # run for minutes; the fixed ceiling does not. Read the ceiling docopt() installs on the first descent,
+    # then trip at once - deterministic and instant, where a wall-clock bound is neither.
+    installed: list[int] = []
+
+    def probe_ceiling() -> None:
+        budget = docopt2._parser._match_budget.get()
+        if budget is None:
+            return
+        installed.append(budget[0])  # the ceiling as installed, before any decrement
+        raise docopt2._parser._MatchBudgetExceededError
+
     flags = " ".join(f"[-{chr(97 + index)}]" for index in range(24))
     doc = f"usage: prog {flags} --need <files>..."
-    argv = [f"-{chr(97 + index)}" for index in range(24)] + [f"f{index}" for index in range(300)]
-    start = time.perf_counter()
-    with pytest.raises(DocoptExit):
-        docopt2.docopt(doc, argv, help=False)
-    # Generous bound: the fix rejects in ~1s (a few seconds on a loaded runner), a regression runs for tens
-    # of seconds - so 10s separates them without flaking on a slow CI cell (a tight 3s did, on ubuntu 3.10).
-    assert_that(time.perf_counter() - start).described_as("an exponential pattern with a long argv").is_less_than(10.0)
+    argv = [f"-{chr(97 + index)}" for index in range(24)] + [f"f{index}" for index in range(2000)]
+    original = docopt2._parser._spend_budget
+    docopt2._parser._spend_budget = probe_ceiling
+    try:
+        with pytest.raises(DocoptExit):
+            docopt2.docopt(doc, argv, help=False)
+    finally:
+        docopt2._parser._spend_budget = original
+    assert_that(installed[0]).described_as("match ceiling installed for a long argv").is_equal_to(MATCH_LIMIT)
+
+
+def test_the_match_budget_raises_once_its_ceiling_is_spent():
+    # The tests above stub out `_spend_budget`; this drives the real one to its ceiling. A small explicit
+    # budget over an exponential, complete-match-less pattern (12 optionals before a required <END>) trips it
+    # in a handful of descents - deterministic and cheap, no wall-clock and no 200k burn.
+    doc = "usage: prog " + " ".join(f"[-{chr(97 + index)}]" for index in range(12)) + " <END>"
+    usage = single_usage_section(doc)
+    options = parse_defaults(doc)
+    pattern = parse_pattern(formal_tokens(usage), options)
+    expand_options_shortcut(pattern, options)
+    pattern.fix()
+    tokens = Tokens([f"-{chr(97 + index)}" for index in range(12)], usage=usage, exit_code=1)
+    argv = parse_argv(tokens, list(options))  # options_first / negative_numbers / allow_abbrev keep defaults
+    with pytest.raises(_MatchBudgetExceededError), match_budget(100):
+        next(pattern.matches(argv, []), None)
