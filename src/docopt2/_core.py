@@ -174,9 +174,9 @@ def _config_value_types() -> tuple[type, ...]:
     """What a `[config: key]` may hold.
 
     A config value is normalized with str(), so the type set is the one whose str() is a faithful,
-    coercible-back rendering: everything `_coerce` accepts as a schema annotation (_typed.py), plus
-    `time`, which a TOML loader yields and no annotation names. A whitelist, not a container blacklist:
-    an opaque object is not a container either, and str(object()) is a memory address.
+    coercible-back rendering: everything `_coerce` accepts as a schema annotation (_typed.py). A
+    whitelist, not a container blacklist: an opaque object is not a container either, and str(object())
+    is a memory address.
 
     Built on first use, not at import, for the reason given in :func:`docopt2._typed._scalar_coercers`:
     a usage with no `[config:]` annotation never asks, and must not pay.

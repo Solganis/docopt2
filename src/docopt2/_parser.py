@@ -23,7 +23,9 @@ MatchOutcome: TypeAlias = tuple[list["Pattern"], list["Pattern"]]
 ErrorType: TypeAlias = type[DocoptExit] | type[DocoptLanguageError]
 
 # A pattern with many optionals/alternatives has exponentially many match outcomes (`[<a>] [<b>]`
-# x n -> 2**n); cap how many are materialized (far above any real CLI) so an adversarial argv cannot hang.
+# x n -> 2**n). MATCH_LIMIT caps a single materialization - a lone Either's sort, the completion frontier
+# walk, a bare matches() call - far above any real CLI. docopt()'s own match is bounded globally instead
+# (the budget below), because this per-node cap alone still compounds to minutes on a malformed pattern.
 MATCH_LIMIT = 200_000
 
 # MATCH_LIMIT is per Either, so nested alternatives still multiply it (200k per node -> minutes on a

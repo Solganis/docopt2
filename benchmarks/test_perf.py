@@ -1,8 +1,7 @@
 # CodSpeed regression gate: micro-benchmarks of docopt2's own hot paths, measured commit-over-commit under
-# CPU simulation. Distinct from bench.py, which compares docopt2 against argparse/click/docopt-ng for the
-# docs. Run manually with `uv run --group benchmark pytest benchmarks/ --codspeed --no-cov`; the CodSpeed
-# CI job runs the same. Not collected by the default suite (testpaths=tests), so it never gates on the
-# machine's noise - only CodSpeed's simulated instruction count does.
+# CPU simulation. Run manually with `uv run --group benchmark pytest benchmarks/ --codspeed --no-cov`; the
+# CodSpeed CI job runs the same. Not collected by the default suite (testpaths=tests), so it never gates on
+# the machine's noise - only CodSpeed's simulated instruction count does.
 from __future__ import annotations
 
 import dataclasses
