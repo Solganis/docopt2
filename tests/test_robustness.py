@@ -186,4 +186,6 @@ def test_an_exponential_pattern_with_a_long_argv_still_rejects_in_bounded_time()
     start = time.perf_counter()
     with pytest.raises(DocoptExit):
         docopt2.docopt(doc, argv, help=False)
-    assert_that(time.perf_counter() - start).described_as("an exponential pattern with a long argv").is_less_than(3.0)
+    # Generous bound: the fix rejects in ~1s (a few seconds on a loaded runner), a regression runs for tens
+    # of seconds - so 10s separates them without flaking on a slow CI cell (a tight 3s did, on ubuntu 3.10).
+    assert_that(time.perf_counter() - start).described_as("an exponential pattern with a long argv").is_less_than(10.0)
