@@ -34,33 +34,56 @@ def check_compat(old_doc: str, new_doc: str, *, samples: int = 300) -> list[str]
     """Report backward-incompatible changes from ``old_doc`` to ``new_doc``, most reliable part first.
 
     Every entry is a *definite* break - an invocation the old usage accepts that the new one rejects: a
-    removed option or command (named, structural), or a concrete argument vector the new grammar no longer
-    accepts (found by sampling the old grammar's accepted set and replaying it against the new).
+    removed option, a removed command, or a concrete argument vector the new grammar no longer accepts
+    (found by sampling the old grammar's accepted set and replaying it against the new).
 
     An empty list means **no break was found**, not a proof of compatibility: the accepted set is infinite
     and only ``samples`` invocations are checked, so read it like a passing test ("no breakage detected"),
     never as a guarantee. It never claims "compatible" - it only surfaces breaks it can prove.
     """
+    old_examples = generate_examples(old_doc, count=samples, seed=0)
     removed_options = _spellings(old_doc) - _spellings(new_doc)
-    removed_commands = _usable(old_doc, Command) - _usable(new_doc, Command)
+    # A command literal absent from new is only a break if it actually rejects something. `(add|rm) <p>`
+    # generalized to `<cmd> <p>` drops the `add`/`rm` literals, yet new accepts every old invocation (they
+    # match `<cmd>`). Report a command only when a sampled old invocation that used it is rejected by new.
+    gone = _usable(old_doc, Command) - _usable(new_doc, Command)
+    removed_commands = {name for name in gone if _command_removal_breaks(new_doc, name, old_examples)}
     breaks = [f"option `{name}` removed" for name in sorted(removed_options)]
     breaks += [f"command `{name}` removed" for name in sorted(removed_commands)]
     removed = removed_options | removed_commands
     seen_shapes: set[tuple[str, ...]] = set()
     examples: list[str] = []
-    for argv in generate_examples(old_doc, count=samples, seed=0):
+    for argv in old_examples:
         shape = tuple(re.sub(r"v\d+", "<val>", token) for token in argv)  # collapse placeholder values
         if shape in seen_shapes or _explained(argv, removed):  # one example per shape; skip structural repeats
             seen_shapes.add(shape)
             continue
         seen_shapes.add(shape)
-        try:
-            docopt(new_doc, argv, help=False, complete=False)
-        except (DocoptExit, DocoptLanguageError):
+        if _rejects(new_doc, argv):
             examples.append(f"`{' '.join(argv)}` no longer accepted")
             if len(examples) >= _MAX_EXAMPLES:
                 break
     return breaks + examples
+
+
+def _rejects(doc: str, argv: list[str]) -> bool:
+    """Whether ``doc`` refuses ``argv`` (the shape a break takes: old accepted it, new does not)."""
+    try:
+        docopt(doc, argv, help=False, complete=False)
+    except (DocoptExit, DocoptLanguageError):
+        return True
+    return False
+
+
+def _command_removal_breaks(new_doc: str, name: str, old_examples: list[list[str]]) -> bool:
+    """Whether dropping the command literal ``name`` rejects some invocation the old grammar accepted.
+
+    False when new absorbed the command into a positional (it still accepts those invocations); True when
+    the command is genuinely gone. ``generate_examples`` emits positional values as ``v1``, ``v2``... and
+    a command only by its name, so a command literal appears in a sampled argv iff it matched as that
+    command - a plain ``name in argv`` is enough. Bounded by the sampled examples, like the rest.
+    """
+    return any(name in argv and _rejects(new_doc, argv) for argv in old_examples)
 
 
 def _explained(argv: list[str], removed: set[str]) -> bool:

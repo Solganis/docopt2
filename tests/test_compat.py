@@ -35,6 +35,22 @@ def test_a_removed_command_is_reported_structurally():
     assert_that(check_compat(old, "Usage: prog add <x>")).contains("command `rm` removed")
 
 
+def test_a_command_generalized_to_a_positional_is_not_a_break():
+    # `(add | rm) <path>` -> `<cmd> <path>` drops the add/rm literals, but new accepts a strict superset:
+    # `prog add /x` still parses (add matches <cmd>). Reporting "command add removed" would be a FALSE
+    # break, and check_compat promises every entry is a definite break.
+    old = "Usage:\n  prog (add | rm) <path>\n"
+    new = "Usage:\n  prog <cmd> <path>\n"
+    assert_that(check_compat(old, new)).is_equal_to([])
+
+
+def test_a_command_dropped_without_a_positional_replacement_is_still_a_break():
+    # The verification must not swallow a REAL removal: `add` genuinely gone, no positional to absorb it.
+    old = "Usage:\n  prog (add | rm) <path>\n"
+    new = "Usage:\n  prog rm <path>\n"
+    assert_that(check_compat(old, new)).contains("command `add` removed")
+
+
 def test_a_new_required_positional_is_caught_by_a_concrete_counterexample():
     breaks = check_compat("Usage: prog checkout <name>", "Usage: prog checkout <name> <branch>")
     assert_that(breaks).is_not_empty()
