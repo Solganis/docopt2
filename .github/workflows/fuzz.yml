@@ -1,0 +1,50 @@
+name: Fuzz
+
+# Coverage-guided fuzzing of the public API with atheris, off the PR path. The invariant is the one
+# tests/test_robustness.py states and Hypothesis checks on grammar-shaped input: no entry point may raise
+# anything but DocoptExit / DocoptLanguageError for any input. The Nightly job explores well-formed usage
+# with Hypothesis; this reaches the malformed byte shapes it cannot, under coverage feedback, and a
+# per-input -timeout turns a runaway (a pathological slowdown or an outright hang) into a finding. Unlike
+# Mutation (report-only), a crash or timeout here is a real bug: the job fails and uploads the reproducer,
+# which becomes a committed regression test.
+#
+# Linux only: atheris ships no Windows wheel. Pinned to Python 3.12, which has a prebuilt manylinux wheel.
+
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Fuzz the public API for ten minutes
+        run: |
+          mkdir -p fuzz-findings
+          uv run --locked --no-dev --python 3.12 --with atheris \
+            python fuzz/fuzz_docopt.py \
+            -max_total_time=600 -timeout=30 -rss_limit_mb=4096 -artifact_prefix=fuzz-findings/
+
+      - name: Upload any crash or timeout reproducer
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-findings
+          path: fuzz-findings/
+          if-no-files-found: ignore
