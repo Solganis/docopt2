@@ -1,6 +1,6 @@
 [project]
 name = "docopt2"
-version = "1.2.0"
+version = "1.2.1"
 description = "Typed successor to docopt: the usage message is the parser spec."
 readme = "README.md"
 license = "MIT"
