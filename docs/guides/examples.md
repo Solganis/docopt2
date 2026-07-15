@@ -66,9 +66,9 @@ checks its happy paths.
 ```python
 generate_examples(doc, count=4, valid=False, seed=7)
 # [['mine', 'set', 'v1', 'v2', '--unknown'],
-#  ['--help', '--unknown'],
 #  ['ship', 'new', 'v3', '--unknown'],
-#  ['ship', 'new', 'v4', 'v5', '--unknown']]
+#  ['ship', 'new', 'v4', 'v5', '--unknown'],
+#  ['ship', 'new', 'v6', '--unknown']]
 ```
 
 Every one of these raises [`DocoptExit`](../reference/exceptions.md) when passed to `docopt`.

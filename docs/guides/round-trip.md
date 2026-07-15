@@ -41,8 +41,8 @@ typed. The canonical form is fixed and predictable:
 
 A result that no usage pattern can reproduce raises `ValueError` rather than return a wrong argv. That is a
 hand-built or inconsistent mapping, or a degenerate grammar in which one value is reachable through
-differently-shaped positions (`(<name> | <name> ...)`, `(-a | -b)...`, `[<name>] <path> <name>`) - a shape
-whose argv is genuinely ambiguous, so there is no single canonical form to return.
+differently-shaped positions (`(-a | -b)...`, `[<name>] <path> <name>`) - a shape whose argv is genuinely
+ambiguous, so there is no single canonical form to return.
 
 ## What it is for
 
