@@ -30,6 +30,18 @@ def test_is_idempotent():
     assert_that(format_usage(once)).is_equal_to(once)
 
 
+def test_a_whitespace_only_spacer_line_keeps_the_options_after_it_in_the_section():
+    # A spacer line of only spaces sits INSIDE the options section (it starts with a space). Emptying it
+    # (rstrip) would end the section early, so `docopt(fmt(doc))` would no longer see `-b` - format_usage
+    # promises to be semantics-preserving. It also broke idempotency: the second pass saw a shorter section.
+    doc = "Usage:\n  prog [options]\n\nOptions:\n  -a  All.\n  \n  --bee=<n>  Bee.\n"
+    once = format_usage(doc)
+    assert_that(dict(docopt(once, ["--bee", "3"], help=False, complete=False))).is_equal_to(
+        dict(docopt(doc, ["--bee", "3"], help=False, complete=False))
+    )
+    assert_that(format_usage(once)).is_equal_to(once)  # idempotent across the spacer
+
+
 def test_a_usage_without_options_is_only_whitespace_tidied():
     assert_that(format_usage("Usage: prog <a> <b>   \n")).is_equal_to("Usage: prog <a> <b>\n")
 

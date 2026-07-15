@@ -28,7 +28,9 @@ def format_usage(doc: str) -> str:
             spec, _, description = line.strip().partition("  ")
             entries[index] = (indent, " ".join(spec.replace(",", " ").split()), description.strip())
     width = max((len(spec) for _, spec, _ in entries.values()), default=0)
-    out = [line.rstrip() for line in lines]
+    # A whitespace-only spacer line holds the section together for the parser; rstripping it to empty would
+    # end the section early and drop the options after it. Leave such lines verbatim (semantics over tidy).
+    out = [line if line and not line.strip() else line.rstrip() for line in lines]
     for index, (indent, spec, description) in entries.items():
         out[index] = " " * indent + (f"{spec.ljust(width)}  {description}" if description else spec)
     return "\n".join(out) + ("\n" if doc.endswith("\n") else "")
