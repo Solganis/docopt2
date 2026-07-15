@@ -40,10 +40,13 @@ def test_a_scoped_line_with_no_options_omits_the_options_block():
     assert_that(out).does_not_contain("Options:")
 
 
-def test_options_shortcut_shows_every_option():
+def test_options_shortcut_shows_the_options_it_actually_fills():
+    # `[options]` fills the options NOT named on another usage line - here `--moored`. `--speed` is named on
+    # the `move` line, so `[options] status` does not accept `--speed=5 status`; the help must not list it.
     out = render_help(_DOC, ("status",))
     assert_that(out).contains("[options] status")
-    assert_that(out).contains("--speed=<kn>").contains("--moored")  # [options] expands to all
+    assert_that(out).contains("--moored")  # the option [options] fills
+    assert_that(out).does_not_contain("--speed")  # named on another line -> not part of this [options]
 
 
 def test_a_path_matching_no_single_line_falls_back_to_the_whole_usage():
@@ -115,3 +118,38 @@ def test_cli_parse_forwards_help_style(capsys):
     with raises(SystemExit):
         Fate.parse("ship v move 1 2 --help", help_style="rich")
     assert_that(capsys.readouterr().out).contains("ship <name> move").does_not_contain("ship new")
+
+
+def test_rich_help_lists_clustered_short_options():
+    # `[-hso FILE]` is a cluster of -h -s -o. The whole `-hso` token matched no Options entry, so the
+    # rich help dropped all three; they must each appear.
+    doc = (
+        "Usage:\n  tool [-hso FILE]\n\n"
+        "Options:\n  -h --help    Show this screen.\n  -s --sorted  Sort the output.\n  -o FILE      Write to FILE.\n"
+    )
+    out = render_help(doc)
+    assert_that(out).contains("-h --help").contains("-s --sorted").contains("-o FILE")
+
+
+def test_rich_help_scoped_options_shortcut_excludes_another_lines_option():
+    # `serve [options]` fills the options not named elsewhere; `--minify` is on the `build` line only, so
+    # `serve --help` must not list it (docopt rejects `serve --minify`).
+    doc = (
+        "Usage:\n  prog serve [options]\n  prog build --minify\n\n"
+        "Options:\n  --port=<p>  Port  [default: 8080]\n  --minify    Minify the output.\n"
+    )
+    assert_that(render_help(doc, ("serve",))).contains("--port").does_not_contain("--minify")
+    assert_that(render_help(doc, ("build",))).contains("--minify")
+
+
+def test_rich_help_hides_a_default_on_a_flag():
+    # docopt ignores a flag's [default:] (a flag is present or absent), so the rich provenance chain must
+    # not show one - it would name a value the parser never uses. env/config on a flag ARE used, so stay.
+    doc = (
+        "Usage:\n  prog [--verbose] [--port=<n>]\n\n"
+        "Options:\n  --verbose  Log  [default: on] [env: V]\n  --port=<n>  Port  [default: 8080]\n"
+    )
+    out = render_help(doc)
+    assert_that(out).does_not_contain("default: on")  # the flag's meaningless default is hidden
+    assert_that(out).contains("env: V")  # a flag still reads its env
+    assert_that(out).contains("default: 8080")  # a valued option keeps its default

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from docopt2._diagnostics import _BOLD, _DIM, _GREEN, _RESET
-from docopt2._parser import _CONFIG_PATTERN, _DEFAULT_PATTERN, _ENV_PATTERN, _option_chunks, parse_section
+from docopt2._parser import _CONFIG_PATTERN, _DEFAULT_PATTERN, _ENV_PATTERN, Option, _option_chunks, parse_section
 
 # A short/long option token as written in a usage line or an option spec (`-v`, `--speed`, `--dry-run`).
 _OPTION_TOKEN = re.compile(r"-{1,2}[A-Za-z][\w-]*")
@@ -20,16 +20,18 @@ def _usage_lines(doc: str) -> list[str]:
     return [line.strip() for line in rest.splitlines() if line.strip()]
 
 
-def _provenance(description: str) -> str:
+def _provenance(description: str, *, has_default: bool) -> str:
     """The value-resolution chain declared in a description, as `[env: X, config: Y, default: Z]` or ``""``.
 
     Reads the same `[env:]`/`[config:]`/`[default:]` annotations docopt() resolves against, in precedence
-    order, so the rendered help documents where each value comes from.
+    order, so the rendered help documents where each value comes from. ``has_default`` is False for a flag:
+    docopt ignores a flag's `[default:]` (a flag is present or absent), so showing one would name a value
+    the parser never uses.
     """
     env = _ENV_PATTERN.search(description)
     config = _CONFIG_PATTERN.search(description)
     without_sources = _CONFIG_PATTERN.sub("", _ENV_PATTERN.sub("", description))  # then the greedy default
-    default = _DEFAULT_PATTERN.search(without_sources)
+    default = _DEFAULT_PATTERN.search(without_sources) if has_default else None
     sources = [
         *([f"env: {env.group(1)}"] if env else []),
         *([f"config: {config.group(1)}"] if config else []),
@@ -44,7 +46,7 @@ def _option_entries(doc: str) -> list[tuple[str, frozenset[str], str, str]]:
     entries: list[tuple[str, frozenset[str], str, str]] = []
     for chunk in _option_chunks(doc):
         spec, _, description = chunk.strip().partition("  ")
-        provenance = _provenance(description)
+        provenance = _provenance(description, has_default=bool(Option.parse(chunk).argcount))
         clean = _DEFAULT_PATTERN.sub("", _CONFIG_PATTERN.sub("", _ENV_PATTERN.sub("", description)))
         # close the gap the removed annotations leave before trailing punctuation ("bind ." -> "bind."),
         # anchored at the end so a legitimate mid-text "a : b" is left alone
@@ -61,6 +63,21 @@ def _intro(doc: str) -> str:
             break
         lines.append(line)
     return "\n".join(lines).strip()
+
+
+def _option_names_in(line: str) -> set[str]:
+    """The option names a usage line uses, expanding a short cluster: ``-hso`` is ``-h``, ``-s``, ``-o``.
+
+    A single-dash run of letters is a cluster of short flags, so ``[-hso FILE]`` uses ``-h``/``-s``/``-o`` -
+    matching those Options entries. A ``--long`` or a lone ``-h`` is taken verbatim.
+    """
+    names: set[str] = set()
+    for token in _OPTION_TOKEN.findall(line):
+        if not token.startswith("--") and len(token) > 2 and token[1:].isalpha():
+            names |= {f"-{letter}" for letter in token[1:]}
+        else:
+            names.add(token)
+    return names
 
 
 def _scope(usage_lines: list[str], argv_tokens: tuple[str, ...]) -> list[str]:
@@ -82,15 +99,21 @@ def render_help(doc: str, argv_tokens: tuple[str, ...] = (), *, color: bool = Fa
     def paint(code: str, text: str) -> str:
         return f"{code}{text}{_RESET}" if color else text
 
-    usage_lines = _scope(_usage_lines(doc), argv_tokens)
+    all_lines = _usage_lines(doc)
+    usage_lines = _scope(all_lines, argv_tokens)
+    named_anywhere = {name for line in all_lines for name in _option_names_in(line)}
     used_options: set[str] = set()
-    show_all_options = False
+    has_shortcut = False
     for line in usage_lines:
         if "[options]" in line:
-            show_all_options = True
-        used_options.update(_OPTION_TOKEN.findall(line))
+            has_shortcut = True
+        used_options |= _option_names_in(line)
     entries = _option_entries(doc)
-    shown = entries if show_all_options else [entry for entry in entries if entry[1] & used_options]
+    # A scoped `[options]` fills the options NOT named on any usage line (what expand_options_shortcut
+    # does), NOT every option: `serve [options]` must not list `--minify` that only the `build` line takes.
+    shown = [
+        entry for entry in entries if (entry[1] & used_options) or (has_shortcut and not (entry[1] & named_anywhere))
+    ]
 
     blocks: list[str] = []
     intro = _intro(doc)
