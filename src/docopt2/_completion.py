@@ -40,7 +40,9 @@ _WORDS_ENV = "_DOCOPT2_WORDS"
 # --- the resolver: which tokens may legally come next -------------------------------------------
 
 
-def _frontier(node: Pattern, left: list[Pattern], *, block: bool) -> Iterator[tuple[list[Pattern], set[Pattern], bool]]:
+def _frontier(
+    node: Pattern, left: list[Pattern], *, block: bool, in_repetition: bool = False
+) -> Iterator[tuple[list[Pattern], set[Pattern], bool]]:
     """Yield ``(remaining, frontier, blocks)`` per partial-consumption path; a token sequence is a
     valid prefix iff some path leaves ``remaining == []``.
 
@@ -48,6 +50,9 @@ def _frontier(node: Pattern, left: list[Pattern], *, block: bool) -> Iterator[tu
     path proceeds past it, non-blocking); an unfilled positional/command sets ``blocks`` to ``block``,
     so the command pass (``block=True``) stops at the next positional while the option pass
     (``block=False``) floats past it to reach later options. A present positional that fails is dead.
+
+    ``in_repetition`` marks that this node is being expanded as a ``OneOrMore`` child, which gates the
+    skip-branch prune in :func:`_frontier_seq` - see there.
     """
     if isinstance(node, LeafPattern):
         position, matched = node.single_match(left)
@@ -60,37 +65,47 @@ def _frontier(node: Pattern, left: list[Pattern], *, block: bool) -> Iterator[tu
         return
     if isinstance(node, Either):
         for child in node.children:
-            yield from _frontier(child, left, block=block)
+            yield from _frontier(child, left, block=block, in_repetition=in_repetition)
         return
     if isinstance(node, OneOrMore):
-        for remaining, frontier, blocks in _frontier(node.children[0], left, block=block):
+        for remaining, frontier, blocks in _frontier(node.children[0], left, block=block, in_repetition=True):
             yield remaining, frontier, blocks
             if not frontier and len(remaining) < len(left):  # consumed one and progressed: may repeat
-                yield from _frontier(node, remaining, block=block)
+                yield from _frontier(node, remaining, block=block, in_repetition=in_repetition)
         return
     if isinstance(node, (Optional, OptionsShortcut)):
-        yield from _frontier_seq(node.children, left, optional=True, block=block)
+        yield from _frontier_seq(node.children, left, optional=True, block=block, in_repetition=in_repetition)
         return
-    yield from _frontier_seq(cast("Required", node).children, left, optional=False, block=block)
+    children = cast("Required", node).children
+    yield from _frontier_seq(children, left, optional=False, block=block, in_repetition=in_repetition)
 
 
 def _frontier_seq(
-    children: list[Pattern], left: list[Pattern], *, optional: bool, block: bool
+    children: list[Pattern], left: list[Pattern], *, optional: bool, block: bool, in_repetition: bool
 ) -> Iterator[tuple[list[Pattern], set[Pattern], bool]]:
     if not children:
         yield left, set(), False
         return
     head, rest = children[0], children[1:]
-    for remaining, frontier, blocks in _frontier(head, left, block=block):
+    floated = False
+    for remaining, frontier, blocks in _frontier(head, left, block=block, in_repetition=in_repetition):
         if blocks:  # an unfilled required positional; stop, do not advance past it
             yield remaining, frontier, True
-        else:  # head consumed input or floated past; advance, carrying its frontier along
-            for tail_remaining, tail_frontier, tail_blocks in _frontier_seq(
-                rest, remaining, optional=optional, block=block
-            ):
-                yield tail_remaining, frontier | tail_frontier, tail_blocks
-    if optional:  # an optional child may be skipped entirely
-        yield from _frontier_seq(rest, left, optional=optional, block=block)
+            continue
+        if len(remaining) == len(left):  # head consumed nothing: it floated (an option always does)
+            floated = True
+        for tail_remaining, tail_frontier, tail_blocks in _frontier_seq(  # advance, carrying its frontier
+            rest, remaining, optional=optional, block=block, in_repetition=in_repetition
+        ):
+            yield tail_remaining, frontier | tail_frontier, tail_blocks
+    # An optional child may be skipped. When head floated, the take-branch already recursed into `rest`
+    # with this same `left` carrying head's frontier on top, so the skip yields a strict subset at the same
+    # remaining - EXCEPT inside a OneOrMore, where the skip-branch's EMPTY frontier is what lets the
+    # repetition re-enter (`[-a <name>]...` must skip `-a` to consume a second `<name>`, then offer `-a`
+    # on the next round). So the prune is sound only outside a repetition. There it matters: a top-level
+    # `[options]` over N flags forked into 2**n paths, and a Tab press on a 25-flag CLI took over a second.
+    if optional and not (floated and not in_repetition):
+        yield from _frontier_seq(rest, left, optional=optional, block=block, in_repetition=in_repetition)
 
 
 def _resolve(doc: str, typed: list[str]) -> list[str]:
@@ -107,16 +122,26 @@ def _resolve(doc: str, typed: list[str]) -> list[str]:
     command_frontiers = [frontier for remaining, frontier, _b in command_paths if remaining == []]
     if not command_frontiers:
         return []  # the typed positionals cannot be consumed - not a valid prefix, nothing to complete
+    # Option pass: over the full prefix, positionals do NOT block, so the walk floats past unfilled
+    # positionals to every reachable unconsumed option (repeats return via `...`); dead branches prune. Its
+    # remaining==[] frontiers also decide command viability: a command whose line cannot consume a typed
+    # option is a dead end docopt() would reject, so after `--reload` (only on the serve line) `db` is out.
+    # Drop the `--` separator too, or it reads as an unmatched positional and kills every branch.
+    base_options = [leaf for leaf in base if not (type(leaf) is Argument and leaf.value == "--")]
+    reachable: set[Pattern] = set()
+    for remaining, frontier, _b in itertools.islice(_frontier(pattern, base_options, block=False), MATCH_LIMIT):
+        if remaining == []:
+            reachable |= frontier
+    viable_commands = {leaf.name for leaf in reachable if type(leaf) is Command}
     names: set[str] = {
-        cast("str", leaf.name) for frontier in command_frontiers for leaf in frontier if type(leaf) is Command
+        cast("str", leaf.name)
+        for frontier in command_frontiers
+        for leaf in frontier
+        if type(leaf) is Command and leaf.name in viable_commands
     }
     if after_separator:
         return sorted(names)  # options are not parsed after a POSIX `--` separator
-    # Option pass: over the full prefix, positionals do NOT block, so the walk floats past unfilled
-    # positionals to every reachable unconsumed option (repeats return via `...`); dead branches prune.
-    for remaining, frontier, _b in itertools.islice(_frontier(pattern, base, block=False), MATCH_LIMIT):
-        if remaining == []:
-            names.update(str(leaf.long or leaf.short) for leaf in frontier if isinstance(leaf, Option))
+    names.update(str(leaf.long or leaf.short) for leaf in reachable if isinstance(leaf, Option))
     return sorted(names)
 
 

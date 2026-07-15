@@ -1,5 +1,6 @@
 import dataclasses
 import os
+import random
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from docopt2 import (
     DocoptExit,
     DocoptLanguageError,
     OneOrMore,
+    _completion,
     complete,
     docopt,
     generate_completion,
@@ -148,6 +150,30 @@ def test_dispatch_on_returns_the_handler_unchanged():
     assert_that(app.on("status")(handler)).is_same_as(handler)
 
 
+def test_dispatch_coercion_failure_carries_the_usage_and_the_exit_code():
+    # A schema coercion failure in run() raised a bare DocoptExit: str(exc) lost the Usage block and the
+    # caller's exit_code was ignored (defaulted to 1). Both must be threaded, as docopt()'s own path does.
+    @dataclasses.dataclass
+    class Add:
+        count: int
+
+    app = Dispatch("Usage:\n  prog add <count>\n")
+    app.on("add", schema=Add)(lambda a: a)
+    with raises(DocoptExit) as exc_info:
+        app.run(["add", "x"], exit_code=2)
+    assert_that(exc_info.value.exit_code).is_equal_to(2)
+    assert_that(str(exc_info.value)).contains("Usage:")
+
+
+def test_dispatch_no_handler_honours_the_exit_code():
+    app = Dispatch("Usage:\n  p a\n  p b\n")
+    app.on("a")(lambda args: "a")
+    with raises(DocoptExit) as exc_info:
+        app.run(["b"], exit_code=3)
+    assert_that(exc_info.value.exit_code).is_equal_to(3)
+    assert_that(str(exc_info.value)).contains("no handler")
+
+
 def test_dispatch_run_rejects_a_schema_it_cannot_route_on():
     # run() forwards its keywords to docopt(), and `schema=` would make docopt return an instance -
     # which dispatch then tried to route on, failing with `'Args' object has no attribute 'get'`.
@@ -251,6 +277,75 @@ def test_complete_drops_an_option_already_given_and_keeps_the_rest_floating():
 
 def test_complete_handles_repetition_and_suggests_nothing_for_the_repeated_positional():
     assert_that(complete(_PKG_DOC, ["pull", "r1", ""])).is_equal_to([])
+
+
+_BRANCH_DOC = "Usage:\n  tool db (up|down) <steps>\n  tool serve <port> [--reload]\n\nOptions:\n  --reload  Reload.\n"
+
+
+def test_complete_does_not_offer_a_command_a_typed_option_has_ruled_out():
+    # `--reload` belongs only to the `serve` line, so after it only `serve` can follow. Offering `db`
+    # (from the other line) was a dead end docopt() then rejects - complete() must not suggest it.
+    assert_that(complete(_BRANCH_DOC, ["--reload", ""])).is_equal_to(["serve"])
+    assert_that(complete(_BRANCH_DOC, [""])).is_equal_to(["--reload", "db", "serve"])  # both lines open at the start
+
+
+def test_complete_offers_nothing_when_an_option_and_command_are_exclusive_and_the_option_was_taken():
+    # `(cmd | -a)`: taking `-a` commits to that branch, so `cmd` can no longer follow.
+    assert_that(complete("Usage: prog (cmd | -a)\n\nOptions:\n  -a\n", ["-a", ""])).is_equal_to([])
+
+
+def _exhaustively_walked(children, left, *, optional, block, in_repetition):
+    """`_frontier_seq` with the skip-branch prune switched OFF: an optional child always forks in two.
+
+    This is the reference the pruned walk must match. The prune drops a floated child's skip-branch, on
+    the reasoning that the take-branch is a superset at the same remaining - but that fails inside a
+    OneOrMore, where the skip-branch's empty frontier is what lets the repetition re-enter. The prune is
+    therefore gated on `not in_repetition`; this reference never prunes, so the comparison catches any
+    over-pruning. A hand-picked grammar list missed the `[-a <name>]...` case; the wide hypothesis
+    profile caught it. The list below now carries it, and the property test guards the rest.
+    """
+    if not children:
+        yield left, set(), False
+        return
+    head, rest = children[0], children[1:]
+    for remaining, frontier, blocks in _frontier(head, left, block=block, in_repetition=in_repetition):
+        if blocks:
+            yield remaining, frontier, True
+        else:
+            for tail_remaining, tail_frontier, tail_blocks in _exhaustively_walked(
+                rest, remaining, optional=optional, block=block, in_repetition=in_repetition
+            ):
+                yield tail_remaining, frontier | tail_frontier, tail_blocks
+    if optional:
+        yield from _exhaustively_walked(rest, left, optional=optional, block=block, in_repetition=in_repetition)
+
+
+_FRONTIER_GRAMMARS = [
+    "usage: prog [options] <x>\n\nOptions:\n  -v --verbose  V.\n  -f --force  F.\n  --opt=<n>  O.\n",
+    _TREE_DOC,
+    "usage: prog (a | b) [--x] [--y] <z>\n\nOptions:\n  --x  X.\n  --y  Y.\n",
+    "usage: prog [--a] [--b] [--c] [<p>] [<q>]\n\nOptions:\n  --a  A.\n  --b  B.\n  --c  C.\n",
+    "usage: prog [-v]... <f>...\n\nOptions:\n  -v  Verbosity.\n",
+    "usage: prog cmd [options] [--] <rest>...\n\nOptions:\n  --one  1.\n  --two  2.\n",
+    "usage: prog [<a>] <b> [<c>]",
+    # A floating option INSIDE a repetition: skipping `-a` is what lets the repeat consume a second
+    # `<name>` and then offer `-a` again. The prune must NOT fire here. (Regression: wide hypothesis.)
+    "usage: prog [-a <name>] ...",
+    "usage: prog ([--x] <p>)... <q>\n\nOptions:\n  --x  X.\n",
+]
+_FRONTIER_WORDS = ["", "-", "--", "a", "b", "user", "create", "status", "cmd", "x", "--v", "-f", "-a", "name"]
+
+
+@pytest.mark.parametrize("doc", _FRONTIER_GRAMMARS)
+def test_the_pruned_frontier_walk_offers_what_the_exhaustive_one_did(doc, monkeypatch):
+    pruned = _completion._frontier_seq
+    rng = random.Random(11)
+    for _ in range(150):
+        words = [rng.choice(_FRONTIER_WORDS) for _ in range(rng.randint(0, 4))]
+        monkeypatch.setattr(_completion, "_frontier_seq", _exhaustively_walked)
+        exhaustive = complete(doc, words)
+        monkeypatch.setattr(_completion, "_frontier_seq", pruned)
+        assert_that(complete(doc, words)).described_as(f"words={words}").is_equal_to(exhaustive)
 
 
 def test_frontier_repetition_guard_terminates():
