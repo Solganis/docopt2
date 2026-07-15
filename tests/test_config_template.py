@@ -3,7 +3,7 @@ import sys
 from assertpy2 import assert_that
 from pytest import importorskip
 
-from docopt2 import DocoptLanguageError, generate_config_template
+from docopt2 import DocoptLanguageError, docopt, generate_config_template
 from docopt2._generate import _toml_value
 
 # tomllib is stdlib from 3.11; on the 3.10 floor the dev group installs tomli, so the round-trip
@@ -64,6 +64,14 @@ def test_config_template_rejects_a_duplicate_config_key():
     assert_that(generate_config_template).raises(DocoptLanguageError).when_called_with(doc)
 
 
+def test_config_template_rejects_a_config_key_with_an_empty_segment():
+    # `.foo` drops its empty prefix onto the root and produces a second `foo = ...`, invalid TOML the
+    # collision guard did not catch. A leading, trailing, or doubled dot is a malformed key - fail loudly.
+    for key in (".foo", "foo.", "a..b"):
+        doc = f"Usage: p [--x=<v>]\n\nOptions:\n  --x=<v>  X [config: {key}] [default: 1].\n"
+        assert_that(generate_config_template).described_as(key).raises(DocoptLanguageError).when_called_with(doc)
+
+
 def test_config_template_allows_sibling_keys_under_one_table():
     doc = "Usage: p [--x=<v>] [--y=<v>]\n\nOptions:\n  --x=<v>  X [config: srv.host].\n  --y=<v>  Y [config: srv.port]."
     assert_that(generate_config_template(doc)).contains("[srv]").contains("host = ").contains("port = ")
@@ -76,9 +84,26 @@ def test_toml_value_renders_each_scalar_kind():
     assert_that(_toml_value("8080")).is_equal_to("8080")  # int
     assert_that(_toml_value("-3")).is_equal_to("-3")
     assert_that(_toml_value("1.5")).is_equal_to("1.5")  # float
+    assert_that(_toml_value("3.14")).is_equal_to("3.14")  # a float that reads back unchanged stays bare
     assert_that(_toml_value("true")).is_equal_to("true")  # bool-looking default
     assert_that(_toml_value("info")).is_equal_to('"info"')  # plain string, quoted
     assert_that(_toml_value('a"b\\c')).is_equal_to('"a\\"b\\\\c"')  # quotes and backslashes escaped
     assert_that(_toml_value("007")).is_equal_to('"007"')  # leading zeros are not a valid TOML int -> string
     assert_that(_toml_value("00")).is_equal_to('"00"')
-    assert_that(_toml_value("-0")).is_equal_to("-0")  # a lone signed zero is a valid TOML int
+    # Numbers that would read back CHANGED must be quoted, or the config resolves the option to a different
+    # value than its declared default: "1.10" loads as 1.1, "-0" as 0.
+    assert_that(_toml_value("1.10")).is_equal_to('"1.10"')
+    assert_that(_toml_value("10.20")).is_equal_to('"10.20"')
+    assert_that(_toml_value("-0")).is_equal_to('"-0"')
+
+
+def test_a_numeric_default_resolves_back_to_the_declared_value_through_the_template():
+    # generate_config_template's whole purpose is to seed the config so an option resolves to its default.
+    # A version-like default such as 1.10 used to emit as a bare TOML float, loading back as 1.1.
+    tomllib = importorskip(_TOML)
+    for default in ("1.10", "10.20", "3.14", "8080", "1.0"):
+        doc = f"Usage: prog [--v=<x>]\n\nOptions:\n  --v=<x>  V [config: a.v] [default: {default}]\n"
+        config = tomllib.loads(generate_config_template(doc))
+        from_default = docopt(doc, [], complete=False)["--v"]
+        from_config = docopt(doc, [], config=config, complete=False)["--v"]
+        assert_that(from_config).described_as(f"default {default}").is_equal_to(from_default)

@@ -160,7 +160,14 @@ def _toml_quote(text: str) -> str:
 
 
 def _toml_value(value: object) -> str:
-    """Render an option's default as a TOML scalar: bare int/float/bool, quoted string, ``""`` if none."""
+    """Render an option's default as a TOML scalar: bare int/float/bool, quoted string, ``""`` if none.
+
+    A default is emitted bare ONLY when it survives the round trip a config load makes: a TOML number is
+    parsed to a Python ``int``/``float``, and the resolver reads it back with ``str()``. ``1.10`` would
+    parse to ``1.1`` and resolve the option to a different value than declared, so it is quoted instead;
+    ``8080`` and ``3.14`` round-trip and stay bare. (Leading zeros like ``007`` are not valid TOML numbers
+    and were always quoted.)
+    """
     if value is None:
         return '""'
     if value is True:
@@ -168,8 +175,10 @@ def _toml_value(value: object) -> str:
     if value is False:
         return "false"
     text = str(value)
-    if re.fullmatch(r"-?(0|[1-9]\d*)(\.\d+)?", text):  # a bare TOML int/float; leading zeros (e.g. "007") stay strings
-        return text
+    if re.fullmatch(r"-?(0|[1-9]\d*)", text) and str(int(text)) == text:
+        return text  # a bare TOML integer that reads back unchanged
+    if re.fullmatch(r"-?(0|[1-9]\d*)\.\d+", text) and str(float(text)) == text:
+        return text  # a bare TOML float that reads back unchanged
     if text.lower() in ("true", "false"):
         return text.lower()
     return _toml_quote(text)
@@ -197,10 +206,14 @@ def _reject_colliding_config_keys(keys: list[str]) -> None:
 
     A repeated key, or a dotted path that is a prefix of another (the same name used as both a value and
     a ``[table]``, like ``srv`` beside ``srv.port``), is a contradiction TOML cannot express - so it is a
-    usage error, reported like a malformed usage rather than written out as invalid TOML.
+    usage error, reported like a malformed usage rather than written out as invalid TOML. An empty segment
+    (a leading, trailing or doubled dot) is malformed too: ``.foo`` drops its empty prefix onto the root
+    and collides with a plain ``foo``, which the prefix check below cannot see.
     """
     seen: set[str] = set()
     for key in keys:
+        if "" in key.split("."):
+            raise DocoptLanguageError(Diagnostic(summary=f"config key `{key}` has an empty segment").render())
         if key in seen:
             raise DocoptLanguageError(Diagnostic(summary=f"duplicate config key `{key}`").render())
         seen.add(key)
