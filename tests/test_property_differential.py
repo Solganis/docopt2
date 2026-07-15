@@ -74,6 +74,24 @@ def _assigned_tokens(result_map: dict[str, object]) -> list[str]:
     return tokens
 
 
+def _command_tokens(result_map: dict[str, object]) -> list[str]:
+    """The argv tokens a result consumed as a (sub)command: a bare command key set True, or counted.
+
+    A command matches the argv token spelled like its own name, so its key IS the token it consumed - but
+    the value is a bool/count, not a string, so ``_assigned_tokens`` never sees it. Options (``-``/``--``)
+    and arguments (``<x>``, ``NAME``) assign string values instead and are already covered there.
+    """
+    tokens: list[str] = []
+    for key, value in result_map.items():
+        if key.startswith(("-", "<")):
+            continue  # options and <args>; an ALLCAPS argument holds a string value, excluded below
+        if value is True:
+            tokens.append(key)
+        elif type(value) is int and value > 0:
+            tokens.extend([key] * value)
+    return tokens
+
+
 def _value_compatible(got_value: object, want_value: object) -> bool:
     if got_value == want_value:
         return True
@@ -90,8 +108,7 @@ def _value_compatible(got_value: object, want_value: object) -> bool:
     return False
 
 
-@given(doc=doc_strategy, argv=argv_strategy)
-def test_docopt2_matches_vanilla_docopt(doc, argv):
+def _assert_compatible(doc, argv):
     got = _outcome(docopt, DocoptExit, DocoptLanguageError, doc, argv)
     want = _outcome(_vanilla.docopt, _vanilla.DocoptExit, _vanilla.DocoptLanguageError, doc, argv)
     if want[0] == "user-error":
@@ -119,7 +136,31 @@ def test_docopt2_matches_vanilla_docopt(doc, argv):
     # docopt2 then distributes the SAME argv tokens to different keys. Accept iff docopt2 fabricated
     # no value vanilla lacks - its assigned-token multiset is within vanilla's.
     surplus = Counter(_assigned_tokens(got_map)) - Counter(_assigned_tokens(want_map))
+    # A token vanilla consumed as a (sub)command - its key set True or counted, not a string value - is
+    # not one vanilla "lacks": on `[<name>] <name> | cmd` given `cmd`, docopt2 binds the token to <name>
+    # while vanilla invokes the command. Both are valid branches of the ambiguity; crediting vanilla's
+    # command tokens leaves only a token vanilla never took in any form counting as fabricated.
+    surplus -= Counter(_command_tokens(want_map))
     assert not surplus, f"docopt2 assigned a value vanilla did not:\n{context}"
+
+
+@given(doc=doc_strategy, argv=argv_strategy)
+def test_docopt2_matches_vanilla_docopt(doc, argv):
+    _assert_compatible(doc, argv)
+
+
+# Locked into the gate (300 derandomised examples would not reach them; the wide nightly did): an
+# ambiguous `[<name>] <name> | <command>` on the command token. docopt2 binds it to <name>, vanilla
+# invokes the command - both valid branches, neither fabricates a value. Must stay tolerated.
+_AMBIGUOUS_BRANCH_CASES = [
+    ("usage: prog [<name>] <name> | cmd ...", ["cmd"]),
+    ("usage: prog [<name>] <name> | cmd", ["cmd"]),
+]
+
+
+@pytest.mark.parametrize(("doc", "argv"), _AMBIGUOUS_BRANCH_CASES)
+def test_an_ambiguous_alternation_branch_choice_stays_compatible(doc, argv):
+    _assert_compatible(doc, argv)
 
 
 # A PRISTINE oracle: the module above is deliberately patched with docopt2's two fixes, so it can no
