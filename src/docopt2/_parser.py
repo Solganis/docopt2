@@ -488,11 +488,14 @@ class Either(BranchPattern):
     """Exactly one branch must match; the one leaving the fewest leaves wins."""
 
     def matches(self, left: list[Pattern], collected: list[Pattern]) -> Iterator[MatchOutcome]:
-        # Greedy-first, lazily. Each branch yields its own fewest-left outcome first, so the global
-        # fewest-left - the greedy result the matcher wants - is the min over the branches' first outcomes.
-        # Yield it WITHOUT materializing the rest: a caller that takes only the greedy outcome (the common
-        # case, and every complete match) stops here, so an honest match never builds the whole fan. The
-        # eager `sorted(list(all))` this replaces made that fan grow with argv and false-rejected long CLIs.
+        # Greedy-first, lazily - the shape of vanilla docopt's own Either.match: ask each branch for one
+        # greedy outcome (`next` on its stream) and take the fewest-left among them, yielding the winner
+        # without materializing the rest, so an honest match stays a single greedy path. (The eager
+        # `sorted(list(all outcomes))` this replaces grew with argv and false-rejected long CLIs.) It mins
+        # over the per-branch firsts, NOT over every outcome of every branch - what docopt2 alone used to do
+        # and vanilla never does - so on an ambiguous alternation it may pick a different branch than that old
+        # engine. Vanilla-compatibility is unchanged (the differential holds for both); equivalence to the old
+        # engine's ORDER is not claimed, because a branch's greedy first is not always its fewest-left.
         streams = [child.matches(left, collected) for child in self.children]
         firsts = [next(stream, None) for stream in streams]
         live = [index for index, outcome in enumerate(firsts) if outcome is not None]
@@ -502,8 +505,8 @@ class Either(BranchPattern):
         yield cast("MatchOutcome", firsts[best_index])
 
         def _rest() -> Iterator[MatchOutcome]:
-            # Every outcome except the one already yielded, in the branch order the eager version listed
-            # them, so `[best] + sorted(_rest())` reproduces `sorted(all)` exactly - tie order included.
+            # The remaining outcomes for a caller that backtracks past the greedy pick, in branch order and
+            # sorted below. Only pulled then, so the common greedy path never pays to build the fan.
             for index, (first, stream) in enumerate(zip(firsts, streams, strict=True)):
                 if first is not None and index != best_index:
                     yield first
