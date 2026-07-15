@@ -190,8 +190,8 @@ def reply_to_completion_request(doc: str) -> str | None:
 
     Each reply line is ``name\\tdescription`` (the description may be empty). The request var holds the
     completed tokens before the cursor; only a :func:`generate_completion` script sets it, so a normal
-    run returns None. Shells that show descriptions (zsh, fish, PowerShell) render the second column;
-    bash keeps the name only.
+    run returns None. Shells that show descriptions (zsh, fish, PowerShell, nushell) render the second
+    column; bash keeps the name only.
     """
     if os.environ.get(_TRIGGER_ENV) is None:
         return None
@@ -336,19 +336,51 @@ def _render_powershell(prog: str, _function: str) -> str:
     return template.replace("__PROG__", prog).replace("__TRIGGER__", _TRIGGER_ENV).replace("__WORDS__", _WORDS_ENV)
 
 
+def _render_nushell(prog: str, function: str) -> str:
+    # nushell's `@complete` (0.108+) attaches a whole-command completer that fires for commands AND flags and
+    # does NOT filter, so the completer filters by the partial itself. `spans` is `[prog, ...typed, partial]`,
+    # so it drops the program name, answers the typed tokens over the shared env protocol, and keeps the
+    # reply candidates starting with the partial. `export extern` declares only `...rest` (no typed flags) so
+    # the program still RUNS with any flag - a typed flag would reject a valid invocation. The module file
+    # must NOT be named `<prog>.nu` (a module cannot export an extern of its own name).
+    template = (
+        'def "__FUNC__" [spans: list<string>] {\n'
+        "    let words = ($spans | skip 1)\n"
+        "    let typed = ($words | drop 1)\n"
+        "    let partial = ($words | last)\n"
+        '    let reply = (with-env {__TRIGGER__: "1", __WORDS__: ($typed | str join (char newline))} '
+        "{ ^__PROG__ | complete | get stdout })\n"
+        "    $reply | lines | where {|line| ($line | str length) > 0} | each {|line|\n"
+        "        let parts = ($line | split row (char tab))\n"  # reply line is name<TAB>description
+        '        {value: ($parts | get 0), description: ($parts | get 1? | default "")}\n'
+        "    } | where {|candidate| $candidate.value | str starts-with $partial}\n"
+        "}\n"
+        '@complete "__FUNC__"\n'
+        'export extern "__PROG__" [ ...rest: string ]\n'
+    )
+    return (
+        template.replace("__PROG__", prog)
+        .replace("__FUNC__", function)
+        .replace("__TRIGGER__", _TRIGGER_ENV)
+        .replace("__WORDS__", _WORDS_ENV)
+    )
+
+
 _RENDERERS: dict[str, Callable[[str, str], str]] = {
     "bash": _render_bash,
     "zsh": _render_zsh,
     "fish": _render_fish,
     "powershell": _render_powershell,
+    "nushell": _render_nushell,
 }
 
 
 def generate_completion(doc: str, prog: str, shell: str = "bash") -> str:
     """Return a context-aware shell completion script for the CLI described by ``doc``.
 
-    ``shell`` is one of ``"bash"``, ``"zsh"``, ``"fish"`` or ``"powershell"`` - the same four Click
-    and Typer emit. The script is a thin callback: at each Tab it re-invokes the program with a
+    ``shell`` is one of ``"bash"``, ``"zsh"``, ``"fish"``, ``"powershell"`` or ``"nushell"`` - the four
+    Click and Typer emit, plus nushell. The script is a thin callback: at each Tab it re-invokes the
+    program with a
     completion request in the environment, and the program's :func:`docopt` call resolves the
     tokens legal at the cursor from the usage grammar (so suggestions narrow to the matched
     subcommand's options and arguments, not a flat global list).

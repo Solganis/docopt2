@@ -16,7 +16,7 @@ Options:
   --amend      Amend commit.
 """
 PROG = "git-tool"
-SHELLS = ("bash", "zsh", "fish", "powershell")
+SHELLS = ("bash", "zsh", "fish", "powershell", "nushell")
 
 
 def main() -> int:

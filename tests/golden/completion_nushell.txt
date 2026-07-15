@@ -1,0 +1,12 @@
+def "_git_tool_completion" [spans: list<string>] {
+    let words = ($spans | skip 1)
+    let typed = ($words | drop 1)
+    let partial = ($words | last)
+    let reply = (with-env {_DOCOPT2_COMPLETE: "1", _DOCOPT2_WORDS: ($typed | str join (char newline))} { ^git-tool | complete | get stdout })
+    $reply | lines | where {|line| ($line | str length) > 0} | each {|line|
+        let parts = ($line | split row (char tab))
+        {value: ($parts | get 0), description: ($parts | get 1? | default "")}
+    } | where {|candidate| $candidate.value | str starts-with $partial}
+}
+@complete "_git_tool_completion"
+export extern "git-tool" [ ...rest: string ]

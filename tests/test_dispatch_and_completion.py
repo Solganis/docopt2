@@ -560,11 +560,23 @@ def test_powershell_script_registers_a_native_argument_completer():
     assert_that(script).contains("& $commandAst.CommandElements[0]")
 
 
+def test_nushell_script_uses_an_at_complete_whole_command_completer():
+    script = generate_completion(_GIT_DOC, "git-tool", "nushell")
+    # nushell's `@complete` fires for commands AND flags and does not filter, so the completer filters by
+    # the partial word (the last of `spans`); `export extern` declares only `...rest`, no typed flags, or
+    # the program would be rejected at parse time when run with a flag.
+    assert_that(script).contains('@complete "_git_tool_completion"')
+    assert_that(script).contains('export extern "git-tool" [ ...rest: string ]')
+    assert_that(script).contains("[spans: list<string>]").contains("_DOCOPT2_COMPLETE")
+    assert_that(script).contains("str starts-with $partial")
+    assert_that(script).does_not_contain(": int")  # typing a flag would break a working invocation
+
+
 def test_unsupported_shell_lists_the_supported_ones():
     with raises(ValueError) as exc_info:
         generate_completion(_GIT_DOC, "tool", "tcsh")
     message = str(exc_info.value)
-    assert_that(message).contains("bash").contains("zsh").contains("fish").contains("powershell")
+    assert_that(message).contains("bash").contains("zsh").contains("fish").contains("powershell").contains("nushell")
 
 
 def test_generate_completion_without_a_usage_section_raises_language_error():

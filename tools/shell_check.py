@@ -202,7 +202,16 @@ def _powershell(work: Path, prog: str, typed: list[str]) -> str:
     ).stdout
 
 
-_EXECUTABLE = {"bash": "bash", "zsh": "zsh", "fish": "fish", "powershell": "pwsh"}
+def _nushell(work: Path, prog: str, typed: list[str]) -> str:
+    """nushell exposes its completion engine to code, so no pty: feed the line to `commandline complete`
+    (nushell 0.114+). The module is `use`d by the file name the check writes it under."""
+    script = work / f"{prog}-completions.nu"
+    line = " ".join([prog, *typed, ""])
+    driver = f'use {script} *; "{line}" | commandline complete | str join (char newline)'
+    return subprocess.run(["nu", "-n", "-c", driver], capture_output=True, text=True, check=False).stdout
+
+
+_EXECUTABLE = {"bash": "bash", "zsh": "zsh", "fish": "fish", "powershell": "pwsh", "nushell": "nu"}
 
 
 def _report(label: str, expected: list[str], raw: str) -> int:
@@ -228,7 +237,7 @@ def main() -> int:
 
     # Git Bash on Windows is not a target: the program lands there as a `.cmd` shim a POSIX script cannot
     # invoke. bash/zsh/fish are driven on Linux, PowerShell on Windows.
-    wanted = ["powershell"] if platform.system() == "Windows" else ["bash", "zsh", "fish"]
+    wanted = ["powershell"] if platform.system() == "Windows" else ["bash", "zsh", "fish", "nushell"]
     shells = [name for name in wanted if shutil.which(_EXECUTABLE[name])]
     if not shells:
         print("no shell available to drive - the check would pass vacuously", file=sys.stderr)
@@ -237,13 +246,19 @@ def main() -> int:
     failures = 0
     for shell in shells:
         for prog, doc in _DOCS.items():
+            # nushell's module file must not be named `<prog>.nu` (a module cannot export an extern of its
+            # own name), so it is saved under another name and `use`d by it.
             suffix = "ps1" if shell == "powershell" else shell
-            (work / f"{prog}.{suffix}").write_text(
-                generate_completion(doc, prog=prog, shell=shell), encoding="utf-8", newline="\n"
-            )
+            name = f"{prog}-completions.nu" if shell == "nushell" else f"{prog}.{suffix}"
+            (work / name).write_text(generate_completion(doc, prog=prog, shell=shell), encoding="utf-8", newline="\n")
         for prog, typed in _CASES:
             expected = complete(_DOCS[prog], [*typed, ""])
-            raw = _powershell(work, prog, typed) if shell == "powershell" else _posix(shell, work, prog, typed)
+            if shell == "powershell":
+                raw = _powershell(work, prog, typed)
+            elif shell == "nushell":
+                raw = _nushell(work, prog, typed)
+            else:
+                raw = _posix(shell, work, prog, typed)
             failures += _report(f"{shell:11} {prog} {' '.join(typed)}", expected, raw)
         if shell == "zsh":  # the documented $fpath install, on the FIRST Tab
             failures += _report(

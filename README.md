@@ -55,7 +55,7 @@ Route each subcommand to its own handler - no <code>if args[...]</code> ladder.
 </td>
 <td valign="top">
 <a href="#shell-completion"><b>Shell completion</b></a><br>
-Tab-completion that knows your grammar: bash, zsh, fish, PowerShell.
+Tab-completion that knows your grammar: bash, zsh, fish, PowerShell, nushell.
 </td>
 </tr>
 <tr>
@@ -234,6 +234,7 @@ app.run()   # parse argv, call the matched command's handler
   <a href="https://www.zsh.org/"><img src="https://img.shields.io/badge/zsh-F15A24?logo=zsh&logoColor=white" alt="zsh"></a>
   <a href="https://fishshell.com/"><img src="https://img.shields.io/badge/fish-34C534?logo=fishshell&logoColor=white" alt="fish"></a>
   <a href="https://learn.microsoft.com/powershell/"><img src="https://img.shields.io/badge/PowerShell-5391FE" alt="PowerShell"></a>
+  <a href="https://www.nushell.sh/"><img src="https://img.shields.io/badge/nushell-4E9A06?logo=nushell&logoColor=white" alt="nushell"></a>
 </p>
 
 Generate the completion script for your shell; Tab then narrows to exactly what is valid at the cursor -<br>

@@ -1,7 +1,7 @@
 # Shell completion
 
 `generate_completion` emits a context-aware completion script for the CLI described by your usage, for
-bash, zsh, fish, and PowerShell - the same four Typer supports, and one more than Click. The script carries no grammar of
+bash, zsh, fish, PowerShell, and nushell. The script carries no grammar of
 its own: it delegates every Tab back to your program, whose [`docopt`](../reference/docopt.md) call
 resolves the candidates from the usage. This guide covers generating and installing that script, and
 computing the candidates directly with `complete()`.
@@ -15,7 +15,7 @@ script = generate_completion(doc, prog="naval", shell="bash")
 ```
 
 The signature is `generate_completion(doc, prog, shell="bash") -> str`. `shell` is one of `"bash"`,
-`"zsh"`, `"fish"`, or `"powershell"`; any other value raises `ValueError`, as does a `prog` that is not a
+`"zsh"`, `"fish"`, `"powershell"`, or `"nushell"`; any other value raises `ValueError`, as does a `prog` that is not a
 plain command name (letters, digits, `.`, `_`, `-`). A malformed `doc` fails here, loudly, rather than
 silently at Tab time.
 
@@ -67,6 +67,7 @@ have the program print it, then load it with the shell's standard mechanism:
 | zsh | `"zsh"` | `source` it from `~/.zshrc`, or save it as `_naval` on your `$fpath`. |
 | fish | `"fish"` | Save it as `~/.config/fish/completions/naval.fish`. |
 | PowerShell | `"powershell"` | Dot-source it from your `$PROFILE`. |
+| nushell | `"nushell"` | Save it under a name that is **not** `naval.nu` (a module cannot export a command of its own name), then `use naval-completions.nu *` from your config, or drop it in a `$nu.vendor-autoload-dirs` directory. Needs nushell 0.108+. |
 
 !!! note
     Each Tab is a full launch of your program, so its startup cost (imports and so on) is the completion
