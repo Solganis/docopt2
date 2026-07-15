@@ -28,10 +28,13 @@ ErrorType: TypeAlias = type[DocoptExit] | type[DocoptLanguageError]
 # (the budget below), because this per-node cap alone still compounds to minutes on a malformed pattern.
 MATCH_LIMIT = 200_000
 
-# MATCH_LIMIT is per Either, so nested alternatives still multiply it (200k per node -> minutes on a
-# malformed pattern). This budgets the WHOLE match instead: one shared ceiling across every Either, so an
-# adversarial argv rejects in bounded time. A legitimate usage materializes at most a few dozen outcomes
-# (measured across the corpus and generated argvs), so the ceiling is never approached in real use.
+# The global budget bounds docopt()'s whole match with one shared ceiling: an adversarial or malformed
+# pattern, whose `_combine` DFS backtracks exponentially when no complete match exists, rejects in bounded
+# time. It stays a small FIXED number because `Either.matches` yields lazily (greedy-first, materializing its
+# sorted tail only if a caller backtracks past it): an honest match threads a single greedy path - a few
+# hundred descents even for a long `<files>...` argv - so it never approaches the ceiling. Only a search with
+# no complete match, forced to explore its full 2**n fan, reaches it. (An EAGER Either that materialized every
+# outcome to sort them made an honest match's descents grow with argv and false-rejected a real 200-file CLI.)
 _match_budget: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar("docopt2_match_budget", default=None)
 
 
@@ -66,9 +69,10 @@ def _spend_budget() -> None:
 
     Charged per ``_combine`` descent - the exponential engine - so a DFS that dead-ends WITHOUT yielding
     (many optionals before an unmatchable required tail explores 2**n branches, none of them an outcome) is
-    bounded too. Counting descents, not per-descent work, is what keeps a genuine match cheap: matching a
-    long ``<files>...`` glob is a handful of descents (the repetition is iterative), so it never approaches
-    the ceiling, while an adversarial pattern's exponential fan-out does. A no-op when no budget is set.
+    bounded too. A genuine match is cheap because ``Either`` yields greedy-first without materializing its
+    fan (see :meth:`Either.matches`), so an honest match threads one greedy path - a few hundred descents even
+    over a long ``<files>...`` glob - while an adversarial pattern's 2**n fan-out reaches the cap. A no-op when
+    no budget is set.
     """
     budget = _match_budget.get()
     if budget is not None:
@@ -484,10 +488,28 @@ class Either(BranchPattern):
     """Exactly one branch must match; the one leaving the fewest leaves wins."""
 
     def matches(self, left: list[Pattern], collected: list[Pattern]) -> Iterator[MatchOutcome]:
-        lazy = (outcome for child in self.children for outcome in child.matches(left, collected))
-        outcomes = list(_bounded(lazy))
-        # the fewest-leaves-left branch wins first, matching the greedy matcher's choice
-        yield from sorted(outcomes, key=lambda outcome: len(outcome[0]))
+        # Greedy-first, lazily. Each branch yields its own fewest-left outcome first, so the global
+        # fewest-left - the greedy result the matcher wants - is the min over the branches' first outcomes.
+        # Yield it WITHOUT materializing the rest: a caller that takes only the greedy outcome (the common
+        # case, and every complete match) stops here, so an honest match never builds the whole fan. The
+        # eager `sorted(list(all))` this replaces made that fan grow with argv and false-rejected long CLIs.
+        streams = [child.matches(left, collected) for child in self.children]
+        firsts = [next(stream, None) for stream in streams]
+        live = [index for index, outcome in enumerate(firsts) if outcome is not None]
+        if not live:
+            return
+        best_index = min(live, key=lambda index: len(cast("MatchOutcome", firsts[index])[0]))
+        yield cast("MatchOutcome", firsts[best_index])
+
+        def _rest() -> Iterator[MatchOutcome]:
+            # Every outcome except the one already yielded, in the branch order the eager version listed
+            # them, so `[best] + sorted(_rest())` reproduces `sorted(all)` exactly - tie order included.
+            for index, (first, stream) in enumerate(zip(firsts, streams, strict=True)):
+                if first is not None and index != best_index:
+                    yield first
+                yield from stream
+
+        yield from sorted(_bounded(_rest()), key=lambda outcome: len(outcome[0]))
 
 
 def _accumulate_occurrences(node: Pattern, counts: dict[Pattern, int], multiplier: int) -> None:

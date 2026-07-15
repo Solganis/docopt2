@@ -163,6 +163,32 @@ def test_an_ambiguous_alternation_branch_choice_stays_compatible(doc, argv):
     _assert_compatible(doc, argv)
 
 
+# A DEEP but honest argv - the kind a CI invocation produces, not an adversary: two options repeated many
+# times plus a long variadic file list. An EAGER `Either` that materialized its whole outcome fan to sort it
+# made an honest match's cost grow with argv, so a real 20-flag, 200-file run reached the match budget and
+# was falsely rejected (1.1.3-1.2.0). `Either` now yields greedy-first lazily, threading one greedy path, so
+# vanilla-accepted argvs stay accepted. Sizes exceed the old fixed budget - the regression's own trigger.
+_DEEP_DOC = """Usage:
+  prog run [--verbose] [--jobs=<n>] [--tag=<t>]... [--exclude=<e>]... <suite> <files>...
+  prog report (html | json) [--out=<p>]
+"""
+
+
+def _deep_argv(tags: int, excludes: int, files: int) -> list[str]:
+    return [
+        "run",
+        *[f"--tag=t{index}" for index in range(tags)],
+        *[f"--exclude=e{index}" for index in range(excludes)],
+        "smoke",
+        *[f"f{index}" for index in range(files)],
+    ]
+
+
+@pytest.mark.parametrize(("tags", "excludes", "files"), [(20, 20, 150), (30, 10, 200), (12, 12, 300)])
+def test_a_deep_honest_argv_is_not_falsely_rejected(tags, excludes, files):
+    _assert_compatible(_DEEP_DOC, _deep_argv(tags, excludes, files))
+
+
 # A PRISTINE oracle: the module above is deliberately patched with docopt2's two fixes, so it can no
 # longer see them. These tests need the original as shipped.
 _pristine_spec = importlib.util.spec_from_file_location("docopt_pristine", _oracle_path)

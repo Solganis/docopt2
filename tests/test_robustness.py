@@ -173,3 +173,17 @@ def test_an_ambiguous_pattern_does_not_hang_on_a_long_argv():
     with pytest.raises(DocoptExit):
         docopt2.docopt(doc, argv, help=False)
     assert_that(time.perf_counter() - start).described_as("matching a 2**24-ambiguous argv").is_less_than(3.0)
+
+
+def test_an_exponential_pattern_with_a_long_argv_still_rejects_in_bounded_time():
+    # The subtler cousin: many optional flags before a MISSING required option, then a long file tail. The
+    # optionals' 2**n dead-ends fail at the missing option before they reach the files, so the fan is
+    # independent of the argv - but the long argv would inflate an argv-scaled budget past that fan and let it
+    # run for tens of seconds. The whole match stays on ONE fixed ceiling, so it rejects fast regardless.
+    flags = " ".join(f"[-{chr(97 + index)}]" for index in range(24))
+    doc = f"usage: prog {flags} --need <files>..."
+    argv = [f"-{chr(97 + index)}" for index in range(24)] + [f"f{index}" for index in range(300)]
+    start = time.perf_counter()
+    with pytest.raises(DocoptExit):
+        docopt2.docopt(doc, argv, help=False)
+    assert_that(time.perf_counter() - start).described_as("an exponential pattern with a long argv").is_less_than(3.0)
