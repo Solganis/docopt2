@@ -17,7 +17,7 @@
   <a href="https://pypi.org/project/docopt2/"><img src="https://img.shields.io/pypi/pyversions/docopt2" alt="Python"></a>
   <a href="https://pepy.tech/projects/docopt2"><img src="https://static.pepy.tech/badge/docopt2/month" alt="Downloads"></a>
   <br>
-  <a href="https://solganis.github.io/docopt2/concepts/design-boundaries/"><img src="https://img.shields.io/badge/runtime%20deps-0-2ea043" alt="zero runtime dependencies, pydantic support optional"></a>
+  <a href="https://solganis.github.io/docopt2/concepts/design-boundaries/#zero-runtime-dependencies"><img src="https://img.shields.io/badge/runtime%20deps-0-2ea043" alt="zero runtime dependencies, pydantic support optional"></a>
   <a href="https://solganis.github.io/docopt2/guides/typed-results/"><img src="https://img.shields.io/badge/type--checked-ty%20%7C%20mypy%20%7C%20pyright-2ea043" alt="the typed API is checked by ty, mypy --strict, and pyright"></a>
   <a href="https://solganis.github.io/docopt2/"><img src="https://img.shields.io/badge/docs-online-black" alt="Documentation"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/Solganis/docopt2"><img src="https://img.shields.io/ossf-scorecard/github.com/Solganis/docopt2?label=OpenSSF%20Scorecard" alt="OpenSSF Scorecard"></a>

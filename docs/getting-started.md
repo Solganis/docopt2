@@ -6,8 +6,7 @@
 pip install docopt2
 ```
 
-docopt2 has zero runtime dependencies: `[project.dependencies]` is empty, and the core needs nothing
-outside the Python standard library.
+docopt2 has zero runtime dependencies: the core needs nothing outside the Python standard library.
 pydantic support is reflective and optional (`docopt2[pydantic]`).
 
 !!! tip "Coming from the original docopt?"

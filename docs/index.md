@@ -11,10 +11,9 @@ it corrects three of the original's parsing bugs
 Diagnostics come with it. Everything else - typed results, linting, stubs, completion, dispatch - is opt-in.
 
 !!! note "Zero dependencies"
-    The core needs nothing outside the Python standard library: `[project.dependencies]` is empty. (It uses
-    `typing_extensions` for `Required`/`NotRequired` on Python 3.10 if you happen to have it installed, and
-    works without it.) pydantic support is optional and reflective (`pip install docopt2[pydantic]`), needed
-    only when you pass a pydantic model as a schema; the Hypothesis strategy needs `docopt2[hypothesis]`.
+    The core runs on the standard library alone - nothing to install, nothing to audit. pydantic and
+    Hypothesis are optional extras (`docopt2[pydantic]`, `docopt2[hypothesis]`), used only when you pass a
+    pydantic model as a schema or reach for the Hypothesis strategy.
 
 ## Why docopt2
 
