@@ -1,0 +1,35 @@
+A CLI the size real tools reach: one subcommand and twenty-five flags behind `[options]`.
+
+This is the shape that used to stall: the frontier walk forked on every optional element, so a Tab
+press here explored 2**25 paths and took over a second. Ordinary, not adversarial - `kubectl get`,
+`docker run` and `pip install` all carry more flags than this.
+
+Usage:
+  tool get <resource> [options]
+
+Options:
+  --all-namespaces          Across every namespace.
+  --allow-missing           Do not fail on a missing resource.
+  --chunk-size=<n>          Page size [default: 500].
+  --field-selector=<sel>    Filter by field.
+  --filename=<path>         Read from a file.
+  --ignore-not-found        Exit 0 when nothing matches.
+  --label-columns=<cols>    Extra columns.
+  --no-headers              Omit the header row.
+  --output=<fmt>            Output format [default: table].
+  --output-watch-events     Include the event type when watching.
+  --raw=<uri>              Raw URI to request.
+  --recursive               Recurse into directories.
+  --selector=<sel>          Label selector.
+  --server-print            Ask the server to render.
+  --show-kind               Prefix each name with its kind.
+  --show-labels             Append the labels column.
+  --sort-by=<field>         Sort by a field.
+  --template=<tpl>          Template for the output.
+  --use-openapi-print       Print using the OpenAPI schema.
+  --watch                   Watch for changes.
+  --watch-only              Watch, skipping the initial list.
+  -A                        Short for --all-namespaces.
+  -f=<path>                 Short for --filename.
+  -o=<fmt>                  Short for --output.
+  -w                        Short for --watch.

@@ -1,0 +1,18 @@
+Shapes that are legal and rare, so nothing routine exercises them: two variadics, a stacked short
+cluster, an option repeated to a count, a `[options]` beside spelled-out options, and a usage line
+continued onto the next line.
+
+Usage:
+  odd -vvv
+  odd (--from=<a>
+       --to=<b>)
+  odd [options] gather <src>... <dst>
+  odd tag <name>... -- <rest>...
+  odd -
+
+Options:
+  -v             Verbosity, repeatable.
+  --from=<a>     Source.
+  --to=<b>       Target.
+  --dry-run      Say what would happen.
+  --force        Do it anyway.

@@ -1,0 +1,14 @@
+Every annotation docopt2 adds, on one message - `[default:]`, `[env:]`, `[config:]`, and an Arguments block.
+
+Usage:
+  serve <root> [--port=<n>] [--host=<h>] [--workers=<n>] [--reload]
+  serve check <root>
+
+Arguments:
+  <root>  Directory to serve [default: .].
+
+Options:
+  --port=<n>     Port to bind [default: 8080] [env: APP_PORT] [config: server.port].
+  --host=<h>     Interface to bind [default: 127.0.0.1] [env: APP_HOST] [config: server.host].
+  --workers=<n>  Worker processes [default: 1] [config: server.workers].
+  --reload       Restart on a source change [env: APP_RELOAD].

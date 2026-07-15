@@ -1,0 +1,25 @@
+A git-shaped tool: nested subcommands, per-branch options, a variadic tail and a `--` separator.
+
+Usage:
+  vcs clone <url> [<dir>] [--depth=<n>] [--branch=<name>] [--quiet]
+  vcs commit [-m <msg>] [--amend] [--all]
+  vcs remote add <name> <url>
+  vcs remote remove <name>
+  vcs remote (show | prune) <name>
+  vcs push [<remote>] [<refspec>...] [--force] [--tags]
+  vcs log [--oneline] [--since=<date>] [-n <count>] [--] [<path>...]
+  vcs --version
+
+Options:
+  --depth=<n>      Shallow clone to this depth.
+  --branch=<name>  Branch to check out.
+  --quiet          Say nothing.
+  -m <msg>         Commit message.
+  --amend          Replace the previous commit.
+  --all            Stage every tracked change.
+  --force          Overwrite the remote.
+  --tags           Push tags too.
+  --oneline        One line per commit.
+  --since=<date>   Only commits after this date.
+  -n <count>       Limit the number of commits.
+  --version        Show the version.

@@ -31,6 +31,17 @@ def _underlines(rendered: str) -> list[tuple[str, str]]:
     return pairs
 
 
+def _caret_span(underline: str) -> tuple[int, int]:
+    """The (start column, width) of the caret run on an underline row.
+
+    The width is the contiguous run of `^`, not every `^` in the row: the label that follows the run may
+    itself contain a caret (``Caret(0, 0, "^")`` renders as ``^ ^``), and counting those overcounts.
+    """
+    start = underline.index("^")
+    width = len(underline[start:]) - len(underline[start:].lstrip("^"))
+    return start, width
+
+
 def test_use_color_follows_the_tty_and_no_color(monkeypatch):
     # ANSI only to a real terminal, and never when NO_COLOR is set (an opt-out even on a tty).
     monkeypatch.delenv("NO_COLOR", raising=False)
@@ -95,7 +106,8 @@ def test_render_is_total_over_arbitrary_diagnostics(summary, sources, note, help
     # Totality alone let a real defect through: this generator has been drawing multi-line sources all
     # along, and only ever asserted "did not raise". Every caret must also FIT the line it is drawn under.
     for source_row, underline in _underlines(diagnostic.render()):
-        assert_that(underline.index("^") + underline.count("^")).is_less_than_or_equal_to(len(source_row) + 1)
+        start, width = _caret_span(underline)
+        assert_that(start + width).is_less_than_or_equal_to(len(source_row) + 1)
 
 
 def test_render_has_header_source_caret_note_and_help_aligned():
@@ -206,7 +218,8 @@ def test_a_caret_running_past_its_line_is_clamped_to_it():
     text = Diagnostic("missing", [Snippet(source, "in the usage:", [Caret(start, end, "required here")])]).render()
     (source_row, underline), *rest = _underlines(text)
     assert_that(rest).is_empty()
-    assert_that(underline.index("^") + underline.count("^")).is_less_than_or_equal_to(len(source_row))
+    start, width = _caret_span(underline)
+    assert_that(start + width).is_less_than_or_equal_to(len(source_row))
 
 
 def test_a_failed_parse_carries_the_usage_message():
@@ -226,7 +239,8 @@ def test_an_option_error_in_the_usage_carets_the_option():
         docopt(doc, [])
     source_row, underline = _underlines(str(caught.value))[0]
     assert_that(str(caught.value)).contains("`--speed` requires an argument")
-    assert_that(source_row[underline.index("^") : underline.index("^") + underline.count("^")]).is_equal_to("--speed")
+    start, width = _caret_span(underline)
+    assert_that(source_row[start : start + width]).is_equal_to("--speed")
 
 
 def test_a_bracket_mismatch_across_two_usage_lines_carets_both():
