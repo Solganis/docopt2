@@ -403,6 +403,23 @@ def test_cli_public_classvar_is_a_constant_not_a_bound_field():
     assert_that(result.LIMIT).is_equal_to(100)
 
 
+class UnderscoreField(Cli):
+    __cli_doc__ = "usage: prog <_x>"
+    _x: str
+
+
+def test_a_single_underscore_field_binds_like_a_dataclass_does():
+    # `<_x>` maps to the field `_x`. A dataclass schema already binds it; a Cli/plain schema dropped it
+    # silently (the filter skipped every leading underscore, not just dunders), so `_x` came back unset.
+    assert_that(UnderscoreField.parse("hello", complete=False)._x).is_equal_to("hello")
+
+    @dataclasses.dataclass
+    class Dc:
+        _x: str
+
+    assert_that(docopt("usage: prog <_x>", "hello", schema=Dc, complete=False)._x).is_equal_to("hello")
+
+
 @dataclasses.dataclass
 class WithDefault:
     name: str = "fallback"

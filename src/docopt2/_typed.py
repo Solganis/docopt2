@@ -21,7 +21,7 @@ from typing import (
 from docopt2._errors import DocoptExit, DocoptLanguageError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
 SchemaT = TypeVar("SchemaT")
 
@@ -105,6 +105,33 @@ def _key_to_field(key: str) -> str:
     return core.lower().replace("-", "_").replace(" ", "_")
 
 
+_UNPARSEABLE = object()  # a sentinel distinct from every real choice, so a failed parse never matches
+
+
+def _parsed_as(value: Any, target: type) -> Any:
+    """``value`` parsed to ``target``, or the ``_UNPARSEABLE`` sentinel when it cannot be."""
+    try:
+        return target(value)
+    except (ValueError, TypeError):
+        return _UNPARSEABLE
+
+
+def _coerce_choice(value: Any, choices: Sequence[Any], select: Callable[[Any], Any], message: str) -> Any:
+    """Match ``value`` (an argv string) against a closed set of ``choices``, then return ``select(choice)``.
+
+    argv gives a string, but the choices may be numbers (``Literal[80, 443]``, an ``IntEnum``). A direct
+    membership test misses those, so the string is also parsed to each choice's own type and compared -
+    ``"80"`` matches the literal ``80``. ``select`` maps the matched choice to what the caller wants back
+    (the literal itself, or an enum member). Raises ``ValueError(message)`` when nothing matches.
+    """
+    if value in choices:
+        return select(value)
+    for choice in choices:
+        if _parsed_as(value, type(choice)) == choice:
+            return select(choice)
+    raise ValueError(message)
+
+
 def _coerce(value: Any, annotation: Any) -> Any:
     """Coerce a docopt-native value to the field's declared type (closed set)."""
     if value is None:
@@ -117,9 +144,7 @@ def _coerce(value: Any, annotation: Any) -> Any:
         inner = next((arg for arg in args if arg is not type(None)), str)
         return _coerce(value, inner)
     if origin is Literal:
-        if value in args:
-            return value
-        raise ValueError(f"{value!r} is not one of {args!r}")
+        return _coerce_choice(value, args, lambda literal: literal, f"{value!r} is not one of {args!r}")
     if origin is list or annotation is list:
         if not isinstance(value, list):
             raise DocoptLanguageError(
@@ -141,7 +166,14 @@ def _coerce(value: Any, annotation: Any) -> Any:
     if annotation is str:
         return value
     if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
-        return annotation(value)
+        try:
+            return annotation(value)  # a str-valued member matches the argv string directly
+        except ValueError:
+            # An int/float-valued enum (e.g. IntEnum) is keyed by a number, but argv is a string. Try the
+            # string parsed to each member value's type, then map the matched value back to its member.
+            member_values = [member.value for member in annotation]
+            message = f"{value!r} is not a valid {annotation.__name__}"
+            return annotation(_coerce_choice(value, member_values, lambda matched: matched, message))
     # Iterated, not looked up, so an unhashable annotation reaches the "unsupported" error below rather
     # than raising TypeError from the dict lookup itself.
     for supported, coercer in _scalar_coercers().items():
@@ -160,7 +192,11 @@ def _is_dataclass(schema: type[Any]) -> bool:
 
 
 def _field_names(schema: type[Any], hints: dict[str, Any]) -> list[str]:
-    """The names to bind on ``schema``, excluding ClassVars, dunders, and non-fields."""
+    """The names to bind on ``schema``, excluding ClassVars, dunders, and non-fields.
+
+    A single leading underscore is kept: a positional ``<_x>`` maps to the field ``_x``, which a dataclass
+    schema already binds, so a plain/``Cli`` schema must too. Only dunders (``__cli_doc__``) are dropped.
+    """
     if _is_dataclass(schema):
         import dataclasses  # deferred; only a real dataclass schema pays for it
 
@@ -170,7 +206,7 @@ def _field_names(schema: type[Any], hints: dict[str, Any]) -> list[str]:
     return [
         name
         for name, annotation in hints.items()
-        if not name.startswith("_") and get_origin(annotation) is not ClassVar
+        if not name.startswith("__") and get_origin(annotation) is not ClassVar
     ]
 
 
