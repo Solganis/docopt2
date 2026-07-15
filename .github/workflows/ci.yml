@@ -86,10 +86,10 @@ jobs:
         run: uv sync --group typecheck --locked
 
       - name: Ruff check
-        run: uv run ruff check src tests tools
+        run: uv run ruff check src tests tools fuzz
 
       - name: Ruff format check
-        run: uv run ruff format --check src tests tools
+        run: uv run ruff format --check src tests tools fuzz
 
       - name: Type check (ty)
         run: uv run ty check
