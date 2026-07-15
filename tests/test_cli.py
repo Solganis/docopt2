@@ -20,6 +20,17 @@ def test_stub_reads_a_module_docstring_without_importing_the_file(tmp_path, caps
     assert_that(captured.out).contains("class Args:").contains("host: str").contains("port: str")
 
 
+def test_stub_reads_a_python_file_that_starts_with_a_utf8_bom(tmp_path, capsys):
+    # Windows editors prepend a UTF-8 BOM; Python runs such a file fine, but the CLI read it as plain
+    # utf-8 and fed the leading U+FEFF to ast.parse, which rejected it. utf-8-sig strips the BOM.
+    path = tmp_path / "bom.py"
+    path.write_text('"""Usage: prog <host>"""\n', encoding="utf-8-sig")
+    exit_code = main(["stub", str(path)])
+    captured = capsys.readouterr()
+    assert_that(exit_code).is_equal_to(0)
+    assert_that(captured.out).contains("class Args:").contains("host: str")
+
+
 def test_stub_reads_raw_usage_from_a_non_python_file(tmp_path, capsys):
     source = _write(tmp_path, "usage.txt", "Usage: prog <host>")
     main(["stub", source])

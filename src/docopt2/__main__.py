@@ -59,7 +59,9 @@ def _read_usage(source: str) -> str:
         return sys.stdin.read()
     path = Path(source)
     try:
-        text = path.read_text(encoding="utf-8")
+        # utf-8-sig, not utf-8: a leading BOM (Windows editors add one) is stripped, exactly as Python
+        # does for a source file it runs - otherwise `ast.parse` chokes on the U+FEFF a .py starts with.
+        text = path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError as error:
         raise _CliError(f"{source}: not a UTF-8 text file") from error
     if path.suffix != ".py":
