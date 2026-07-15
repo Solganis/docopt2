@@ -118,7 +118,7 @@ the surrounding program or a dedicated library, layered on top of the parsed res
 
 The typed surface is plain typing with no runtime cost. The [`Cli`](../reference/cli.md) base class is
 the only decorator-shaped sugar, and it is deliberately a base class rather than a method-injecting
-decorator so the result keeps real static types under ty, mypy, and pyright.
+decorator, so the result keeps real static types a type checker can see instead of degrading to `Any`.
 
 Typing is a layer over the drop-in core, not a rewrite of it. The same `docopt()` call runs the same
 parse; passing `schema=` adds one final bind step that coerces the string values to the field types you
