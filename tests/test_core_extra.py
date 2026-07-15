@@ -14,6 +14,7 @@ from docopt2._parser import (
     parse_argv,
     parse_defaults,
     parse_pattern,
+    parse_section,
     single_usage_section,
 )
 
@@ -28,6 +29,27 @@ def test_usage_section_with_no_program_raises_a_clear_error():
     with raises(DocoptLanguageError) as exc_info:
         docopt("Usage:", "")
     assert_that(str(exc_info.value)).contains("no program")
+
+
+def test_a_flush_left_usage_block_parses_the_way_an_indented_one_does():
+    # Python 3.13 strips a docstring's common leading indent (gh-81283), so an inline `\"\"\"Usage:`
+    # docstring whose patterns were indented under it arrives flush-left. That is the SAME program that
+    # worked on 3.10-3.12; docopt(__doc__) must keep parsing it, not reject it as "names no program".
+    indented = "Usage:\n  greet <name>\n  greet <name> --loud\n"
+    dedented = "Usage:\ngreet <name>\ngreet <name> --loud\n"
+    assert_that(dict(docopt(dedented, ["Alice"], complete=False))).is_equal_to(
+        dict(docopt(indented, ["Alice"], complete=False))
+    )
+    assert_that(dict(docopt(dedented, ["Bob", "--loud"], complete=False))).is_equal_to(
+        {"<name>": "Bob", "--loud": True}
+    )
+
+
+def test_a_flush_left_line_after_an_inline_usage_is_not_swallowed():
+    # The fix must not over-capture: a usage line with its pattern INLINE (`Usage: prog ...`) followed by a
+    # flush-left line (prose, or a second section) keeps the vanilla rule - the flush-left line is separate.
+    assert_that(parse_section("usage:", "Usage: eggs spam\nBAZZ")).is_equal_to(["Usage: eggs spam"])
+    assert_that(parse_section("usage:", "Usage:\n  prog cmd\nThis is prose.\n")).is_equal_to(["Usage:\n  prog cmd"])
 
 
 def test_deeply_nested_pattern_fails_cleanly_not_with_a_recursion_error():

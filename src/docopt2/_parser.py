@@ -931,8 +931,23 @@ def parse_argument_defaults(doc: str) -> dict[str, str]:
 
 @functools.cache
 def _section_pattern(name: str) -> re.Pattern[str]:
-    """Compile (once per section name) the regex that captures a whole ``name`` section."""
-    return re.compile(r"^([^\n]*" + name + r"[^\n]*\n?(?:[ \t].*?(?:\n|$))*)", re.IGNORECASE | re.MULTILINE)
+    """Compile (once per section name) the regex that captures a whole ``name`` section.
+
+    A section's body is the indented lines under its header. But when the header keyword stands ALONE on
+    its line (``usage:`` with nothing after the colon), the patterns are on the following lines - and
+    Python 3.13 strips a docstring's common leading indent (gh-81283), so an inline ``\"\"\"Usage:``
+    docstring arrives with those lines flush-left, the whole block dedented at once. So a bare header may
+    take a flush-left body too, stopping at a blank line or another section header; ``docopt(__doc__)``
+    then keeps working across 3.10-3.15. A header with its pattern text INLINE (``usage: prog ...``) keeps
+    the old rule exactly - only indented continuation lines - so a flush-left line after it (prose, or a
+    second section) is never swallowed.
+    """
+    indented = r"(?:[ \t].*(?:\n|$))*"  # zero or more indented continuation lines
+    not_a_header = r"(?!(?:usage|options|arguments)\s*:)"
+    flush = r"(?:(?:[ \t].*(?:\n|$))+|(?:" + not_a_header + r"\S.*(?:\n|$))+)?"
+    inline = r"[^\n]*" + name + r"[ \t]*\S[^\n]*\n?" + indented  # keyword then pattern text on one line
+    bare = r"[^\n]*" + name + r"[ \t]*\n?" + flush  # keyword alone on its line; body follows, any indent
+    return re.compile(r"^(" + inline + r"|" + bare + r")", re.IGNORECASE | re.MULTILINE)
 
 
 def parse_section(name: str, source: str) -> list[str]:
