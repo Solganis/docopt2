@@ -1,6 +1,8 @@
 # Parsing engine derived from the original docopt (MIT); see NOTICE.
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import copy
 import functools
 import itertools
@@ -23,6 +25,55 @@ ErrorType: TypeAlias = type[DocoptExit] | type[DocoptLanguageError]
 # A pattern with many optionals/alternatives has exponentially many match outcomes (`[<a>] [<b>]`
 # x n -> 2**n); cap how many are materialized (far above any real CLI) so an adversarial argv cannot hang.
 MATCH_LIMIT = 200_000
+
+# MATCH_LIMIT is per Either, so nested alternatives still multiply it (200k per node -> minutes on a
+# malformed pattern). This budgets the WHOLE match instead: one shared ceiling across every Either, so an
+# adversarial argv rejects in bounded time. A legitimate usage materializes at most a few dozen outcomes
+# (measured across the corpus and generated argvs), so the ceiling is never approached in real use.
+_match_budget: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar("docopt2_match_budget", default=None)
+
+
+class _MatchBudgetExceededError(Exception):
+    """One match explored more outcomes than allowed - an adversarial argv or a malformed usage pattern."""
+
+
+@contextlib.contextmanager
+def match_budget(limit: int = MATCH_LIMIT) -> Iterator[None]:
+    """Bound the total outcomes the enclosed match may materialize; past ``limit``, _MatchBudgetExceeded."""
+    token = _match_budget.set([limit])
+    try:
+        yield
+    finally:
+        _match_budget.reset(token)
+
+
+def _bounded(outcomes: Iterator[MatchOutcome]) -> Iterator[MatchOutcome]:
+    """Bound a lone Either's materialization when no match budget is set - completion, a bare ``matches()``
+    call, ``parse_tree`` - by falling back to the per-node MATCH_LIMIT. Under a budget, ``_combine``'s
+    ``_spend_budget`` is the real bound (it charges the dead branches that yield nothing too), so this
+    passes the outcomes straight through.
+    """
+    if _match_budget.get() is None:
+        yield from itertools.islice(outcomes, MATCH_LIMIT)
+    else:
+        yield from outcomes
+
+
+def _spend_budget() -> None:
+    """Charge one step of match exploration against the shared budget; raise once it is spent.
+
+    Charged per ``_combine`` descent - the exponential engine - so a DFS that dead-ends WITHOUT yielding
+    (many optionals before an unmatchable required tail explores 2**n branches, none of them an outcome) is
+    bounded too. Counting descents, not per-descent work, is what keeps a genuine match cheap: matching a
+    long ``<files>...`` glob is a handful of descents (the repetition is iterative), so it never approaches
+    the ceiling, while an adversarial pattern's exponential fan-out does. A no-op when no budget is set.
+    """
+    budget = _match_budget.get()
+    if budget is not None:
+        budget[0] -= 1
+        if budget[0] < 0:
+            raise _MatchBudgetExceededError
+
 
 # Extracts a `[default: value]` from an option or argument description; compiled once, not per line.
 _DEFAULT_PATTERN = re.compile(r"\[default: (.*)]", flags=re.IGNORECASE)
@@ -368,6 +419,7 @@ def _sequence_matches(
     """Match ``children`` in order, threading the accumulator; with ``optional`` each may be skipped."""
 
     def _combine(index: int, cur_left: list[Pattern], cur_collected: list[Pattern]) -> Iterator[MatchOutcome]:
+        _spend_budget()
         if index == len(children):
             yield cur_left, cur_collected
             return
@@ -431,7 +483,7 @@ class Either(BranchPattern):
 
     def matches(self, left: list[Pattern], collected: list[Pattern]) -> Iterator[MatchOutcome]:
         lazy = (outcome for child in self.children for outcome in child.matches(left, collected))
-        outcomes = list(itertools.islice(lazy, MATCH_LIMIT))
+        outcomes = list(_bounded(lazy))
         # the fewest-leaves-left branch wins first, matching the greedy matcher's choice
         yield from sorted(outcomes, key=lambda outcome: len(outcome[0]))
 

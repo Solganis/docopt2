@@ -17,12 +17,15 @@ from docopt2._parser import (
     MATCH_LIMIT,
     Argument,
     Command,
+    MatchOutcome,
     Option,
     Pattern,
     Tokens,
+    _MatchBudgetExceededError,
     expand_options_shortcut,
     formal_tokens,
     formal_usage,
+    match_budget,
     nearest_usage_line,
     parse_argument_defaults,
     parse_argv,
@@ -424,23 +427,28 @@ def docopt(
     _extras(show_help, version, argv_patterns, doc, help_style)
     # Greedy-first: the first outcome is the greedy result, so every argv vanilla accepts is unchanged;
     # if it leaves leaves over, the search continues (bounded) for a fully-consuming match.
-    left: list[Pattern]
-    collected: list[Pattern]
-    complete_match: list[Pattern] | None
+    # Defaults are the "nothing matched" result: the whole argv is left over. Overwritten once a match runs.
+    left: list[Pattern] = argv_patterns
+    collected: list[Pattern] = []
+    complete_match: list[Pattern] | None = None
+    greedy: MatchOutcome | None = None
     try:
-        fixed = pattern.fix()
-        outcome_iter = fixed.matches(argv_patterns, [])
-        greedy = next(outcome_iter, None)
-        if greedy is None:
-            # nothing matched at all; report the whole argv as left over
-            left, collected, complete_match = argv_patterns, [], None
-        else:
-            left, collected = greedy
-            bounded = itertools.islice(outcome_iter, MATCH_LIMIT)
-            if left == []:
-                complete_match = collected
-            else:
-                complete_match = next((accumulated for remaining, accumulated in bounded if remaining == []), None)
+        pattern.fix()  # mutates in place and returns self, so `pattern` is the fixed tree from here on
+        with match_budget():
+            outcome_iter = pattern.matches(argv_patterns, [])
+            greedy = next(outcome_iter, None)
+            if greedy is not None:
+                left, collected = greedy
+                if left == []:
+                    complete_match = collected
+                else:
+                    bounded = itertools.islice(outcome_iter, MATCH_LIMIT)
+                    complete_match = next((accumulated for remaining, accumulated in bounded if remaining == []), None)
+    except _MatchBudgetExceededError:
+        # The pattern is too ambiguous to search fully (a malformed usage or an adversarial argv). Stop and
+        # keep the greedy partial; complete_match stays None unless the greedy match was already complete, so
+        # an unmatched argv is still rejected - the same result as exhausting the cap, in bounded time.
+        pass
     except RecursionError:
         raise _exit(Diagnostic(summary="the arguments are too deeply nested to match")) from None
     extra_tokens: list[str] = []
@@ -450,7 +458,7 @@ def docopt(
         complete_match = collected
         extra_tokens = [token for leaf in left for token in _surplus_tokens(leaf)]
     if complete_match is not None:
-        result = Arguments((cast("str", leaf.name), leaf.value) for leaf in [*fixed.flat(), *complete_match])
+        result = Arguments((cast("str", leaf.name), leaf.value) for leaf in [*pattern.flat(), *complete_match])
         result.provided = frozenset(cast("str", leaf.name) for leaf in complete_match)
         result.extra = extra_tokens
         try:
@@ -479,7 +487,7 @@ def docopt(
         if hint is not None:
             unknown, suggestion = hint
             snippets = [_argv_snippet(argv, unknown, "not a known option")]
-            declared_at = _span_of(fixed.flat(Option), suggestion)
+            declared_at = _span_of(pattern.flat(Option), suggestion)
             if declared_at is not None:  # the suggested option is written in the usage: cross-reference it
                 where = Snippet(usage, "in the usage:", [Caret(*declared_at, f"`{suggestion}` is defined here")])
                 snippets.append(where)
@@ -494,7 +502,7 @@ def docopt(
         offending = left[0]
         shown = str(offending.name) if isinstance(offending, Option) else str(offending.value)
         snippets = [_argv_snippet(argv, shown, "not allowed here")]
-        usage_span = _span_of(fixed.flat(Option), shown)
+        usage_span = _span_of(pattern.flat(Option), shown)
         advice: str | None
         if usage_span is not None:
             snippets.append(Snippet(usage, "in the usage:", [Caret(*usage_span, "declared here")]))
@@ -515,7 +523,7 @@ def docopt(
             note=f"of {total} usage patterns, your arguments came closest to this one" if total > 1 else None,
         )
         raise _exit(diagnostic, collected=collected, left=left)
-    required = required_leaf_names(fixed)
+    required = required_leaf_names(pattern)
     if required:
         missing = Diagnostic(
             summary="missing or mismatched arguments", note=f"the usage requires: {' '.join(required)}"

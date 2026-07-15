@@ -159,3 +159,17 @@ def test_completion_answers_a_real_sized_cli_without_a_visible_pause():
         start = time.perf_counter()
         docopt2.complete(doc, words)
         assert_that(time.perf_counter() - start).described_as(f"complete({words})").is_less_than(1.0)
+
+
+def test_an_ambiguous_pattern_does_not_hang_on_a_long_argv():
+    # 24 optional flags before a required <END>: an argv of all the flags and no END token has 2**24 ways
+    # to assign the optionals, and none is complete. The per-Either cap does not bound this - the dead
+    # branches yield nothing, so nothing is counted - and matching ran for tens of seconds. The global
+    # match budget charges each exploration step, so an unmatchable argv is rejected in well under a second.
+    flags = " ".join(f"[-{chr(97 + index)}]" for index in range(24))
+    doc = f"usage: prog {flags} <END>"
+    argv = [f"-{chr(97 + index)}" for index in range(24)]
+    start = time.perf_counter()
+    with pytest.raises(DocoptExit):
+        docopt2.docopt(doc, argv, help=False)
+    assert_that(time.perf_counter() - start).described_as("matching a 2**24-ambiguous argv").is_less_than(3.0)
