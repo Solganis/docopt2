@@ -42,6 +42,22 @@ def test_cli_flag_wins_over_a_falsy_env(monkeypatch):
     assert_that(docopt(_DOC, "--verbose", complete=False)["--verbose"]).is_true()
 
 
+def test_a_counted_flag_from_env_keeps_its_int_count_type(monkeypatch):
+    # A repeating flag holds an int count everywhere else (`-vv` -> 2). An [env:] value used to collapse
+    # it to a bool (`True`), so a `verbosity: int` schema would silently read 1. A number is the count.
+    doc = "Usage: prog [-v...]\n\nOptions:\n  -v  Verbosity [env: V]."
+    monkeypatch.setenv("V", "3")
+    result = docopt(doc, [], complete=False)
+    assert_that(result["-v"]).is_equal_to(3)
+    assert_that(type(result["-v"])).is_equal_to(int)
+    monkeypatch.setenv("V", "on")  # a non-numeric truthy value counts once
+    assert_that(docopt(doc, [], complete=False)["-v"]).is_equal_to(1)
+    monkeypatch.setenv("V", "0")  # a falsy value is zero, not False
+    zero = docopt(doc, [], complete=False)["-v"]
+    assert_that(zero).is_equal_to(0)
+    assert_that(type(zero)).is_equal_to(int)
+
+
 def test_env_value_coerces_through_the_schema(monkeypatch):
     monkeypatch.setenv("APP_PORT", "8080")
     monkeypatch.delenv("APP_VERBOSE", raising=False)

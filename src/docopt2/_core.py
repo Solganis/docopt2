@@ -106,6 +106,32 @@ def _env_truthy(value: str) -> bool:
     return value.strip().lower() not in {"", "0", "false", "no", "off"}
 
 
+def _env_count(value: str) -> int:
+    """A repeating (counted) flag's fallback value as an int: a plain number is that count, else 0 or 1.
+
+    A counted flag holds an int everywhere else (``-vv`` -> ``2``); ``_env_truthy`` would collapse an
+    ``[env:]`` value to a bool and break that type. ``V=3`` means verbosity 3; ``V=on`` means 1.
+    """
+    text = value.strip()
+    if text.isdigit():
+        return int(text)
+    return 1 if _env_truthy(value) else 0
+
+
+def _surplus_tokens(leaf: Pattern) -> list[str]:
+    """A surplus argv leaf as re-passable tokens for ``Arguments.extra`` (the parse_known_args idiom).
+
+    A flag is just its name; a positional is its value. An option that TOOK an argument keeps that value
+    as a second token, or the surplus would forward as a bare ``--log`` with its ``out.txt`` dropped.
+    """
+    if isinstance(leaf, Option):
+        tokens = [str(leaf.name)]
+        if isinstance(leaf.value, str):  # a valued option; a flag's value is bool/int, never a str
+            tokens.append(leaf.value)
+        return tokens
+    return [str(leaf.value)]
+
+
 def _span_of(leaves: Iterable[Pattern], name: str) -> tuple[int, int] | None:
     """The usage span of the leaf named ``name`` (the first that carries one), or None."""
     return next((leaf.span for leaf in leaves if leaf.name == name and leaf.span is not None), None)
@@ -237,9 +263,16 @@ def _apply_fallbacks(result: Arguments, options: list[Option], config: Mapping[s
         resolved = _fallback_value(option, config)
         if resolved is not None:
             raw, source = resolved
-            filled = raw if option.argcount else _env_truthy(raw)
-            # a repeating option holds a list everywhere else; keep the key's type consistent
-            result[name] = [filled] if isinstance(result[name], list) else filled
+            current = result[name]
+            filled: object
+            if option.argcount:
+                filled = raw  # a valued option: the raw string, coerced downstream
+            elif type(current) is int:
+                filled = _env_count(raw)  # a counted flag stays an int count, not a bool
+            else:
+                filled = _env_truthy(raw)
+            # a repeating valued option holds a list everywhere else; keep the key's type consistent
+            result[name] = [filled] if isinstance(current, list) else filled
             result._sources[name] = source
 
 
@@ -415,7 +448,7 @@ def docopt(
         # A prefix matched but not fully: keep it and return the surplus as `extra` instead of failing.
         # A missing required element leaves `greedy is None`, so it still fails - surplus tolerated, not gaps.
         complete_match = collected
-        extra_tokens = [str(leaf.name) if isinstance(leaf, Option) else str(leaf.value) for leaf in left]
+        extra_tokens = [token for leaf in left for token in _surplus_tokens(leaf)]
     if complete_match is not None:
         result = Arguments((cast("str", leaf.name), leaf.value) for leaf in [*fixed.flat(), *complete_match])
         result.provided = frozenset(cast("str", leaf.name) for leaf in complete_match)
@@ -592,9 +625,14 @@ class Dispatch:
             # instance instead of the mapping - an AttributeError deep inside, for a legible mistake.
             raise TypeError("Dispatch.run() takes no `schema`; register one per handler with `on(..., schema=...)`")
         arguments = cast("Arguments", docopt(self.doc, argv, **options))
+        # Thread the usage and the caller's exit_code onto any exit raised HERE, as docopt()'s own _exit
+        # does - or str(exc) loses the Usage block and the process ignores the requested status.
+        usage = single_usage_section(self.doc)  # the doc already parsed above, so this cannot raise
+        exit_code = options.get("exit_code", 1)
         resolved = self._resolve(arguments)
         if resolved is None:
-            raise DocoptExit(diagnostic=Diagnostic(summary="no handler is registered for the given command"))
+            summary = "no handler is registered for the given command"
+            raise DocoptExit(diagnostic=Diagnostic(summary=summary), usage=usage, exit_code=exit_code)
         handler, schema = resolved
         if schema is None:
             return handler(arguments)
@@ -602,7 +640,8 @@ class Dispatch:
             bound = bind_schema(arguments, schema)
         except _CoercionError as exc:
             resolved_argv = sys.argv[1:] if argv is None else argv
-            raise DocoptExit(diagnostic=_coercion_diagnostic(self.doc, resolved_argv, exc)) from exc
+            diagnostic = _coercion_diagnostic(self.doc, resolved_argv, exc)
+            raise DocoptExit(diagnostic=diagnostic, usage=usage, exit_code=exit_code) from exc
         return handler(bound)
 
     def _resolve(self, arguments: Arguments) -> tuple[_DispatchHandler, type[Any] | None] | None:

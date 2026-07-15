@@ -70,6 +70,18 @@ def test_allow_extra_returns_unknown_options_and_positionals():
     assert_that(args.extra).is_equal_to(["--unknown", "pos"])
 
 
+def test_allow_extra_keeps_the_value_of_a_surplus_valued_option():
+    # extra is the parse_known_args idiom: the tokens must forward. A surplus option that took an argument
+    # dropped its value, so `--log out.txt` would forward as a bare `--log` and corrupt the command.
+    args = docopt("usage: prog <cmd>\n\nOptions:\n  --log=<f>  Log file.", "run --log=out.txt", allow_extra=True)
+    assert_that(args.extra).is_equal_to(["--log", "out.txt"])
+    # a repeated known valued option: the surplus second occurrence keeps its value too
+    repeated = docopt(
+        "usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port.", "--port 80 --port 90", allow_extra=True
+    )
+    assert_that(repeated.extra).is_equal_to(["--port", "90"])
+
+
 def test_allow_extra_with_a_complete_match_leaves_extra_empty():
     args = docopt("usage: prog <a>", "x", allow_extra=True)
     assert_that(args["<a>"]).is_equal_to("x")
