@@ -32,8 +32,14 @@ differs. A differential run over a corpus of usage messages found exactly these 
 | `-s=25`, a short option written with `=` | `{'-s': '=25'}` - the separator is kept in the value | `{'-s': '25'}` |
 | `-v -- -x`, where the usage does not declare `--` | `{'<args>': ['--', '-x']}` - the separator leaks in | `{'<args>': ['-x']}` |
 
-A program that leaned on one of those will notice; nothing else changes. Every divergence is pinned by
-name in [`tests/test_divergences.py`](https://github.com/Solganis/docopt2/blob/main/tests/test_divergences.py).
+A program that leaned on one of those will notice. The `--` row is the one to read twice, because dropping
+the separator is not only a change of value. Wherever the original placed `--` as a positional, docopt2 puts
+the next token there instead, so every later positional shifts along; and where `--` was itself the token
+filling a required slot - `usage: prog <a>...` given `--`, which the original reads as `{'<a>': ['--']}` -
+docopt2 rejects an argv the original accepted. That POSIX reading is deliberate, but it is the one of the
+three that can turn a working invocation into an error rather than merely reword its result. Every
+divergence, in each of those forms, is pinned by name in
+[`tests/test_divergences.py`](https://github.com/Solganis/docopt2/blob/main/tests/test_divergences.py).
 
 !!! note
     The extra keyword parameters (`schema`, `suggest`, `allow_extra`, `negative_numbers`, and the rest)
