@@ -74,6 +74,18 @@ def test_empty_options_shortcut_bare_degrades_to_no_caret():
     assert_that(warnings[0].render()).does_not_contain("^")
 
 
+def test_an_options_shortcut_shared_across_subcommands_is_not_a_warning():
+    # Deliberate, and promised by guides/dispatch.md: `[options]` on every usage line is the DRY way to share
+    # a global flag, and it is LOOSE by design - each subcommand then also accepts the others' options. The
+    # guide states `check` stays silent on it ("a legitimate shape, not a mistake"), so a future lint rule
+    # for the loose shape would falsify that page and must fail here first.
+    doc = (
+        "Usage:\n  app add [options] <path>...\n  app commit [options] --message=<msg>\n  app push [options]\n\n"
+        "Options:\n  --verbose        Chatty.\n  --message=<msg>  Commit message.\n  --force          Force.\n"
+    )
+    assert_that(check(doc)).is_empty()
+
+
 def test_default_on_an_optional_positional_is_not_dead():
     # <host> is optional, so its default legitimately applies - no warning (the default is reachable).
     doc = "Usage: prog [<host>]\n\nArguments:\n  <host>  Host [default: localhost].\n"

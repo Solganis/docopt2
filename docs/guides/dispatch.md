@@ -109,6 +109,60 @@ Given the argv `user create alice`, the two-segment handler wins over the one-se
     matches no usage pattern at all is rejected earlier by `docopt` itself, with the usual
     [diagnostic](diagnostics.md).
 
+## Options every subcommand shares
+
+A global `--verbose` (or `--config`, `--dry-run`) belongs to no single subcommand. Where you write it in a
+usage line does not constrain where the user types it - options match position-independently, so
+`app --verbose add src` and `app add src --verbose` are the same parse either way. The choice is only about
+how you *declare* it, and it trades repetition against scope.
+
+Declare it per line and each subcommand accepts its own options and no others:
+
+```python
+"""Usage:
+  app add <path>... [--verbose]
+  app commit --message=<msg> [--verbose]
+  app push [--force] [--verbose]
+
+Options:
+  --verbose        Chatty.
+  --message=<msg>  Commit message.
+  --force          Force the push.
+"""
+```
+
+Here `app commit --message=m --force` is rejected: the commit line never declared `--force`.
+
+Or use the [`[options]` shortcut](usage-dsl.md#the-options-shortcut) - declare them once under `Options:`
+and let every line take the lot:
+
+```python
+"""Usage:
+  app add [options] <path>...
+  app commit [options] --message=<msg>
+  app push [options]
+
+Options:
+  --verbose        Chatty.
+  --message=<msg>  Commit message.
+  --force          Force the push.
+"""
+```
+
+That is the DRY form, but it is deliberately loose: `[options]` expands to *every* option in the section, so
+`app commit --message=m --force` now parses, `--force` and all. `check` does not flag it - it is a legitimate
+shape, not a mistake. Reach for it when the options really are shared, and for the per-line form when a
+subcommand must refuse another's flags.
+
+Either way the handler reads the shared option from its own `args`, like any other key:
+
+```python
+@app.on("add")
+def add(args):
+    if args["--verbose"]:
+        ...
+```
+
 ## Typed per command
 
 Passing `schema=` to `on(...)` binds the parsed result to that schema, so each subcommand handler
