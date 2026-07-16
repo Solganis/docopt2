@@ -109,6 +109,23 @@ def test_only_the_first_double_dash_is_a_separator():
     assert_that(docopt("Usage: prog <args>...", "-- -- x", help=False)["<args>"]).is_equal_to(["--", "x"])
 
 
+def test_dropping_an_undeclared_double_dash_shifts_the_positionals_along():
+    # The same root as the test above, in a face the docs' one-value example does not show: the original
+    # gives the first positional the separator itself and pushes the rest along, so every positional after
+    # it ends up holding the token its neighbour holds here.
+    assert_that(docopt("Usage: prog -a | <name> <path>...", "-- x y", help=False)).is_equal_to(
+        {"-a": False, "<name>": "x", "<path>": ["y"]}
+    )
+
+
+def test_dropping_an_undeclared_double_dash_can_reject_what_the_original_accepted():
+    # And its least obvious face, the only divergence that turns a working invocation into an error: where
+    # `--` WAS the token filling a required slot, dropping it leaves the pattern unfilled. The original reads
+    # the separator as an ordinary positional and accepts (`{'<a>': ['--']}`); docopt2 reads POSIX and exits.
+    with raises(DocoptExit):
+        docopt("Usage: prog <a>...", "--", help=False)
+
+
 def test_repeating_positional_before_required_backtracks():
     # A greedy `<src>...` would swallow every token and starve `<dest>`; the matcher backs the
     # repetition off to fill the trailing required element. Vanilla rejects this argv outright.
