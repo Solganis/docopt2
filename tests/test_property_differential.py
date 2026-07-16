@@ -152,15 +152,31 @@ def test_docopt2_matches_vanilla_docopt(doc, argv):
 # Locked into the gate (300 derandomised examples would not reach them; the wide nightly did): an
 # ambiguous `[<name>] <name> | <command>` on the command token. docopt2 binds it to <name>, vanilla
 # invokes the command - both valid branches, neither fabricates a value. Must stay tolerated.
+#
+# As far as this gate's own generator reaches, these two are the whole live surface of `_assert_compatible`'s
+# last tolerance - the surplus check: a sweep of 8000 generated examples reached it zero other times. Read
+# that as a floor, not a census: the wide nightly is what found these two, so the generator demonstrably does
+# not reach every such shape. The third element pins WHICH branch docopt2 picks, because the tolerance above
+# is blind to that by design and would wave a flip straight through. A matcher change can legitimately move
+# the preference (the lazy `Either` moved exactly this kind of thing), so a diff here is not a verdict - it
+# means the choice moved, and someone must look, decide it was intended, and re-bless it. The point is only
+# that the move must not be silent. NOTE the limit: this pins the choice where the tolerance is load-bearing,
+# NOT branch choice in general - a change that leaves both branches vanilla-compatible is invisible to any
+# guard built on the vanilla differential.
 _AMBIGUOUS_BRANCH_CASES = [
-    ("usage: prog [<name>] <name> | cmd ...", ["cmd"]),
-    ("usage: prog [<name>] <name> | cmd", ["cmd"]),
+    ("usage: prog [<name>] <name> | cmd ...", ["cmd"], {"<name>": ["cmd"], "cmd": 0}),
+    ("usage: prog [<name>] <name> | cmd", ["cmd"], {"<name>": ["cmd"], "cmd": False}),
 ]
 
 
-@pytest.mark.parametrize(("doc", "argv"), _AMBIGUOUS_BRANCH_CASES)
+@pytest.mark.parametrize(("doc", "argv"), [(doc, argv) for doc, argv, _ in _AMBIGUOUS_BRANCH_CASES])
 def test_an_ambiguous_alternation_branch_choice_stays_compatible(doc, argv):
     _assert_compatible(doc, argv)
+
+
+@pytest.mark.parametrize(("doc", "argv", "chosen"), _AMBIGUOUS_BRANCH_CASES)
+def test_the_branch_picked_on_an_ambiguous_alternation_is_pinned(doc, argv, chosen):
+    assert_that(dict(docopt(doc, argv, help=False, complete=False))).is_equal_to(chosen)
 
 
 # A DEEP but honest argv - the kind a CI invocation produces, not an adversary: two options repeated many
