@@ -145,7 +145,8 @@ pip install docopt2  # just change the import
 from docopt2 import docopt
 
 args = docopt("Usage: prog <host> <port>", "127.0.0.1 8080")
-# args is an Arguments mapping: {"<host>": "127.0.0.1", "<port>": "8080"}
+args
+# {'<host>': '127.0.0.1', '<port>': '8080'}   -> an Arguments, a dict subclass
 ```
 
 Pass a `schema=` and the same usage returns a typed object instead, with each value coerced to its
@@ -164,7 +165,8 @@ class Args:
 
 
 args = docopt("Usage: prog <host> <port>", "127.0.0.1 8080", schema=Args)
-# Args(host='127.0.0.1', port=8080) - args.port is statically an int, not a string
+args
+# Args(host='127.0.0.1', port=8080)   -> args.port is statically an int, not a string
 ```
 
 See [Getting started](getting-started.md) to dive in, or browse the [Guides](guides/typed-results.md)

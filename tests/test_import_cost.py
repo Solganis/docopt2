@@ -56,6 +56,15 @@ def test_parsing_without_a_schema_pulls_in_none_of_the_typed_machinery():
     assert_that(sorted(loaded & set(_MUST_STAY_UNIMPORTED_UNTIL_TYPED))).is_empty()
 
 
+def test_importing_docopt2_never_imports_pydantic():
+    # pydantic support is REFLECTIVE (detected by `model_validate`), so the core must not import it at all -
+    # a different claim from the deferred lists above, which is why it sits in its own test. concepts/
+    # design-boundaries.md shows exactly this as `"pydantic" in sys.modules` -> False. Only a CLEAN process
+    # can answer it: inside the suite other tests have already imported pydantic, so the docs fence gate
+    # deliberately skips that block and defers to this one.
+    assert_that(_modules_loaded_by("import docopt2")).does_not_contain("pydantic")
+
+
 def test_the_deferred_names_still_resolve_when_they_are_asked_for():
     # Laziness must not become absence: reading the version, or reaching for a tool, still works.
     loaded = _modules_loaded_by("import docopt2; docopt2.__version__; docopt2.check")
