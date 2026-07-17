@@ -1,6 +1,7 @@
 # Usage linting
 
-Statically lint the usage grammar itself, before any argv is parsed.
+Statically lint the usage grammar itself, before any argv is parsed. See the
+[Usage linting](../guides/check.md) guide.
 
 ::: docopt2.check
     options:

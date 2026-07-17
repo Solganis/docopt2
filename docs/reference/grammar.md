@@ -1,9 +1,13 @@
 # Usage grammar
 
 The pattern node classes and low-level parser functions, exported because tools built on docopt reach into
-them. The drop-in guarantee covers `docopt()` and the mapping it returns, not these names, which follow
-docopt's unreleased master rather than the 0.6.2 spelling. Most programs never touch them; use
-[`parse_tree`](docopt.md) for a friendlier entry point into the parse tree.
+them. Most programs never touch them.
+
+They are the parser's own vocabulary, not a promise: the drop-in guarantee covers `docopt()` and the mapping
+it returns, not these names, which follow docopt's unreleased master rather than the 0.6.2 spelling.
+
+Use [`parse_tree`](docopt.md) for a friendlier entry point into the parse tree, and see the
+[Usage DSL](../guides/usage-dsl.md#parser-primitives) guide.
 
 ## Pattern nodes
 

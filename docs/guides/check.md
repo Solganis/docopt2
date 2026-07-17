@@ -1,10 +1,14 @@
 # Usage linting
 
-`check` (and the `docopt2 check` CLI) statically lints the usage grammar itself, before any argv is
-parsed, catching defects that `docopt` would otherwise accept in silence. It never raises and never
-touches parsing: it reads the `Usage:`, `Options:`, and `Arguments:` blocks and reports what it finds
-as a list of warnings, so you can wire it into a test or a CI step and fail the build on a grammar
-mistake instead of shipping it.
+A usage message can be wrong in ways docopt accepts in silence. Describe `--verbose` under `Options:` and
+forget to put it on a usage line, and your help text advertises a flag the parser then rejects with
+`unexpected argument`. Nothing complains until a user tries it.
+
+`check` (and the `docopt2 check` CLI) lints the grammar itself, before any argv is parsed. It never raises
+and never touches parsing: it reads the `Usage:`, `Options:` and `Arguments:` blocks, and reports what it
+finds as a list of warnings.
+
+So you can wire it into a test or a CI step, and fail the build on a grammar mistake instead of shipping it.
 
 ## From code
 
@@ -21,10 +25,12 @@ warnings[0].level      # 'warning'
 print(warnings[0].render())
 ```
 
-Each entry is the same kind of [diagnostic](diagnostics.md) the runtime uses for parse errors:
-`warning.render()` returns the block as text, and `warning.render(color=True)` produces the ANSI
-color shown in the blocks below. The list is purely informational: `check` does not mutate
-`doc` and does not change how `docopt()` later parses it.
+Each entry is the same kind of [diagnostic](diagnostics.md) the runtime uses for parse errors.
+`warning.render()` returns the block as text, and `warning.render(color=True)` produces the ANSI color shown
+in the blocks below.
+
+The list is purely informational. `check` does not mutate `doc`, and does not change how `docopt()` later
+parses it.
 
 !!! note
     A usage message too malformed to parse (an unbalanced group, say) returns no warnings - that error
@@ -61,9 +67,12 @@ rule with the exact warning `check` returns.
 
 ### Unusable options
 
-An option described in `Options:` but named on no usage line can never be set, unless a `[options]`
-shortcut is there to accept it. Add the option to a usage line, or add `[options]`, or delete the
-description. The shortcut suppresses the warning:
+An option described in `Options:` but named on no usage line can never be set, unless a `[options]` shortcut
+is there to accept it. Three ways to fix it:
+
+- add the option to a usage line
+- add `[options]`, which accepts every described option and suppresses the warning
+- delete the description
 
 ```python
 check("Usage: prog [options]\n\nOptions:\n  --verbose  Be loud.")   # []
@@ -71,8 +80,10 @@ check("Usage: prog [options]\n\nOptions:\n  --verbose  Be loud.")   # []
 
 ### Dead defaults
 
-A `[default: ...]` only applies when the element is absent. If every usage pattern requires the
-element, the default is unreachable. It fires on options declared in `Options:`:
+A `[default: ...]` only applies when the element is absent, so if every usage pattern requires the element,
+the default is unreachable.
+
+It fires on options declared in `Options:`:
 
 ```python
 doc = "Usage: prog --port=<n>\n\nOptions:\n  --port=<n>  Port [default: 80]."
@@ -107,9 +118,10 @@ in), or to drop the default.
 
 ### Ambiguous variadics
 
-Two variadic positionals in the same sequence have no defined boundary: given `prog a b c`, docopt2
-cannot know where `<a>...` stops and `<b>...` starts. This warning carries no caret, since the defect
-is the pair, not one token.
+Two variadic positionals in the same sequence have no defined boundary. Given `prog a b c`, docopt2 cannot
+know where `<a>...` stops and `<b>...` starts.
+
+This warning carries no caret, since the defect is the pair, not one token.
 
 ```python
 print(check("Usage: prog <a>... <b>...")[0].render(color=True))
@@ -118,8 +130,10 @@ print(check("Usage: prog <a>... <b>...")[0].render(color=True))
 <div class="docopt2-term"><span class="dt-warn dt-b">warning</span><span class="dt-fg dt-b">: ambiguous grammar: two variadic positionals share one sequence</span>
 <span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: the token split between them is undefined; make one non-variadic, or split into branches</span></div>
 
-It counts each `...` over a positional as one unit along a single path, so a single `(<a> <b>)...`
-(one repeat, fixed interleaving) and two variadics in separate `|` branches are both fine:
+It counts each `...` over a positional as one unit along a single path. So both of these are fine:
+
+- `(<a> <b>)...` is one repeat with a fixed interleaving, not two competing ones.
+- Two variadics in separate `|` branches never meet on the same path.
 
 ```python
 check("Usage: prog (<a> <b>)...")        # []

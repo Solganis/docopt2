@@ -27,7 +27,7 @@
 
 <h2 align="center">What is docopt2?</h2>
 
-docopt2 is a command-line argument parser for Python. Most CLI libraries have you build the parser in code and generate a `--help`; docopt2 inverts that: **you write the usage message, and that message *is* the parser.**
+docopt2 is a command-line argument parser for Python. Most CLI libraries have you build the parser in code and generate a `--help`. docopt2 inverts that: **you write the usage message, and that message *is* the parser.**
 
 Put the `Usage:` and `Options:` text in your docstring - the help you would write anyway - and docopt2 parses the command line against it. The help users read and the parser that runs are the same, and cannot drift.
 
@@ -140,13 +140,13 @@ docopt2 reads the same usage DSL as docopt - the `Usage:` and `Options:` blocks 
 <tr><td><code>a | b</code></td><td>Mutually exclusive: choose one.</td></tr>
 <tr><td><code>element...</code></td><td>Repeatable: one or more.</td></tr>
 <tr><td><code>[options]</code></td><td>Stands in for every option listed under <code>Options:</code>.</td></tr>
-<tr><td><code>--</code></td><td>Ends option parsing; the rest is positional.</td></tr>
+<tr><td><code>--</code></td><td>Ends option parsing. The rest is positional.</td></tr>
 <tr><td><code>[default: &lt;val&gt;]</code></td><td>An option's default value, declared under <code>Options:</code>.</td></tr>
 <tr><td><code>[env: &lt;var&gt;]</code></td><td>An option's environment-variable fallback.</td></tr>
 <tr><td><code>[config: &lt;key&gt;]</code></td><td>An option's config-file fallback (CLI &gt; env &gt; config &gt; default).</td></tr>
 </table>
 
-The legend covers the essentials; precedence and edge cases are in the [full usage grammar](https://solganis.github.io/docopt2/guides/usage-dsl/).
+The legend covers the essentials. Precedence and edge cases are in the [full usage grammar](https://solganis.github.io/docopt2/guides/usage-dsl/).
 
 <a name="typed-results"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/typed-results/">Why typed docopt?</a></h2>
@@ -237,7 +237,7 @@ app.run()   # parse argv, call the matched command's handler
   <a href="https://www.nushell.sh/"><img src="https://img.shields.io/badge/nushell-4E9A06?logo=nushell&logoColor=white" alt="nushell"></a>
 </p>
 
-Generate the completion script for your shell; Tab then narrows to exactly what is valid at the cursor -<br>
+Generate the completion script for your shell. Tab then narrows to exactly what is valid at the cursor -<br>
 commands and options, never positional values - straight from the usage:
 
 ```console
@@ -277,7 +277,7 @@ Widen a field by hand (`speed: int`) and the coercion is automatic.
 <a name="layered-fallback"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/usage-dsl/#environment-and-config-fallback">Layered value resolution</a></h2>
 
-Declare an option's fallback sources in the usage with `[env: VAR]` and `[config: key]`; docopt2 resolves each -<br>
+Declare an option's fallback sources in the usage with `[env: VAR]` and `[config: key]`. docopt2 resolves each -<br>
 the command-line argument first, then the environment, then a config mapping you pass, then the `[default: ...]`:
 
 ```python
@@ -308,7 +308,7 @@ port = 80  # --port, env APP_PORT
 <a name="rich-help"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/help/">Self-documenting <code>--help</code></a></h2>
 
-`--help` prints your usage verbatim by default. Opt into `help_style="rich"` for an aligned, colored screen that documents **where each value resolves from** - the `[env, config, default]` chain no other CLI library surfaces:
+`--help` prints your usage verbatim by default. Opt into `help_style="rich"` for an aligned, colored screen that documents **where each value resolves from**, reading the `[env, config, default]` chain straight out of the usage you already wrote:
 
 <p align="center">
   <img src="docs/assets/rich-help.png" width="878" alt="A docopt2 rich --help: a bold Usage, then Options with green option names, aligned descriptions, and a dimmed source chain per option - '[env: PORT, config: server.port, default: 8080]' - documenting the resolution order">
@@ -374,7 +374,7 @@ The change is layout-only and idempotent. `docopt2 fmt` prints to stdout - pipe 
 <a name="round-trip"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/round-trip/">Round-trip: results back to argv</a></h2>
 
-`docopt` parses an argv into a result; `format_argv` does the inverse - the same usage message drives *both* directions:
+`docopt` parses an argv into a result. `format_argv` does the inverse - the same usage message drives *both* directions:
 
 ```python
 doc = "Usage: prog <src> <dst> [--force]"

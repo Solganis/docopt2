@@ -1,10 +1,14 @@
 # Subcommand dispatch
 
-`Dispatch` routes a matched command path to a handler - the subcommand dispatch layer docopt itself
-omits. Register one handler per command path, then `run` parses argv and calls the handler for the most
-specific path that matched.
+docopt hands you a parsed mapping and stops there. Routing `git commit` to the code that commits is left to
+you, and it usually grows into an `if`/`elif` ladder over the parsed keys.
+
+`Dispatch` is that missing layer.
 
 ## Register and run
+
+Register one handler per command path. `run` then parses argv and calls the handler for the most specific
+path that matched.
 
 ```python
 from docopt2 import Dispatch
@@ -86,9 +90,11 @@ asserted in a test.
 
 ### Most specific path wins
 
-`on("user", "create")` matches only when both `user` and `create` are truthy in the parsed result, and
-a longer registered path outranks a shorter one. So a generic `on("user")` acts as a group fallback
-while `on("user", "create")` and `on("user", "list")` handle the leaves:
+`on("user", "create")` matches only when both `user` and `create` are truthy in the parsed result, and a
+longer registered path outranks a shorter one.
+
+So a generic `on("user")` acts as a group fallback, while `on("user", "create")` and `on("user", "list")`
+handle the leaves:
 
 ```python
 @app.on("user")
@@ -103,18 +109,21 @@ def user_list(args): ...       # user list
 
 Given the argv `user create alice`, the two-segment handler wins over the one-segment `on("user")`.
 
-!!! note
-    If a usage pattern matches but no registered path (not even the empty fallback) fits it, `run()`
-    raises `DocoptExit` carrying `error: no handler is registered for the given command`. Argv that
-    matches no usage pattern at all is rejected earlier by `docopt` itself, with the usual
-    [diagnostic](diagnostics.md).
+!!! note "Two different ways an argv can go unhandled"
+    - **A usage pattern matches, but no registered path fits it**, not even the empty fallback. `run()`
+      raises `DocoptExit` carrying `error: no handler is registered for the given command`.
+    - **No usage pattern matches at all.** `docopt` itself rejects the argv earlier, with the usual
+      [diagnostic](diagnostics.md).
 
 ## Options every subcommand shares
 
-A global `--verbose` (or `--config`, `--dry-run`) belongs to no single subcommand. Where you write it in a
-usage line does not constrain where the user types it - options match position-independently, so
-`app --verbose add src` and `app add src --verbose` are the same parse either way. The choice is only about
-how you *declare* it, and it trades repetition against scope.
+A global `--verbose` (or `--config`, `--dry-run`) belongs to no single subcommand.
+
+Where you write it in a usage line does not constrain where the user types it. Options match
+position-independently, so `app --verbose add src` and `app add src --verbose` are the same parse either
+way.
+
+The choice is only about how you *declare* it, and it trades repetition against scope.
 
 Declare it per line and each subcommand accepts its own options and no others:
 
@@ -149,10 +158,13 @@ Options:
 """
 ```
 
-That is the DRY form, but it is deliberately loose: `[options]` expands to *every* option in the section, so
-`app commit --message=m --force` now parses, `--force` and all. `check` does not flag it - it is a legitimate
-shape, not a mistake. Reach for it when the options really are shared, and for the per-line form when a
-subcommand must refuse another's flags.
+That is the DRY form, but it is deliberately loose. `[options]` expands to *every* option in the section, so
+`app commit --message=m --force` now parses, `--force` and all.
+
+`check` does not flag it. This is a legitimate shape, not a mistake.
+
+Reach for it when the options really are shared, and for the per-line form when a subcommand must refuse
+another's flags.
 
 Either way the handler reads the shared option from its own `args`, like any other key:
 
@@ -174,10 +186,11 @@ def create(args: CreateArgs):
     ...
 ```
 
-Dispatch always matches on the parsed mapping first, then binds per handler, so `schema` lives on
-`on()` and is never forwarded through `run()`. A schema only needs to declare the fields that handler
-reads; keys belonging to other subcommands are ignored. For the git-like CLI, typing just the `commit`
-leaf:
+Dispatch always matches on the parsed mapping first, then binds per handler. That is why `schema` lives on
+`on()` and is never forwarded through `run()`.
+
+A schema only needs to declare the fields that handler reads, and keys belonging to other subcommands are
+ignored. For the git-like CLI, typing just the `commit` leaf:
 
 ```python
 from dataclasses import dataclass
@@ -202,18 +215,31 @@ $ python app.py commit --message="first commit"
 committing: 'first commit'
 ```
 
-The field name comes from the usage key: `--message` maps to `message`, `<path>` to `path`, and the
-value is coerced to the declared field type. See [Typed results](typed-results.md) for the full key to
-field mapping and the four schema shapes a handler can receive.
+The field name comes from the usage key. `--message` maps to `message`, `<path>` to `path`, and the value is
+coerced to the declared field type.
+
+See [Typed results](typed-results.md) for the full key-to-field mapping, and the four schema shapes a handler
+can receive.
 
 ## Forwarding options
 
-Extra keyword arguments to `run(...)` are forwarded to [`docopt`](../reference/docopt.md) (`suggest`,
-`exit_code`, `version`, and so on). `schema` is not among them, since dispatch binds per handler.
+Extra keyword arguments to `run(...)` pass straight through to [`docopt`](../reference/docopt.md), so
+anything the parser accepts works from dispatch too:
 
 ```python
 app.run(version="app 2.0")   # --version prints "app 2.0" and exits
 ```
+
+`suggest`, `exit_code`, `version`, `help_style`, `config`, `allow_extra` and the rest all forward unchanged.
+
+`schema` is the one exception, and `run()` refuses it rather than quietly ignoring it:
+
+```text
+TypeError: Dispatch.run() takes no `schema`; register one per handler with `on(..., schema=...)`
+```
+
+Dispatch matches on the parsed mapping first, and binds each handler its own typed view only afterwards. A
+schema on `run()` would type the very thing being routed on, so it belongs on `on()`.
 
 ## See also
 

@@ -1,22 +1,7 @@
 # Diagnostics
 
-When the arguments don't match, docopt2 does not just reprint the usage - it points at the offending
-token, in the argument vector and in the usage that rejected it, with a two-span caret and a
-"did you mean" hint where one applies.
-
-Every error the *usage* produces, whether the user mistyped an argument or the developer wrote a malformed
-usage, is lowered to one shape: a bold `error:` heading with a one-line summary, then captioned source
-snippets with carets, then optional `note:` and `help:` lines. (A schema that does not fit its usage - a
-field naming no element, an annotation nothing can coerce to - is a programming error, and raises a plain
-`DocoptLanguageError` with no source to point at.) The two are not interchangeable, and follow rustc's
-split: a `note:` gives context - why the input was rejected, or why this usage line is the one shown - while
-a `help:` proposes a concrete fix, such as a "did you mean". A diagnostic with nothing to suggest carries no
-`help:` at all. The static [usage linter](check.md) reuses the same grammar with a yellow `warning:` heading,
-so a warning and a hard error read the same way.
-
-## A mismatch at parse time
-
-A failed parse raises [`DocoptExit`](../reference/exceptions.md), carrying the rendered diagnostic.
+When the arguments don't match, docopt2 does not just reprint the usage. It points at the offending token,
+in the argument vector and in the usage that rejected it:
 
 <div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: unknown option `--forcce`</span>
 <span class="dt-fg">   |</span>
@@ -30,8 +15,9 @@ A failed parse raises [`DocoptExit`](../reference/exceptions.md), carrying the r
 <span class="dt-fg">   |</span>
 <span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: did you mean `--force`?</span></div>
 
-That block is exactly what `str(exc)` prints for the run below (minus the usage message that
-`DocoptExit` always appends beneath the diagnostic):
+A failed parse raises [`DocoptExit`](../reference/exceptions.md) carrying that diagnostic. The block above
+is exactly what `str(exc)` prints for the run below, minus the usage message that `DocoptExit` always
+appends beneath it:
 
 ```python
 from docopt2 import docopt
@@ -56,12 +42,35 @@ Read the two snippets top to bottom:
   `--force`. This is the cross-reference: it ties the mistake in argv to the exact spot in the spec that
   rejected it, so you are not left scanning the whole usage yourself.
 
-The `help:` line carries the "did you mean" hint. It appears only with `suggest=True`; see
+The `help:` line carries the "did you mean" hint. It appears only with `suggest=True`. See
 [Opting into hints](#opting-into-hints) below.
 
-The second snippet is not exclusive to typos. Any time the offending argv token is an option the usage
-actually declares, the diagnostic carets both places. Giving two branches of a mutually exclusive group
-is the common case:
+## One shape for every error
+
+Every error the *usage* produces is lowered to the shape above, whether the user mistyped an argument or the
+developer wrote a malformed usage:
+
+- a bold `error:` heading with a one-line summary
+- captioned source snippets with carets
+- optional `note:` and `help:` lines
+
+Those last two follow rustc's split and are not interchangeable. A `note:` gives context: why the input was
+rejected, or why this usage line is the one shown. A `help:` proposes a concrete fix, such as a "did you
+mean". A diagnostic with nothing to suggest carries no `help:` at all.
+
+The static [usage linter](check.md) reuses the same grammar with a yellow `warning:` heading, so a warning
+and a hard error read the same way.
+
+!!! note "A schema that does not fit its usage is a different animal"
+    A field naming no element, or an annotation nothing can coerce to, is a programming error rather than a
+    usage error. It raises a plain `DocoptLanguageError` with no source to point at.
+
+## Both places, not only typos
+
+The second snippet is not exclusive to typos.
+
+Any time the offending argv token is an option the usage actually declares, the diagnostic carets both
+places. Two branches of a mutually exclusive group is the common case:
 
 ```python
 doc = "Usage: prog (--fast | --slow)\n\nOptions:\n  --fast  Fast.\n  --slow  Slow."
@@ -124,7 +133,7 @@ docopt(doc, "push")
 <span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: of 3 usage patterns, your arguments came closest to this one</span></div>
 
 The snippet shows only the closest line - `git push`, not `commit` or `add` - because the caret is placed
-in *that* line. Typing `git commit` instead carets `--message=<msg>` on the second line; `git deploy prod`
+in *that* line. Typing `git commit` instead carets `--message=<msg>` on the second line. `git deploy prod`
 on a `deploy <env> <version>` line carets the missing `<version>`.
 
 The ranking fires only with real evidence. A leading word that matches no line's command (`git clone`) is
@@ -164,7 +173,7 @@ docopt(doc, "--port=abc", schema=Args)   # raises the diagnostic below
 
 Only a **user value** gets this two-span treatment. A schema that disagrees with the usage - a field with
 no matching element, an unsupported annotation - is the developer's error, not the user's, and raises
-[`DocoptLanguageError`](../reference/exceptions.md) with no argv caret; see
+[`DocoptLanguageError`](../reference/exceptions.md) with no argv caret. See
 [Typed results](typed-results.md#when-coercion-fails).
 
 ## A malformed usage at import time
@@ -226,13 +235,15 @@ docopt(doc, "push --forcce origin")   # suggest defaults to False
 <span class="dt-fg">   |</span><span class="dt-fg">         </span><span class="dt-caret">^^^^^^^^</span><span class="dt-label"> not allowed here</span>
 <span class="dt-fg">   |</span></div>
 
-Pass `suggest=True` and, when a mistyped long option resembles a known one within an edit-distance
-threshold, docopt2 upgrades the message to the `unknown option` form: the "did you mean `--force`?"
-help line plus the usage cross-reference shown at the top of this page.
+Pass `suggest=True` and docopt2 upgrades the message to the `unknown option` form shown at the top of this
+page: the "did you mean `--force`?" help line, plus the usage cross-reference. That fires when a mistyped
+long option resembles a known one within an edit-distance threshold.
 
-The hint fires only on a genuine typo. With `allow_abbrev=True` (the default) an unambiguous prefix such
-as `--for` already de-abbreviates to `--force`, so it is accepted and never flagged. A token like
-`--forcce` is not a prefix of any known option, which is what marks it as a typo worth a suggestion.
+The hint fires only on a genuine typo:
+
+- `--for` is an unambiguous prefix, so with `allow_abbrev=True` (the default) it already de-abbreviates to
+  `--force`. It is accepted, never flagged.
+- `--forcce` is a prefix of nothing. That is what marks it as a typo worth a suggestion.
 
 !!! note
     `suggest` only affects long options (`--name`). Short flags and positional arguments fall through to

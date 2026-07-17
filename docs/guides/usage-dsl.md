@@ -1,17 +1,20 @@
 # Usage DSL
 
-docopt2 reads the same usage DSL as docopt: the `Usage:` and `Options:` blocks in your help message
-*are* the parser spec. Nothing is configured in code - you write the interface the way you would
-document it, and docopt2 derives the parser from it. This guide is the full reference: every form, the
-value it produces, and how to inspect the parse tree. Every result shown below is the actual `docopt()`
-output for the usage and argv above it.
+docopt2 reads the same usage DSL as docopt. The `Usage:` and `Options:` blocks in your help message *are*
+the parser spec.
+
+Nothing is configured in code. You write the interface the way you would document it, and docopt2 derives
+the parser from that text.
+
+This guide is the full reference: every form, the value it produces, and how to inspect the parse tree.
+Every result below is real `docopt()` output for the usage and argv above it.
 
 ## The two blocks
 
 A help message has two blocks docopt2 reads, both found case-insensitively:
 
 - **`Usage:`** - one or more invocation patterns. Each line until the next blank line is an alternative
-  way to call the program; the leading word is the program name and is ignored when matching.
+  way to call the program. The leading word is the program name and is ignored when matching.
 - **`Options:`** - one line per option, giving its short and/or long form, whether it takes a value, and
   an optional `[default: ...]`.
 
@@ -42,7 +45,7 @@ A quick reference, then a worked example of each form.
 | `a \| b` | Mutually exclusive: pick one |
 | `element...` | Repeatable: one or more |
 | `[options]` | Every option from the `Options:` block |
-| `--` | Ends option parsing; the rest is positional |
+| `--` | Ends option parsing. The rest is positional |
 | `[default: <val>]` | An option's default, declared in `Options:` |
 | `[env: <var>]` | An option's environment-variable fallback, resolved after the command line |
 | `[config: <key>]` | An option's config-file fallback, resolved against the `docopt(config=...)` mapping |
@@ -50,7 +53,7 @@ A quick reference, then a worked example of each form.
 ### Commands
 
 A bare word is a literal command, matched verbatim. Its key in the result is `True` when present and
-`False` otherwise; chaining words builds a command path.
+`False` otherwise. Chaining words builds a command path.
 
 ```python
 docopt("Usage: prog ship new <name>", "ship new titanic", complete=False)
@@ -86,7 +89,7 @@ docopt("Usage: prog [-v...]", "-v -v -v", complete=False)   # {'-v': 3}
 
 ### Options with a value
 
-`--port=<n>` takes an argument. On the command line both `--port=8080` and `--port 8080` are accepted;
+`--port=<n>` takes an argument. On the command line both `--port=8080` and `--port 8080` are accepted, and
 the value is always a string.
 
 ```python
@@ -115,9 +118,11 @@ Two annotations declare where an omitted option's value comes from, layered unde
 - `[env: VAR]` reads an environment variable.
 - `[config: dotted.key]` reads the mapping you pass as `docopt(config=...)` - a config file you loaded.
 
-The precedence is **command-line argument > `[env: VAR]` > `[config: key]` > `[default: ...]`**: an
-explicit argument always wins, then the environment, then the config, then the default. So below, `8080`
-comes from the config, `7000` from `APP_PORT` once it is set, and `9000` from the explicit `--port`:
+The precedence is **command-line argument > `[env: VAR]` > `[config: key]` > `[default: ...]`**. An explicit
+argument always wins, and the default is the last resort.
+
+So below, `8080` comes from the config, `7000` from `APP_PORT` once it is set, and `9000` from the explicit
+`--port`:
 
 ```python
 import os
@@ -136,15 +141,23 @@ docopt(doc, "", config=cfg, complete=False)             # {'--port': '7000'}
 docopt(doc, "--port=9000", config=cfg, complete=False)  # {'--port': '9000'}
 ```
 
-docopt2 never reads a file itself - that would add a dependency and lock in a format. You load the config
-however you like (TOML, JSON, a `[tool.<prog>]` table) and pass the resulting mapping; `[config: a.b.c]`
-walks the dotted path into it. On a flag the value is read as a boolean (set unless it reads as empty,
-`0`, `false`, `no`, or `off`). Both fallbacks are opt-in per option, apply only to options that appear in
-the usage, and coerce through a [schema](typed-results.md) like any other. A value from env or config is
-still reported as *not* given by [`was_given`](typed-results.md#the-arguments-mapping), since it did not
-come from the command line. At runtime, [`args.source(name)`](typed-results.md#where-a-value-came-from)
-reports which layer actually supplied each value; the [rich `--help`](help.md#value-provenance) screen
-documents the same source chain, so users see where a value resolves from without reading the code.
+docopt2 never reads a file itself. That would add a dependency and lock in a format.
+
+You load the config however you like (TOML, JSON, a `[tool.<prog>]` table) and pass the resulting mapping.
+`[config: a.b.c]` walks the dotted path into it.
+
+On a flag the value is read as a boolean: set, unless it reads as empty, `0`, `false`, `no`, or `off`.
+
+Both fallbacks are opt-in per option, apply only to options that appear in the usage, and coerce through a
+[schema](typed-results.md) like any other value.
+
+Where a value came from stays visible:
+
+- [`was_given`](typed-results.md#the-arguments-mapping) reports an env- or config-sourced value as *not*
+  given, since it did not come from the command line.
+- [`args.source(name)`](typed-results.md#where-a-value-came-from) reports which layer actually supplied it.
+- The [rich `--help`](help.md#value-provenance) screen documents the same source chain, so users see where a
+  value resolves from without reading the code.
 
 !!! note "Empty is treated as absent"
     A blank or unset source falls through to the next layer - the shell `${VAR:-default}` convention - so
@@ -152,16 +165,20 @@ documents the same source chain, so users see where a value resolves from withou
     holds for a `null` or empty config value.
 
 !!! warning "A config key must name a value, not a table"
-    An option takes one value, so `[config: server]` against `{"server": {"port": 80}}` is a mistake: the
-    key stops one level short. docopt2 says so, with a caret and the keys that would have worked, instead
-    of handing `--server` the string `{'port': 80}`. Scalars, dates and times pass through as written.
+    An option takes one value, so `[config: server]` against `{"server": {"port": 80}}` is a mistake. The
+    key stops one level short.
+
+    docopt2 says so, with a caret and the keys that would have worked, instead of handing `--server` the
+    string `{'port': 80}`. Scalars, dates and times pass through as written.
 
 ### Generate a config skeleton
 
 Once options declare `[config: key]`, [`generate_config_template`](../reference/config-templates.md) turns
-those annotations into a ready-to-fill TOML file: each key under its table, seeded with the option's
-`[default: ...]`, and commented with the flag and any `[env: VAR]` it also reads. It is the mirror image of
-the resolution above - the file the `docopt(config=...)` mapping is loaded from.
+those annotations into a ready-to-fill TOML file. It is the mirror image of the resolution above: the file
+that the `docopt(config=...)` mapping is loaded from.
+
+Each key lands under its table, seeded with the option's `[default: ...]`, and commented with the flag and
+any `[env: VAR]` it also reads.
 
 ```python
 from docopt2 import generate_config_template
@@ -187,9 +204,13 @@ booleans stay bare, everything else is quoted - so it round-trips straight back 
 
 !!! note "Contradictory keys fail loudly"
     Config keys that cannot coexist in one TOML document raise `DocoptLanguageError` rather than emit a
-    broken file: a duplicate key, or a path that is a prefix of another (`[config: server]` beside
-    `[config: server.port]` uses `server` as both a value and a table). Sibling keys under one table
-    (`server.host` and `server.port`) are fine.
+    broken file:
+
+    - a duplicate key
+    - a path that is a prefix of another. `[config: server]` beside `[config: server.port]` would use
+      `server` as both a value and a table.
+
+    Sibling keys under one table (`server.host` and `server.port`) are fine.
 
 The `docopt2 config-template <source>` CLI prints the same skeleton from a `.py` module docstring, a
 usage file, or `-` for standard input:
@@ -220,7 +241,7 @@ docopt("Usage: prog (add|rm) <x>", "add foo", complete=False)
 
 ### Repetition `...`
 
-A trailing `...` means one or more. A repeated positional collects into a list; a repeated flag counts.
+A trailing `...` means one or more. A repeated positional collects into a list, and a repeated flag counts.
 
 ```python
 docopt("Usage: prog <name>...", "a b c", complete=False)   # {'<name>': ['a', 'b', 'c']}
@@ -239,7 +260,7 @@ docopt(doc, "-v --port=9 file", complete=False)
 
 ### End of options `--`
 
-A literal `--` on the command line stops option parsing; everything after it is positional, even if it
+A literal `--` on the command line stops option parsing. Everything after it is positional, even if it
 looks like an option. Allow it in a pattern with `[--]`.
 
 ```python
@@ -285,12 +306,15 @@ parse_tree("Usage: prog <host> <port>")
 
 ## Parser primitives
 
-The [pattern node classes](../reference/grammar.md) (`Pattern`, `Argument`, `Command`, `Option`,
-`Required`, `Optional`, `Either`, `OneOrMore`, `OptionsShortcut`) and the low-level parser functions are
-exported because tools built on docopt reach into them. They are the parser's own vocabulary, not a
-promise: the drop-in guarantee covers `docopt()` and the mapping it returns, and these names follow
-docopt's unreleased master rather than the 0.6.2 spelling (`TokenStream`, `ChildPattern`, `ParentPattern`,
-`AnyOptions`). For new code, prefer `docopt()` with a [schema](typed-results.md).
+The [pattern node classes](../reference/grammar.md) (`Pattern`, `Argument`, `Command`, `Option`, `Required`,
+`Optional`, `Either`, `OneOrMore`, `OptionsShortcut`) and the low-level parser functions are exported,
+because tools built on docopt reach into them.
+
+They are the parser's own vocabulary, not a promise. The drop-in guarantee covers `docopt()` and the mapping
+it returns, nothing below it. These names also follow docopt's unreleased master rather than the 0.6.2
+spelling (`TokenStream`, `ChildPattern`, `ParentPattern`, `AnyOptions`).
+
+For new code, prefer `docopt()` with a [schema](typed-results.md).
 
 ## See also
 

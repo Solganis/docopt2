@@ -6,14 +6,16 @@
 pip install docopt2
 ```
 
-docopt2 has zero runtime dependencies: the core needs nothing outside the Python standard library.
-pydantic support is reflective and optional (`docopt2[pydantic]`).
+docopt2 has zero runtime dependencies. The core needs nothing outside the Python standard library.
+pydantic support is optional and reflective (`docopt2[pydantic]`).
 
 !!! tip "Coming from the original docopt?"
     docopt2 is a drop-in replacement on Python 3.10+. Change the import and the same usage message parses
-    to the same mapping. It is a compatible superset rather than a bit-identical clone: it also accepts
-    argvs the original rejects, and it corrects three of the original's parsing bugs
-    ([every divergence is pinned by name](concepts/design-boundaries.md#drop-in-compatibility)).
+    to the same mapping.
+
+    It is a superset, not a bit-identical clone. It accepts some argvs the original rejects, and it fixes
+    three of the original's parsing bugs.
+    [Every divergence is pinned by name](concepts/design-boundaries.md#drop-in-compatibility).
 
 ## Your first parse
 
@@ -28,8 +30,8 @@ args["<host>"]  # "127.0.0.1"
 args["<port>"]  # "8080"
 ```
 
-(In a real program you call `docopt(__doc__)` and it reads `sys.argv`; passing the argv here just keeps
-the examples self-contained.)
+In a real program you call `docopt(__doc__)` and it reads `sys.argv`. The examples pass an argv explicitly
+so that each one stands on its own.
 
 Add an **option that takes a value**. `[--port=<n>]` is optional, and the `[default: ...]` declared under
 `Options:` fills it in when the flag is absent:
@@ -41,7 +43,7 @@ docopt(doc, "localhost")["--port"]              # "8000" - the default fills in
 docopt(doc, "localhost --port=9000")["--port"]  # "9000" - the argument wins
 ```
 
-A bare **flag** carries no value: it is `True` when present, `False` when absent:
+A bare **flag** carries no value. It is `True` when present, `False` when absent:
 
 ```python
 doc = "Usage: prog [--verbose] <host>"
@@ -50,8 +52,8 @@ docopt(doc, "--verbose example.com")["--verbose"]  # True
 docopt(doc, "example.com")["--verbose"]            # False
 ```
 
-A **command** is a literal word (a bool, like a flag), and a trailing `...` makes an element
-**repeatable** - its value comes back as a list:
+A **command** is a literal word, and like a flag it comes back as a bool. A trailing `...` makes an element
+**repeatable**, and its value arrives as a list:
 
 ```python
 args = docopt("Usage: prog add <file>...", "add a.txt b.txt")
@@ -59,9 +61,8 @@ args["add"]     # True
 args["<file>"]  # ['a.txt', 'b.txt']
 ```
 
-Positionals, options with defaults, flags, commands, repetition - that is most of the vocabulary, and a real
-program just combines them (add groups, alternation, `[options]` and `--`, and you have all of it). Save this
-as `naval_fate.py`:
+That is most of the vocabulary. Groups, alternation, `[options]` and `--` are the rest, and a real program
+is those pieces combined. Save this as `naval_fate.py`:
 
 ```python
 """Naval Fate.
@@ -90,9 +91,10 @@ if __name__ == "__main__":
     print(arguments)
 ```
 
-`from docopt2 import docopt` is the only line a docopt user changes. The module docstring is the whole
-parser: `docopt(__doc__, ...)` reads the `Usage:` and `Options:` blocks out of it and matches
-`sys.argv[1:]` against them. Run it:
+`from docopt2 import docopt` is the only line a docopt user changes.
+
+The module docstring is the whole parser. `docopt(__doc__, ...)` reads the `Usage:` and `Options:` blocks
+out of it, then matches `sys.argv[1:]` against them. Run it:
 
 ```console
 $ python naval_fate.py ship new Titanic Bismarck
@@ -113,10 +115,13 @@ $ python naval_fate.py ship new Titanic Bismarck
  'shoot': False}
 ```
 
-Each element in the usage becomes a key, under one name: a command is `True` or `False` (a count once it
-repeats), a positional holds its string (or a list under `...`, or `None` when absent), and an option keyed
-by its long form if it has one - so `-h --help` is a single `--help` key. `--speed` already carries its
-`[default: 10]`. Read the values back by name. A second call fills different keys:
+Every element in the usage becomes one key:
+
+- a **command** is `True` or `False`, or a count once it repeats
+- a **positional** holds its string, a list under `...`, or `None` when absent
+- an **option** is keyed by its long form when it has one, so `-h --help` is a single `--help` key
+
+`--speed` already carries its `[default: 10]`. A second call fills different keys:
 
 ```console
 $ python naval_fate.py ship Titanic move 1 2 --speed=15
@@ -131,17 +136,19 @@ arguments["--speed"]   # '15'
 ```
 
 !!! note "Help and version are handled for you"
-    `--help` prints the docstring and exits; `--version` prints the `version=` you passed. Both are driven
-    by the `help=` and `version=` keywords, not by their presence in the usage - deleting the
-    `naval_fate -h | --help` line does not turn `--help` off. Pass `help=False` to take it over yourself.
+    `--help` prints the docstring and exits. `--version` prints the `version=` you passed.
+
+    Both are driven by the `help=` and `version=` keywords, not by their presence in the usage. Deleting
+    the `naval_fate -h | --help` line does not turn `--help` off. Pass `help=False` to take it over
+    yourself.
 
     ```console
     $ python naval_fate.py --version
     Naval Fate 2.0
     ```
 
-When the arguments do not match, `docopt` does not return a broken result - it points at what is missing
-and exits non-zero. Move a ship, but forget the second coordinate:
+When the arguments do not match, `docopt` does not return a broken result. It points at what is missing and
+exits non-zero. Move a ship, but forget the second coordinate:
 
 <div class="docopt2-term"><span class="dt-fg">$ python naval_fate.py ship Titanic move 1</span>
 <span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: missing required `&lt;y&gt;`</span>
@@ -152,16 +159,19 @@ and exits non-zero. Move a ship, but forget the second coordinate:
 <span class="dt-fg">   |</span>
 <span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: of 6 usage patterns, your arguments came closest to this one</span></div>
 
-docopt2 finds the usage line you got closest to and carets the one element it still needs (the full usage
-is printed beneath, trimmed here). Other mismatches - an unknown option, a value that will not fit its
-type - get the same pointed treatment, cross-referencing your argv and the usage; see
-[Diagnostics](guides/diagnostics.md). The full grammar behind the usage message - groups, alternation,
-repetition, `[options]`, and `--` - is in [Usage DSL](guides/usage-dsl.md).
+docopt2 finds the usage line you came closest to and carets the one element it still needs. The full usage
+is printed beneath it, trimmed here.
+
+Other mismatches get the same treatment: an unknown option, or a value that will not fit its type. Each one
+cross-references your argv against the usage. See [Diagnostics](guides/diagnostics.md).
+
+The full grammar lives in [Usage DSL](guides/usage-dsl.md): groups, alternation, repetition, `[options]`,
+and `--`.
 
 ## Typed results
 
-Reading string keys out of a mapping is the original docopt contract. The next step is to pass a schema
-and get a typed object back, with values coerced to the field types:
+Reading string keys out of a mapping is the original docopt contract. Pass a schema instead and you get a
+typed object back, with values coerced to the field types:
 
 ```python
 import dataclasses
@@ -180,15 +190,17 @@ args           # Args(host='127.0.0.1', port=8080)
 args.port      # 8080, now an int
 ```
 
-The `port` field is annotated `int`, so the parsed `"8080"` comes back as an `int`, and static type
-checkers see `args.port` as an `int`. A schema can be a dataclass, a `TypedDict`, a
-[`Cli`](reference/cli.md) subclass, or a pydantic model. Each shape, the coercions docopt2 performs, and
-how a coercion failure surfaces are covered in [Typed results](guides/typed-results.md).
+The `port` field is annotated `int`, so the parsed `"8080"` comes back as an `int`. Static type checkers
+see `args.port` as an `int` too.
+
+A schema can be a dataclass, a `TypedDict`, a [`Cli`](reference/cli.md) subclass, or a pydantic model.
+[Typed results](guides/typed-results.md) covers each shape, the coercions, and what a failure looks like.
 
 You do not have to write the schema by hand. `docopt2 stub naval_fate.py` reads the usage and prints a
-ready-to-edit dataclass (or a `TypedDict`, or a `Cli` subclass) with every field typed from the grammar.
-The grammar only knows `--speed` holds a string, so it emits `speed: str`; narrow it to `speed: int` and
-the coercion follows. See [Schema stubs](guides/stub.md).
+ready-to-edit dataclass, `TypedDict`, or `Cli` subclass, with every field typed from the grammar.
+
+The grammar only knows that `--speed` holds a string, so it emits `speed: str`. Narrow it to `speed: int`
+and the coercion follows. See [Schema stubs](guides/stub.md).
 
 ## Next steps
 

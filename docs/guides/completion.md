@@ -1,10 +1,14 @@
 # Shell completion
 
-`generate_completion` emits a context-aware completion script for the CLI described by your usage, for
-bash, zsh, fish, PowerShell, and nushell. The script carries no grammar of
-its own: it delegates every Tab back to your program, whose [`docopt`](../reference/docopt.md) call
-resolves the candidates from the usage. This guide covers generating and installing that script, and
-computing the candidates directly with `complete()`.
+Tab completion usually means a second description of your CLI, hand-written in shell, drifting from the real
+one the day you add a flag.
+
+docopt2 has no second description. `generate_completion` emits a script for bash, zsh, fish, PowerShell or
+nushell that carries **no grammar of its own**. Every Tab is handed back to your program, whose
+[`docopt`](../reference/docopt.md) call resolves the candidates from the usage you already wrote.
+
+Suggestions therefore narrow to the matched subcommand instead of offering a flat global list, and they
+cannot go stale.
 
 ## Generate a script
 
@@ -14,18 +18,18 @@ from docopt2 import generate_completion
 script = generate_completion(doc, prog="naval", shell="bash")
 ```
 
-The signature is `generate_completion(doc, prog, shell="bash") -> str`. `shell` is one of `"bash"`,
-`"zsh"`, `"fish"`, `"powershell"`, or `"nushell"`; any other value raises `ValueError`, as does a `prog` that is not a
-plain command name (letters, digits, `.`, `_`, `-`). A malformed `doc` fails here, loudly, rather than
-silently at Tab time.
+The signature is `generate_completion(doc, prog, shell="bash") -> str`:
 
-The script is a thin callback: at each Tab it re-invokes the program with a completion request in the
-environment, and the program's [`docopt`](../reference/docopt.md) call resolves the tokens legal at the
-cursor from the usage grammar. Suggestions therefore narrow to the matched subcommand's options and
-arguments, not a flat global list.
+- `shell` is one of `"bash"`, `"zsh"`, `"fish"`, `"powershell"` or `"nushell"`. Any other value raises
+  `ValueError`.
+- `prog` must be a plain command name: letters, digits, `.`, `_`, `-`. Anything else raises `ValueError`.
+- A malformed `doc` fails here, loudly, rather than silently at Tab time.
 
-Because the grammar lives in the program, the emitted script depends only on `prog` and `shell`, never on
-the usage text. For `prog="naval"`, the bash script is:
+The script itself is a thin callback. At each Tab it re-invokes your program with a completion request in the
+environment, and that program's `docopt` call resolves the tokens legal at the cursor.
+
+So the emitted script depends only on `prog` and `shell`, never on the usage text. For `prog="naval"`, the
+bash script is:
 
 ```bash
 _naval_completion() {
@@ -50,16 +54,25 @@ complete -F _naval_completion naval
 It invokes the command the user typed (`${COMP_WORDS[0]}`), so `naval` must be on `PATH` under the name
 you passed as `prog`.
 
-The loop is not decoration. `COMP_WORDBREAKS` contains `=` and `:`, so bash hands the completion function
-`--port=8080` as three separate words - `--port`, `=`, `8080` - and `host:port` as three more. Passing those
-shards to the program would destroy the parse context and silently return no candidates at all for the rest
-of the line, and `--opt=<value>` is exactly the form the usage DSL teaches. bash emits the separator as its
-own word, so the shards glue back together unambiguously.
+The loop is not decoration. `COMP_WORDBREAKS` contains `=` and `:`, so bash shatters a word at those
+characters before the completion function ever sees it:
+
+| the user typed | what bash hands the function |
+| --- | --- |
+| `--port=8080` | `--port`, `=`, `8080` |
+| `host:port` | `host`, `:`, `port` |
+
+Passing those shards to the program would destroy the parse context and silently return no candidates for the
+rest of the line. And `--opt=<value>` is exactly the form the usage DSL teaches, so this is the common case,
+not an edge one.
+
+bash emits the separator as its own word, so the loop can glue the shards back together unambiguously.
 
 ### Installing it
 
-`generate_completion` returns text; how it reaches the shell is up to you. Write it to a file you ship, or
-have the program print it, then load it with the shell's standard mechanism:
+`generate_completion` returns text, and how it reaches the shell is up to you.
+
+Write it to a file you ship, or have the program print it. Then load it with the shell's standard mechanism:
 
 | Shell | `shell=` | Install |
 | --- | --- | --- |
@@ -70,27 +83,35 @@ have the program print it, then load it with the shell's standard mechanism:
 | nushell | `"nushell"` | Save it under a name that is **not** `naval.nu` (a module cannot export a command of its own name), then `use naval-completions.nu *` from your config, or drop it in a `$nu.vendor-autoload-dirs` directory. Needs nushell 0.108+. |
 
 !!! note
-    Each Tab is a full launch of your program, so its startup cost (imports and so on) is the completion
-    latency. `docopt()` answers the request and exits before returning, so keep heavy work after the
-    `docopt()` call and it never runs during completion.
+    Each Tab is a full launch of your program, so its startup cost (imports and so on) *is* the completion
+    latency.
+
+    `docopt()` answers the request and exits before returning. Keep heavy work after the `docopt()` call and
+    it never runs during completion.
 
 ## Answering requests
 
-A docopt program answers the completion script's requests by default. When completion fires, the script
-sets a trigger variable and the newline-joined tokens before the cursor in the environment and re-invokes
-the program; your `docopt()` call detects the trigger, prints the candidates, and exits before returning
-to your code. A normal run costs a single environment lookup and is otherwise unaffected.
+A docopt program answers the completion script's requests by default. When completion fires:
 
-A program that does not want this opts out with `docopt(..., complete=False)`, which skips the check
-entirely and always parses `argv` normally.
+1. The script puts a trigger variable, and the newline-joined tokens before the cursor, in the environment.
+2. It re-invokes your program.
+3. Your `docopt()` call detects the trigger, prints the candidates, and exits before returning to your code.
+
+A normal run costs a single environment lookup and is otherwise unaffected.
+
+A program that does not want this opts out with `docopt(..., complete=False)`, which skips the check entirely
+and always parses `argv` normally.
 
 ## Computing candidates directly
 
-`complete(doc, words)` returns the completion candidates for the last (cursor) word - the primitive the
-generated scripts call. Earlier tokens are consumed against the usage pattern, then the command literals
-and option names that could legally come next are returned, filtered to the partial word. Positional
-values are never suggested. A malformed doc, or a prefix ending mid-option-argument, yields no candidates
-rather than raising into the shell.
+`complete(doc, words)` returns the completion candidates for the last (cursor) word. It is the primitive the
+generated scripts call.
+
+Earlier tokens are consumed against the usage pattern, then the command literals and option names that could
+legally come next are returned, filtered to the partial word. Positional values are never suggested.
+
+A malformed doc, or a prefix ending mid-option-argument, yields no candidates rather than raising into the
+shell.
 
 ```python
 from docopt2 import complete
@@ -121,10 +142,12 @@ complete(doc, ["mine", "set", "1", "2", ""])
 # ['--drifting', '--moored']
 ```
 
-After `ship`, only that branch's continuations are offered: the `new` and `shoot` commands, plus the
-floating `--speed`. The `move` command is not, because it sits behind the `<name>` positional, and
-`<name>` itself is never suggested. After the two coordinates of `mine set`, only its remaining flags are
-left.
+Each call narrows to what the usage actually allows at that point:
+
+- **After `ship`**, only that branch's continuations are offered: the `new` and `shoot` commands, plus the
+  floating `--speed`. `move` is absent, because it sits behind the `<name>` positional, and `<name>` itself is
+  never suggested.
+- **After the two coordinates of `mine set`**, only its remaining flags are left.
 
 The last word filters the candidates by prefix, exactly as the shell would:
 

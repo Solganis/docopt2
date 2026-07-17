@@ -1,6 +1,7 @@
 # Subcommand dispatch
 
-Route a parsed command to a handler, optionally typed per command path.
+Route a parsed command to a handler, optionally typed per command path. See the
+[Subcommand dispatch](../guides/dispatch.md) guide.
 
 ::: docopt2.Dispatch
     options:

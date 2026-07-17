@@ -1,6 +1,7 @@
 # docopt & results
 
 The primary entry point, the mapping it returns, the inverse `format_argv`, and the tree-inspection helper.
+See the [Typed results](../guides/typed-results.md) and [Round-trip](../guides/round-trip.md) guides.
 
 ::: docopt2.docopt
     options:

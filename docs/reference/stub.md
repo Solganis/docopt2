@@ -1,6 +1,6 @@
 # Schema stubs
 
-Generate a typed schema class from a usage message.
+Generate a typed schema class from a usage message. See the [Schema stubs](../guides/stub.md) guide.
 
 ::: docopt2.generate_stub
     options:

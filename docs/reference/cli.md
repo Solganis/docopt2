@@ -1,7 +1,7 @@
 # Cli base class
 
-The optional typed base class for the class-first API: subclass it, set `__cli_doc__`, and call
-`YourClass.parse(argv)`.
+The class-first alternative to passing `schema=` on every call, keeping the usage and the fields together on
+one class. See the [`Cli` base class](../guides/typed-results.md#cli-base-class) guide.
 
 ::: docopt2.Cli
     options:

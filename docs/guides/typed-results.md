@@ -1,9 +1,27 @@
 # Typed results
 
-Pass a schema to `docopt` and the parsed result comes back as a typed object with values coerced to
-the field types, instead of an `Arguments` mapping of strings. The schema is the single source of truth
-for both the runtime values and the static type: type checkers see the concrete schema type, not
-`dict[str, Any]`, so `result.port` is a known `int` and a typo in a field name is caught before you run.
+Pass a schema to `docopt` and the parsed result comes back as a typed object, with values coerced to the
+field types, instead of an `Arguments` mapping of strings:
+
+```python
+import dataclasses
+from docopt2 import docopt
+
+@dataclasses.dataclass
+class Args:
+    host: str
+    port: int
+
+doc = "Usage: prog <host> <port>"
+docopt(doc, "127.0.0.1 8080", schema=Args, complete=False)
+# Args(host='127.0.0.1', port=8080)
+```
+
+That `port` is an `int`, not the string the command line carried.
+
+The schema is the single source of truth for both the runtime values and the static type. A type checker
+sees `Args`, not `dict[str, Any]`, so `result.port` is a known `int` and a typo in a field name is caught
+before you run.
 
 !!! note "How keys become field names"
     A docopt key is normalized to a Python identifier: the leading `-`/`--` is dropped, the surrounding
@@ -42,9 +60,10 @@ docopt(doc, "--verbose 127.0.0.1 8080", schema=Args, complete=False)
 
 ### TypedDict
 
-Same field declarations, but the result is a plain `dict` whose values are typed by the `TypedDict`. A
-`total=False` class, or per-field `NotRequired[...]`, marks a key that may be left out when its element
-is absent.
+Same field declarations, but the result is a plain `dict` whose values are typed by the `TypedDict`.
+
+A `total=False` class, or per-field `NotRequired[...]`, marks a key that may be left out when its element is
+absent.
 
 ```python
 from typing import TypedDict
@@ -63,8 +82,9 @@ docopt(doc, "127.0.0.1 8080", schema=Args, complete=False)
 ### `Cli` base class
 
 The class-first form: subclass [`Cli`](../reference/cli.md), put the usage in `__cli_doc__`, and call
-`.parse(argv)`. It returns an instance typed as the subclass, so the doc and the schema live together in
-one class.
+`.parse(argv)`.
+
+It returns an instance typed as the subclass, so the doc and the schema live together in one class.
 
 ```python
 from docopt2 import Cli
@@ -100,15 +120,17 @@ docopt(doc, "127.0.0.1 8080", schema=Settings, complete=False)
 ```
 
 !!! note "Pydantic coerces itself"
-    With a pydantic model, docopt does not run the coercion below; pydantic validates every field. Keys
-    are matched to the model's field names and aliases (pydantic validates by alias), and any parsed
-    element the model does not declare is dropped rather than rejected.
+    With a pydantic model, docopt does not run the coercion below. pydantic validates every field.
+
+    - Keys are matched to the model's field names and aliases, since pydantic validates by alias.
+    - A parsed element the model does not declare is dropped rather than rejected.
 
 ## Coercion
 
-For a dataclass, `TypedDict`, or `Cli` subclass, each parsed value is coerced from its docopt-native
-form (a `str`, a container of `str`, a `bool`, or an `int` flag count) to the declared field type. The
-supported set is closed:
+For a dataclass, `TypedDict`, or `Cli` subclass, each parsed value is coerced from its docopt-native form to
+the declared field type. The native form is a `str`, a container of `str`, a `bool`, or an `int` flag count.
+
+The supported set is closed:
 
 | Annotation | Coerced with | Note |
 | --- | --- | --- |
@@ -120,7 +142,7 @@ supported set is closed:
 | `T \| None` | `None` stays `None`, else coerce to `T` | for an optional element |
 | `T \| U` | coerced to the first member that is not `None` | so `int \| str` yields an `int` |
 | `Annotated[T, ...]` | the metadata is dropped, `T` is coerced | as a validation library would attach it |
-| `Literal["a", "b"]` | the value, if it is one of the literals | a closed set of choices; validated |
+| `Literal["a", "b"]` | the value, if it is one of the literals | a closed set of choices, validated |
 | `enum.Enum` subclass | `EnumType(value)` | matched by member value |
 | `pathlib.Path` | `Path(value)` | |
 | `decimal.Decimal` | `Decimal(value)` | |
@@ -151,12 +173,15 @@ class Job:
     tags: list[str]
 
 doc = "Usage: run <when> <level> <retries> <ratio> <price> <tags>..."
-docopt(doc, "2026-07-11T09:00 high 3 0.75 9.99 web api", schema=Job, complete=False)
-# Job(when=datetime.datetime(2026, 7, 11, 9, 0), level=<Level.HIGH: 'high'>,
-#     retries=3, ratio=0.75, price=Decimal('9.99'), tags=['web', 'api'])
+argv = "2026-07-11T09:00 high 3 0.75 9.99 web api"
+
+docopt(doc, argv, schema=Job, complete=False)
+# Job(when=datetime.datetime(2026, 7, 11, 9, 0),
+#     level=<Level.HIGH: 'high'>, retries=3, ratio=0.75,
+#     price=Decimal('9.99'), tags=['web', 'api'])
 ```
 
-An absent optional element yields `None`, so its field must be optional (`T | None`) or carry a default:
+An absent element yields `None`, so its field must be optional (`T | None`) or have a default:
 
 ```python
 @dataclasses.dataclass
@@ -173,13 +198,17 @@ docopt("Usage: prog <host> [<label>]", "127.0.0.1", schema=Args, complete=False)
 The two failure modes are distinct.
 
 A **user** value that cannot be coerced (say `int("eighty")`) raises `DocoptExit`, the same exception a
-non-matching argv raises, rendered as the same
-[two-span diagnostic](diagnostics.md#a-value-that-does-not-fit-its-type): a caret under the value in the
-argv, cross-referenced to the usage element that typed it. It exits with the `exit_code` (`1` by default),
-so bad input is reported like any other command-line error. For a closed set of choices - a `Literal[...]`
-or an `Enum` - the diagnostic lists the valid values (`expected one of debug, info, warn`), and a mistyped
-value gets a spell-checked `did you mean` suggestion (`inof` -> `did you mean info?`, transpositions
-included), so the user sees exactly what is allowed rather than a bare type name.
+non-matching argv raises. It exits with the `exit_code` (`1` by default), so bad input is reported like any
+other command-line error.
+
+It renders as the same [two-span diagnostic](diagnostics.md#a-value-that-does-not-fit-its-type): a caret
+under the value in the argv, cross-referenced to the usage element that typed it.
+
+For a closed set of choices, a `Literal[...]` or an `Enum`, the diagnostic also lists the valid values
+(`expected one of debug, info, warn`).
+
+A mistyped value gets a spell-checked `did you mean` suggestion (`inof` -> `did you mean info?`,
+transpositions included), so the user sees exactly what is allowed rather than a bare type name.
 
 ```python
 @dataclasses.dataclass
@@ -201,10 +230,14 @@ docopt("Usage: prog <port>", "eighty", schema=P)   # raises the diagnostic below
 <span class="dt-fg">   |</span>
 <span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `eighty` is not a valid int</span></div>
 
-A **schema** that disagrees with the usage raises `DocoptLanguageError` (a programmer error, not a user
-one): a field with no matching element, two elements colliding on one field, a non-optional field bound to
-an element that may be absent, an unsupported annotation, or a `bool` field mapped to a value-bearing
-element rather than a flag.
+A **schema** that disagrees with the usage raises `DocoptLanguageError`. That is a programmer error, not a
+user one:
+
+- a field with no matching element
+- two elements colliding on one field
+- a non-optional field bound to an element that may be absent
+- an unsupported annotation
+- a `bool` field mapped to a value-bearing element rather than a flag
 
 ## The Arguments mapping
 
@@ -227,10 +260,11 @@ args["--port"], args.was_given("--port")        # ('9000', True) -> explicit
 
 ### Where a value came from
 
-`was_given` answers *did the user type this?*; `source(name)` answers the sharper *which layer supplied
-it?* when an option has [`[env:]`/`[config:]` fallbacks](usage-dsl.md#environment-and-config-fallback). It
-returns a [`Source`](../reference/docopt.md) enum member - `CLI`, `ENV`, `CONFIG`, or `DEFAULT` - in the
-same precedence order docopt2 resolves them, so you can log or branch on provenance instead of guessing.
+`was_given` answers *did the user type this?* `source(name)` answers the sharper *which layer supplied it?*,
+when an option has [`[env:]`/`[config:]` fallbacks](usage-dsl.md#environment-and-config-fallback).
+
+It returns a [`Source`](../reference/docopt.md) enum member: `CLI`, `ENV`, `CONFIG`, or `DEFAULT`. So you can
+log or branch on provenance instead of guessing.
 
 ```python
 import os

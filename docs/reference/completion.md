@@ -1,6 +1,7 @@
 # Shell completion
 
-Generate a completion script, or compute the candidates directly.
+Generate a completion script, or compute the candidates directly. See the
+[Shell completion](../guides/completion.md) guide.
 
 ::: docopt2.generate_completion
     options:

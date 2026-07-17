@@ -1,9 +1,13 @@
 # Schema stubs
 
-Don't hand-write the schema - `generate_stub` (and the `docopt2 stub` CLI) writes a typed schema class
-straight from your usage message, ready to pass back as `docopt(doc, schema=...)`. The grammar already
-fixes every value's type, so the class is derived, not guessed: pass it to a
-[typed result](typed-results.md) and each key comes back coerced and completed in your editor.
+A schema written by hand states a second time what the usage already states. Two declarations of one
+interface, and the copy drifts the first time someone edits only one of them.
+
+So don't write it. `generate_stub` (and the `docopt2 stub` CLI) derives the class from the usage message
+itself, ready to pass back as `docopt(doc, schema=...)`. The grammar already fixes every value's type, so
+the class is derived, not guessed, and the usage stays the only source of truth.
+
+Pass it to a [typed result](typed-results.md) and each key comes back coerced, and completed in your editor.
 
 ## From code
 
@@ -29,8 +33,9 @@ class Args:
     port: str
 ```
 
-Every field is typed from the grammar (`str`, `str | None`, `int`, `bool`, `list[str]`). Widen a field
-by hand (`port: int`) to get coercion for free.
+Every field is typed from the grammar: `str`, `str | None`, `int`, `bool`, or `list[str]`.
+
+Widen a field by hand (`port: int`) to get coercion for free.
 
 A larger usage exercises every shape at once:
 
@@ -72,14 +77,17 @@ a positional is `str` only when *every* usage line requires it, since a line tha
 | valued option with `[default: ...]` | `str` |
 | valued option, no default | `str \| None` |
 
-A `[default: ...]` fixes the value to a string, so `--replicas` lands as `str`; widen it to `int` by
+A `[default: ...]` fixes the value to a string, so `--replicas` lands as `str`. Widen it to `int` by
 hand when you want the number coerced.
 
 !!! note
-    A usage key the typed API cannot represent does not silently vanish: it becomes a leading `# note`
-    comment instead of a field, so the output is always valid Python. Two names that collapse to one
-    field (`--file` and `<file>` both map to `file`), or a key that is not a valid identifier
-    (`<class>`), trigger it:
+    A usage key the typed API cannot represent does not silently vanish. It becomes a leading `# note`
+    comment instead of a field, so the output is always valid Python.
+
+    Two things trigger it:
+
+    - two names collapsing to one field (`--file` and `<file>` both map to `file`)
+    - a key that is not a valid identifier (`<class>`)
 
     ```python
     # note: usage keys `--file`, `<file>` all map to `file`; give them distinct names to type them
@@ -147,9 +155,10 @@ Options:
     targets: list[str]
 ```
 
-The field types are identical across styles; only the container changes. Pick `dataclass` or `typeddict`
-to feed [`docopt(doc, schema=...)`](typed-results.md), and `cli` when you want the usage and the schema
-to live in one self-contained class.
+The field types are identical across styles. Only the container changes.
+
+Pick `dataclass` or `typeddict` to feed [`docopt(doc, schema=...)`](typed-results.md), and `cli` when you want
+the usage and the schema to live in one self-contained class.
 
 ## From the command line
 
@@ -159,9 +168,9 @@ $ docopt2 stub naval.py
 
 `docopt2 stub <source>` reads the usage from one of three input sources:
 
-- a **Python file** (`.py`) - its module docstring is read, without importing the module;
-- any other **text file** - the raw file content is the usage;
-- **`-`** - standard input.
+- a **Python file** (`.py`), whose module docstring is read without importing the module
+- any other **text file**, whose raw content is the usage
+- **`-`**, for standard input
 
 Given a `naval.py` whose module docstring is the Naval Fate usage, the default `dataclass` style prints:
 
