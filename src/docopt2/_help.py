@@ -91,7 +91,7 @@ def _scope(usage_lines: list[str], argv_tokens: tuple[str, ...]) -> list[str]:
 def render_help(doc: str, argv_tokens: tuple[str, ...] = (), *, color: bool = False) -> str:
     """Render ``doc`` as an aligned, optionally colored help screen scoped to the typed command path.
 
-    ``argv_tokens`` are the positional tokens before ``--help``; the usage is narrowed to the lines that
+    ``argv_tokens`` are the positional tokens before ``--help``. The usage is narrowed to the lines that
     match them (e.g. ``git commit --help`` shows only the ``commit`` line), and the options list to those
     the shown lines use. An empty path, or one that matches nothing, shows the whole usage.
     """

@@ -96,11 +96,12 @@ def _warn(summary: str, doc: str, span: Span, intro: str, label: str, hint: str)
 def check(doc: str) -> list[Diagnostic]:
     """Statically lint the usage grammar itself, before any argv is parsed.
 
-    Returns a list of ``"warning"``-level :class:`~docopt2._diagnostics.Diagnostic` for defects the
-    usage message contains that :func:`~docopt2.docopt` would otherwise accept silently - an option
-    declared but never usable, a ``[default: ...]`` on an always-required element, an empty
-    ``[options]`` shortcut. The check is read-only: it does not affect parsing or matching. A usage
-    message too malformed to parse returns no warnings (that error surfaces at parse time instead).
+    Returns a list of ``"warning"``-level diagnostics for defects the usage message contains that
+    [`docopt`][docopt2.docopt] would otherwise accept silently: an option declared but never usable, a
+    ``[default: ...]`` on an always-required element, an empty ``[options]`` shortcut.
+
+    The check is read-only and does not affect parsing or matching. A usage message too malformed to parse
+    returns no warnings, since that error surfaces at parse time instead.
     """
     warnings: list[Diagnostic] = []
     declared: list[tuple[Option, Span, Span]] = []

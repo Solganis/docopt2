@@ -50,7 +50,7 @@ def suggest_option(tokens: Sequence[str], options: list[Option], allow_abbrev: b
     """Find the first unrecognized long option in ``tokens`` and its closest known match, or None.
 
     A token is recognized if it is an exact known long option or, with ``allow_abbrev``, a prefix of
-    one; this fires only on genuine typos.
+    one, so this fires only on genuine typos.
     """
     known = [long for option in options if (long := option.long) is not None]
     for token in tokens:

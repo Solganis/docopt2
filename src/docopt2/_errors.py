@@ -31,9 +31,19 @@ class DocoptExit(SystemExit):
         usage: str | None = None,
         exit_code: int | None = None,
     ) -> None:
-        """Build the exit; ``collected``/``left`` expose the partial parse (a ported improvement; see NOTICE),
-        ``usage``/``exit_code`` default to the class attributes when omitted. When ``diagnostic`` is given it
-        supplies the message; ``str(exc)`` stays plain while the copy the interpreter auto-prints carries color."""
+        """Build the exit.
+
+        ``str(exc)`` stays plain, while the copy the interpreter auto-prints carries color.
+
+        Args:
+            message: The plain-text message, used when no ``diagnostic`` is given.
+            diagnostic: A rendered ``Diagnostic``. When given, it supplies the message.
+            collected: The elements matched before the parse failed, exposing the partial parse.
+            left: The argv elements still unconsumed when the parse failed.
+            usage: The usage message appended beneath the error. Defaults to the class attribute.
+            exit_code: The process status to exit with. Defaults to the class attribute.
+        """
+        # collected/left are a ported improvement, see NOTICE.
         self.collected: list[Pattern] = collected if collected is not None else []
         self.left: list[Pattern] = left if left is not None else []
         if usage is not None:

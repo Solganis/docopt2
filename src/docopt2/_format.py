@@ -156,24 +156,36 @@ def _round_trips(doc: str, tokens: list[str], result: Arguments) -> bool:
 
 
 def format_argv(result: Arguments, doc: str) -> list[str]:
-    """Synthesize a canonical argument vector that :func:`docopt` parses back to ``result`` - the inverse of parsing.
+    """Synthesize a canonical argv that [`docopt`][docopt2.docopt] parses back to ``result``.
 
-    Given an :class:`Arguments` mapping returned by ``docopt(doc, ...)``, return an argv token list (no program
-    name) that round-trips: ``docopt(doc, format_argv(result, doc)) == result``. The canonical form emits every
-    element that *carries* a value - what the user supplied, plus whatever ``[env:]`` or ``[config:]`` resolved -
-    in usage order, options in long ``--name=value`` form. An element left at its ``[default: ...]`` is omitted,
-    and so is one whose value is absent (an off flag, a zero count): a source other than ``DEFAULT`` is not
-    enough, since an ``[env: V]`` flag read as off has source ``ENV`` and value ``False``, and emitting its name
-    would parse back to ``True``. It is *a* valid argv, not necessarily the shortest or the one originally typed.
+    This is the inverse of parsing. Given an [`Arguments`][docopt2.Arguments] mapping returned by
+    ``docopt(doc, ...)``, return an argv token list (no program name) that round-trips:
+    ``docopt(doc, format_argv(result, doc)) == result``.
 
-    An env- or config-sourced value is emitted rather than skipped so the argv reproduces the result on its own,
-    without that environment: the round trip is the point, and a persisted command that silently depends on an
-    unrecorded variable does not reproduce the run.
+    The canonical form emits every element that *carries* a value, in usage order, with options in long
+    ``--name=value`` form. That is what the user supplied, plus whatever ``[env:]`` or ``[config:]`` resolved.
+    It is *a* valid argv, not necessarily the shortest or the one originally typed.
 
-    Each candidate usage line is generated and then re-parsed to verify it round-trips, so the output is never
-    a *wrong* argv - only ever a valid one or none. Raises :class:`ValueError` when no usage pattern reproduces
-    ``result``: a hand-built or inconsistent mapping, or a degenerate grammar where one value is reachable
-    through differently-shaped positions (``(<name> | <name> ...)``, ``(-a | -b)...``, ``[<name>] <path> <name>``).
+    An env- or config-sourced value is emitted rather than skipped, so the argv reproduces the result on its
+    own, without that environment. A persisted command that silently depended on an unrecorded variable would
+    not reproduce the run.
+
+    Two things are omitted: an element left at its ``[default: ...]``, and one whose value is absent (an off
+    flag, a zero count). A source other than ``DEFAULT`` is not enough on its own, since an ``[env: V]`` flag
+    read as off has source ``ENV`` and value ``False``, and emitting its name would parse back to ``True``.
+
+    Args:
+        result: An [`Arguments`][docopt2.Arguments] mapping returned by ``docopt(doc, ...)``.
+        doc: The same usage message that produced ``result``.
+
+    Returns:
+        An argv token list, without the program name. Each candidate usage line is generated and then
+        re-parsed to verify it round-trips, so the output is never a *wrong* argv, only a valid one.
+
+    Raises:
+        ValueError: No usage pattern reproduces ``result``. That means a hand-built or inconsistent mapping,
+            or a degenerate grammar where one value is reachable through differently-shaped positions
+            (``(<name> | <name> ...)``, ``(-a | -b)...``, ``[<name>] <path> <name>``).
     """
     provided = {name for name in result if result.source(name) is not Source.DEFAULT and _is_present(result[name])}
     candidates: list[list[str]] = []

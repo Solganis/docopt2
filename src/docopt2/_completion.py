@@ -52,7 +52,7 @@ def _frontier(
     (``block=False``) floats past it to reach later options. A present positional that fails is dead.
 
     ``in_repetition`` marks that this node is being expanded as a ``OneOrMore`` child, which gates the
-    skip-branch prune in :func:`_frontier_seq` - see there.
+    skip-branch prune in ``_frontier_seq`` - see there.
     """
     if isinstance(node, LeafPattern):
         position, matched = node.single_match(left)
@@ -148,7 +148,7 @@ def _resolve(doc: str, typed: list[str]) -> list[str]:
 def complete(doc: str, words: Sequence[str]) -> list[str]:
     """Return the completion candidates for the last (cursor) word of ``words``.
 
-    Earlier tokens are consumed against the usage pattern; the command literals and option names
+    Earlier tokens are consumed against the usage pattern. The command literals and option names
     (never positional values) that could legally come next are returned, filtered to the partial
     word. A malformed doc or a prefix ending mid-option-argument yields no candidates, never raises.
     """
@@ -189,9 +189,11 @@ def reply_to_completion_request(doc: str) -> str | None:
     """If a completion request is in the environment, return its reply, else None.
 
     Each reply line is ``name\\tdescription`` (the description may be empty). The request var holds the
-    completed tokens before the cursor; only a :func:`generate_completion` script sets it, so a normal
-    run returns None. Shells that show descriptions (zsh, fish, PowerShell, nushell) render the second
-    column; bash keeps the name only.
+    completed tokens before the cursor. Only a [`generate_completion`][docopt2.generate_completion] script
+    sets it, so a normal run returns None.
+
+    Shells that show descriptions (zsh, fish, PowerShell, nushell) render the second
+    column, while bash keeps the name only.
     """
     if os.environ.get(_TRIGGER_ENV) is None:
         return None
@@ -378,15 +380,27 @@ _RENDERERS: dict[str, Callable[[str, str], str]] = {
 def generate_completion(doc: str, prog: str, shell: str = "bash") -> str:
     """Return a context-aware shell completion script for the CLI described by ``doc``.
 
-    ``shell`` is one of ``"bash"``, ``"zsh"``, ``"fish"``, ``"powershell"`` or ``"nushell"`` - the four
-    Click and Typer emit, plus nushell. The script is a thin callback: at each Tab it re-invokes the
-    program with a
-    completion request in the environment, and the program's :func:`docopt` call resolves the
-    tokens legal at the cursor from the usage grammar (so suggestions narrow to the matched
-    subcommand's options and arguments, not a flat global list).
+    The script is a thin callback carrying no grammar of its own. At each Tab it re-invokes the program with
+    a completion request in the environment, and that program's [`docopt`][docopt2.docopt] call resolves the
+    tokens legal at the cursor from the usage grammar. Suggestions therefore narrow to the matched subcommand's options
+    and arguments, rather than a flat global list.
 
-    A docopt program answers the script's requests by default; a program that does not want this
-    passes ``docopt(..., complete=False)`` to opt out.
+    A docopt program answers those requests by default. A program that does not want this passes
+    ``docopt(..., complete=False)`` to opt out.
+
+    Args:
+        doc: The usage message (the same string given to [`docopt`][docopt2.docopt]).
+        prog: The command name the script completes for. Must be a plain command name
+            (letters, digits, ``.``, ``_``, ``-``), and must be on ``PATH`` under that name.
+        shell: One of ``"bash"``, ``"zsh"``, ``"fish"``, ``"powershell"`` or ``"nushell"``.
+
+    Returns:
+        The completion script as text. It depends only on ``prog`` and ``shell``, never on the usage,
+        since the grammar stays in the program.
+
+    Raises:
+        ValueError: ``shell`` is not supported, or ``prog`` is not a plain command name.
+        DocoptLanguageError: The usage message is malformed. It fails here rather than at Tab time.
     """
     if shell not in _RENDERERS:
         supported = ", ".join(sorted(_RENDERERS))

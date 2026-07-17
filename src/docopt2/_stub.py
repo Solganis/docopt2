@@ -83,14 +83,14 @@ def generate_stub(doc: str, *, name: str = "Args", style: StubStyle = "dataclass
     """Generate a typed schema class from a usage message, to pass as ``docopt(doc, schema=...)``.
 
     Args:
-        doc: The usage message (the same string given to :func:`~docopt2.docopt`).
+        doc: The usage message (the same string given to [`docopt`][docopt2.docopt]).
         name: Class name for the generated schema.
-        style: ``"dataclass"`` (default), ``"typeddict"``, or ``"cli"`` (a :class:`~docopt2.Cli`
+        style: ``"dataclass"`` (default), ``"typeddict"``, or ``"cli"`` (a [`Cli`][docopt2.Cli]
             subclass with the usage embedded, so ``Name.parse()`` works standalone).
 
     Returns:
         Python source for the schema class. Every field is typed from the grammar (``str``,
-        ``str | None``, ``int``, ``bool``, ``list[str]``); narrow a field by hand (``port: int``) and
+        ``str | None``, ``int``, ``bool``, ``list[str]``). Narrow a field by hand (``port: int``) and
         the value is coerced for free.
 
         A key the typed API cannot represent - two usage names collapsing to one field
@@ -100,7 +100,7 @@ def generate_stub(doc: str, *, name: str = "Args", style: StubStyle = "dataclass
         outright. Fix the usage, as the note says, and regenerate.
 
     Raises:
-        DocoptLanguageError: The usage message is malformed (the same error :func:`docopt` raises).
+        DocoptLanguageError: The usage message is malformed (the same error [`docopt`][docopt2.docopt] raises).
         ValueError: ``name`` is not a valid Python identifier.
     """
     if not name.isidentifier() or keyword.iskeyword(name):

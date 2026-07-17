@@ -13,11 +13,14 @@ def format_usage(doc: str) -> str:
     """Reformat the ``Options:`` lines of a usage message: align every description into one column, tidy each
     option spec (comma separators to spaces, runs of whitespace collapsed), and strip trailing whitespace.
 
-    Only the lines the parser reads options from are re-aligned: inside an ``options:`` section, and led by a
-    dash and a non-space. Anything else - a ``Usage:`` pattern, a prose bullet, a wrapped description - keeps
-    every character (trailing whitespace aside). Idempotent and semantics-preserving: the parsed options are
-    identical, only the layout changes. It is to `check` what a formatter is to a linter: `check` finds
-    defects, ``format_usage`` (and ``docopt2 fmt``) tidies the layout of an otherwise valid usage.
+    Only the lines the parser reads options from are re-aligned: those inside an ``options:`` section, led by
+    a dash and a non-space. Anything else keeps every character, trailing whitespace aside, whether it is a
+    ``Usage:`` pattern, a prose bullet or a wrapped description.
+
+    It is idempotent and semantics-preserving. The parsed options are identical and only the layout changes.
+
+    It is to [`check`][docopt2.check] what a formatter is to a linter: ``check`` finds defects, ``format_usage`` (and
+    ``docopt2 fmt``) tidies the layout of an otherwise valid usage.
     """
     lines = doc.splitlines()
     in_options = section_line_numbers("options:", doc)

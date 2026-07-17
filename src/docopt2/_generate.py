@@ -35,7 +35,7 @@ if TYPE_CHECKING:
         """The random decisions the pattern walk makes: pick a branch, a repeat count, a coin flip.
 
         Typing-only. Abstracting the choices lets the same walk run off a seeded ``random.Random``
-        (:class:`_RandomChooser`) or off a Hypothesis draw (in :mod:`docopt2.hypothesis`), with no
+        (``_RandomChooser``) or off a Hypothesis draw (in ``docopt2.hypothesis``), with no
         second copy of the tree walk.
         """
 
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 
 
 class _RandomChooser:
-    """Drives the walk from a seeded ``random.Random``; used by :func:`generate_examples`."""
+    """Drives the walk from a seeded ``random.Random``; used by [`generate_examples`][docopt2.generate_examples]."""
 
     def __init__(self, rng: random.Random) -> None:
         self._rng = rng
@@ -61,7 +61,7 @@ class _RandomChooser:
 
 
 def _usage_pattern(doc: str) -> Pattern:
-    """Build the usage-pattern tree, the same one :func:`docopt` matches against."""
+    """Build the usage-pattern tree, the same one [`docopt`][docopt2.docopt] matches against."""
     options = parse_defaults(doc)
     pattern = parse_pattern(formal_usage(single_usage_section(doc)), options)
     expand_options_shortcut(pattern, options)
@@ -124,12 +124,16 @@ def _is_rejected(doc: str, argv: list[str]) -> bool:
 def generate_examples(doc: str, *, count: int = 10, valid: bool = True, seed: int | None = None) -> list[list[str]]:
     """Generate example argument vectors derived from the usage message.
 
-    Each returned item is an argv token list (no program name). A ``valid`` example is one ``docopt``
-    accepts; an invalid one (``valid=False``) is one ``docopt`` rejects, and every invalid example is
-    verified against the parser before it is returned - never merely assumed to be rejected. Duplicates are
-    dropped, so a small grammar (or one where few argvs can be made invalid) may yield fewer than ``count``.
-    ``seed`` makes the output reproducible. Everything is derived from the ``Usage:`` and ``Options:``
-    blocks, so the examples cannot drift from what :func:`docopt` parses.
+    Each returned item is an argv token list (no program name). Everything is derived from the ``Usage:`` and
+    ``Options:`` blocks, so the examples cannot drift from what [`docopt`][docopt2.docopt] parses.
+
+    Args:
+        doc: The usage message (the same string given to [`docopt`][docopt2.docopt]).
+        count: How many examples to return. Duplicates are dropped, so a small grammar (or one where
+            few argvs can be made invalid) may yield fewer.
+        valid: When True, each example is one ``docopt`` accepts. When False, each is one ``docopt``
+            rejects, verified against the parser before it is returned rather than assumed.
+        seed: Fixes the sampler, making the output reproducible.
     """
     single_usage_section(doc)  # fail loudly here on a malformed usage, not mid-walk
     pattern = _usage_pattern(doc)
@@ -236,7 +240,8 @@ def generate_config_template(doc: str) -> str:
     option's ``[default: ...]`` (or an empty placeholder), and commented with the CLI flag and any
     ``[env: VAR]`` it also reads. Options without a ``[config:]`` key are not part of the file. Returns
     an empty string when the usage declares no config keys. Config keys that cannot coexist in one TOML
-    document (a duplicate, or a path that is a prefix of another) raise :class:`DocoptLanguageError`.
+    document (a duplicate, or a path that is a prefix of another) raise
+    [`DocoptLanguageError`][docopt2.DocoptLanguageError].
     """
     single_usage_section(doc)  # fail loudly on a malformed usage, like the other generators
     config_options = [option for option in parse_defaults(doc) if option.config_key is not None]

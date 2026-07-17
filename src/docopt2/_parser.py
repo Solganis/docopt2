@@ -44,7 +44,7 @@ class _MatchBudgetExceededError(Exception):
 
 @contextlib.contextmanager
 def match_budget(limit: int = MATCH_LIMIT) -> Iterator[None]:
-    """Bound the total outcomes the enclosed match may materialize; past ``limit``, _MatchBudgetExceeded."""
+    """Bound the total outcomes the enclosed match may materialize. Past ``limit``, _MatchBudgetExceeded."""
     token = _match_budget.set([limit])
     try:
         yield
@@ -70,7 +70,7 @@ def _spend_budget() -> None:
     Charged per ``_combine`` descent - the exponential engine - so a DFS that dead-ends WITHOUT yielding
     (many optionals before an unmatchable required tail explores 2**n branches, none of them an outcome) is
     bounded too. A genuine match is cheap because ``Either`` yields greedy-first without materializing its
-    fan (see :meth:`Either.matches`), so an honest match threads one greedy path - a few hundred descents even
+    fan (see ``Either.matches``), so an honest match threads one greedy path - a few hundred descents even
     over a long ``<files>...`` glob - while an adversarial pattern's 2**n fan-out reaches the cap. A no-op when
     no budget is set.
     """
@@ -126,7 +126,7 @@ class Pattern:
         return hash(repr(self))
 
     def match(self, left: list[Pattern], collected: list[Pattern] | None = None) -> MatchResult:
-        """Greedy single-result match: the first (greedy) outcome of :meth:`matches`."""
+        """Greedy single-result match: the first (greedy) outcome of ``matches``."""
         collected = [] if collected is None else collected
         first = next(self.matches(left, collected), None)
         if first is None:
@@ -187,7 +187,7 @@ def transform(pattern: Pattern) -> Either:
     """Expand a pattern into an (almost) equivalent one with a single top-level Either.
 
     Example: ``((-a | -b) (-c | -d))`` becomes ``(-a -c | -a -d | -b -c | -b -d)``.
-    Quirks: ``[-a]`` becomes ``(-a)``; ``(-a...)`` becomes ``(-a -a)``.
+    Quirks: ``[-a]`` becomes ``(-a)``, and ``(-a...)`` becomes ``(-a -a)``.
     """
     result: list[list[Pattern]] = []
     groups: list[list[Pattern]] = [[pattern]]
@@ -344,7 +344,7 @@ class Option(LeafPattern):
     def parse(cls, option_description: str, source: str = "") -> Option:
         """Build an Option from a single option-description line.
 
-        ``source`` is the full docstring; when given, a malformed line's error carries a caret
+        ``source`` is the full docstring. When given, a malformed line's error carries a caret
         pointing at the offending word within its reproduced source line.
         """
         short: str | None = None
@@ -445,7 +445,7 @@ class Required(BranchPattern):
 
 
 class Optional(BranchPattern):
-    """Children may match; a non-match is not a failure."""
+    """Children may match. A non-match is not a failure."""
 
     def matches(self, left: list[Pattern], collected: list[Pattern]) -> Iterator[MatchOutcome]:
         yield from _sequence_matches(self.children, left, collected, optional=True)
@@ -459,14 +459,12 @@ class OneOrMore(BranchPattern):
     """The single child must match one or more times."""
 
     def matches(self, left: list[Pattern], collected: list[Pattern]) -> Iterator[MatchOutcome]:
-        """Greedy-first: the longest run of the child comes out first, then progressively shorter ones.
-
-        Iterative, on an explicit stack. A repetition consumes one token per round, so a recursive walk
-        would nest once per argv token - and `prog <files>...` over a shell glob of a few thousand files
-        is ordinary use, which the original parses (its ``OneOrMore`` is a ``while`` loop) and a recursive
-        one cannot. Each frame holds the outcome that opened it and yields it once its own run is spent,
-        which is what puts the deepest (greediest) run first.
-        """
+        """Greedy-first: the longest run of the child comes out first, then progressively shorter ones."""
+        # Iterative on an explicit stack, not recursive: a repetition consumes one token per round, so a
+        # recursive walk would nest once per argv token, and `prog <files>...` over a shell glob of a few
+        # thousand files is ordinary use the original parses (its OneOrMore is a `while` loop).
+        # Each frame holds the outcome that opened it and yields it once its own run is spent, which is what
+        # puts the deepest (greediest) run first.
         child = self.children[0]
         stack: list[tuple[Iterator[MatchOutcome], int, MatchOutcome | None]] = [
             (child.matches(left, collected), len(left), None)
@@ -485,7 +483,7 @@ class OneOrMore(BranchPattern):
 
 
 class Either(BranchPattern):
-    """Exactly one branch must match; the one leaving the fewest leaves wins."""
+    """Exactly one branch must match. The one leaving the fewest leaves wins."""
 
     def matches(self, left: list[Pattern], collected: list[Pattern]) -> Iterator[MatchOutcome]:
         # Greedy-first, lazily - the shape of vanilla docopt's own Either.match: ask each branch for one
@@ -780,7 +778,7 @@ def _usage_lines(pattern: Pattern) -> list[Pattern]:
 def always_required_names(pattern: Pattern) -> list[str]:
     """Names EVERY usage line requires: the required leaves intersected over the alternatives.
 
-    :func:`required_leaf_names` stops at an ``Either``, and a multi-line usage *is* one, so it answers
+    ``required_leaf_names`` stops at an ``Either``, and a multi-line usage *is* one, so it answers
     "nothing" for the very case this question is asked about.
     """
     lines = _usage_lines(pattern)
@@ -952,12 +950,16 @@ def parse_argv(
 ) -> list[Pattern]:
     """Parse the command-line argument vector.
 
-    With ``options_first`` the grammar is
-    ``argv ::= [ long | shorts ]* [ argument ]* [ '--' [ argument ]* ] ;`` and options
-    must precede positionals; otherwise options and positionals may intermix. With
-    ``negative_numbers`` a token like ``-3`` or ``-6.28`` is treated as a positional
-    argument rather than a cluster of short options. With ``allow_abbrev`` disabled a long
-    option must be written in full (no ``--ver`` -> ``--version`` de-abbreviation).
+    Args:
+        tokens: The argument vector to parse.
+        options: The options declared by the usage message.
+        options_first: Require options to precede positionals, narrowing the grammar to
+            ``argv ::= [ long | shorts ]* [ argument ]* [ '--' [ argument ]* ] ;``. Otherwise
+            options and positionals may intermix.
+        negative_numbers: Treat a token like ``-3`` or ``-6.28`` as a positional argument
+            rather than a cluster of short options.
+        allow_abbrev: When False, a long option must be written in full, with no
+            ``--ver`` -> ``--version`` de-abbreviation.
     """
     parsed: list[Pattern] = []
     current = tokens.current()
@@ -1035,7 +1037,7 @@ def parse_section(name: str, source: str) -> list[str]:
 
 
 def section_line_numbers(name: str, source: str) -> set[int]:
-    """The 0-based line indices every ``name`` section covers - the same span :func:`parse_section` reads.
+    """The 0-based line indices every ``name`` section covers, the same span ``parse_section`` reads.
 
     So a caller that must agree with the parser on which lines are options (``format_usage``) asks it.
     """

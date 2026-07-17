@@ -52,10 +52,10 @@ class Source(enum.Enum):
 
 class Arguments(dict[str, Any]):
     """Mapping of parsed element names (``"--flag"``, ``"<arg>"``, ``"command"``) to their values
-    (``str | bool | int | list[str] | None``); the back-compat return type, narrowed by the typed API.
+    (``str | bool | int | list[str] | None``). This is the back-compat return type, narrowed by the typed API.
 
-    ``provided`` is the set of names actually supplied in ``argv`` (so a defaulted value is
-    distinguishable from an explicit one); ``extra`` holds leftover tokens kept by ``allow_extra=True``.
+    ``provided`` is the set of names actually supplied in ``argv``, so a defaulted value is
+    distinguishable from an explicit one. ``extra`` holds leftover tokens kept by ``allow_extra=True``.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -75,8 +75,8 @@ class Arguments(dict[str, Any]):
     def source(self, name: str) -> Source:
         """Where ``name``'s value was resolved from: the command line, ``[env:]``, ``[config:]``, or the default.
 
-        Answers "why is this value what it is?" for layered configuration; a name never resolved from a
-        fallback reports :attr:`Source.DEFAULT`.
+        Answers "why is this value what it is?" for layered configuration. A name never resolved from a
+        fallback reports [`Source.DEFAULT`][docopt2.Source].
         """
         return self._sources.get(name, Source.DEFAULT)
 
@@ -178,7 +178,7 @@ def _config_value_types() -> tuple[type, ...]:
     whitelist, not a container blacklist: an opaque object is not a container either, and str(object())
     is a memory address.
 
-    Built on first use, not at import, for the reason given in :func:`docopt2._typed._scalar_coercers`:
+    Built on first use, not at import, for the reason given in ``_scalar_coercers``:
     a usage with no `[config:]` annotation never asks, and must not pay.
     """
     from datetime import date, datetime, time  # deferred: see the docstring
@@ -256,7 +256,7 @@ def _apply_fallbacks(result: Arguments, options: list[Option], config: Mapping[s
 
     An option given on the command line (in ``result.provided``) is left untouched; otherwise an
     ``[env: VAR]`` (then a ``[config: key]`` against ``config``) supplies the value and records its
-    :class:`Source`, which coerces through the schema like any other string. ``was_given`` still reports
+    [`Source`][docopt2.Source], which coerces through the schema like any other string. ``was_given`` still reports
     such an option as not given.
     """
     for option in options:
@@ -339,7 +339,7 @@ def docopt(
 
     Args:
         doc: Description of the command-line interface (the usage message).
-        argv: Argument vector to parse. ``sys.argv[1:]`` is used if omitted; a string
+        argv: Argument vector to parse. ``sys.argv[1:]`` is used if omitted. A string
             is split on whitespace.
         help: Set to False to disable automatic help on ``-h``/``--help``. This is the
             original docopt name, kept for drop-in compatibility.
@@ -350,16 +350,16 @@ def docopt(
             include a "did you mean ..." hint in the ``DocoptExit`` message.
         negative_numbers: Treat tokens like ``-3`` or ``-6.28`` as positional arguments
             instead of short-option clusters.
-        allow_abbrev: When False, a long option in ``argv`` must be written in full; an
+        allow_abbrev: When False, a long option in ``argv`` must be written in full. An
             unambiguous prefix like ``--ver`` no longer de-abbreviates to ``--version``.
         allow_extra: When True, leftover ``argv`` tokens that the usage cannot place no longer
-            raise; the best partial match is returned and the surplus is exposed on the result's
+            raise. The best partial match is returned and the surplus is exposed on the result's
             ``extra`` list (the ``parse_known_args`` idiom). Missing required elements still fail.
         exit_code: Process status carried by a ``DocoptExit`` from a failed parse. The default,
-            1, keeps the usage message auto-printing on an uncaught error; any other value exits
+            1, keeps the usage message auto-printing on an uncaught error. Any other value exits
             with that status (per ``SystemExit``, the message then travels on ``str(exc)``).
         complete: Answer shell completion requests (on by default). docopt inspects the environment
-            for a request from a ``generate_completion`` script; when one is present it prints the
+            for a request from a ``generate_completion`` script. When one is present it prints the
             candidates and exits, otherwise it parses normally. Set to False to opt out, so this
             call never responds to the completion protocol (the check is one environment lookup).
         schema: If given (a dataclass, TypedDict, or pydantic model), the parsed result
@@ -533,9 +533,9 @@ def docopt(
 
 
 def parse_tree(doc: str) -> Pattern:
-    """Build the usage-pattern :class:`Pattern` tree for ``doc`` without matching argv - ``repr()`` it,
-    walk it, or serialize with :meth:`Pattern.to_dict` to diff how a change affects parsing. The
-    ``[options]`` shortcut stays an :class:`OptionsShortcut` node rather than expanded."""
+    """Build the usage-pattern [`Pattern`][docopt2.Pattern] tree for ``doc`` without matching argv - ``repr()`` it,
+    walk it, or serialize with [`Pattern.to_dict`][docopt2.Pattern.to_dict] to diff how a change affects parsing. The
+    ``[options]`` shortcut stays an [`OptionsShortcut`][docopt2.OptionsShortcut] node rather than expanded."""
     options = parse_defaults(doc)
     return parse_pattern(formal_usage(single_usage_section(doc)), options)
 
@@ -543,10 +543,11 @@ def parse_tree(doc: str) -> Pattern:
 class Cli:
     """Optional typed base class for a class-first API.
 
-    Subclass it, set ``__cli_doc__`` to the usage message, and declare fields as
-    annotations; ``YourClass.parse(argv)`` returns an instance typed as the subclass. This is
-    the only decorator-shaped sugar that keeps real static types under mypy, pyright and
-    ty (a method-injecting decorator degrades the result to ``Any``).
+    Subclass it, set ``__cli_doc__`` to the usage message, and declare fields as annotations.
+    ``YourClass.parse(argv)`` returns an instance typed as the subclass.
+
+    It is deliberately a base class rather than a method-injecting decorator, which would degrade the result
+    to ``Any``. This keeps real static types under mypy, pyright and ty.
     """
 
     __cli_doc__: ClassVar[str | None] = None
@@ -599,11 +600,12 @@ _DispatchHandler = Callable[[Any], Any]
 class Dispatch:
     """Route a parsed command to a handler - the subcommand dispatch docopt itself omits.
 
-    Register one handler per command path with :meth:`on`, then :meth:`run` parses ``argv`` and
-    calls the handler for the most specific command path that matched, passing it the parsed
-    ``Arguments`` (or, when the registration supplies ``schema=``, an instance of that schema bound
-    from the result, so each subcommand gets its own typed view). An ``on()`` with no command path
-    registers a fallback, used when no more specific path matches.
+    Register one handler per command path with [`on`][docopt2.Dispatch.on]. [`run`][docopt2.Dispatch.run]
+    then parses ``argv`` and calls the handler for the most specific command path that matched.
+
+    The handler receives the parsed ``Arguments``, or an instance of ``schema`` bound from the result when
+    the registration supplies one, so each subcommand gets its own typed view. An ``on()`` with no command
+    path registers a fallback, used when no more specific path matches.
 
     Example:
         ``app = Dispatch(doc); @app.on("user", "create") def create(args): ...; app.run()``.
@@ -625,7 +627,7 @@ class Dispatch:
     def run(self, argv: list[str] | tuple[str, ...] | str | None = None, **options: Any) -> Any:
         """Parse ``argv`` against the doc and invoke the handler for the matched command path.
 
-        Extra keyword arguments are forwarded to :func:`docopt` (``suggest``, ``exit_code``, ...);
+        Extra keyword arguments are forwarded to [`docopt`][docopt2.docopt] (``suggest``, ``exit_code``, ...).
         ``schema`` is not among them, since dispatch matches on the mapping and binds per handler.
         """
         if "schema" in options:

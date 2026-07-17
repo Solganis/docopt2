@@ -95,7 +95,7 @@ def _caret_lines(snippet: Snippet) -> list[tuple[int, str, list[Caret]]]:
 class Diagnostic:
     """An error lowered to a uniform shape: a summary, captioned snippets, and note/help lines.
 
-    Every error path renders through here, so all messages share one visual grammar; a snippet per
+    Every error path renders through here, so all messages share one visual grammar. A snippet per
     source lets a single error point a caret at both the input and the usage that rejected it.
     """
 

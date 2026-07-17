@@ -37,9 +37,15 @@ def check_compat(old_doc: str, new_doc: str, *, samples: int = 300) -> list[str]
     removed option, a removed command, or a concrete argument vector the new grammar no longer accepts
     (found by sampling the old grammar's accepted set and replaying it against the new).
 
-    An empty list means **no break was found**, not a proof of compatibility: the accepted set is infinite
+    An empty list means **no break was found**, not a proof of compatibility. The accepted set is infinite
     and only ``samples`` invocations are checked, so read it like a passing test ("no breakage detected"),
-    never as a guarantee. It never claims "compatible" - it only surfaces breaks it can prove.
+    never as a guarantee. It never claims "compatible", it only surfaces breaks it can prove.
+
+    Args:
+        old_doc: The usage message as it stands today.
+        new_doc: The usage message as it would be after the change.
+        samples: How many invocations to draw from the old grammar when hunting for counterexamples.
+            More samples widen the search, and never turn an empty result into a guarantee.
     """
     old_examples = generate_examples(old_doc, count=samples, seed=0)
     removed_options = _spellings(old_doc) - _spellings(new_doc)

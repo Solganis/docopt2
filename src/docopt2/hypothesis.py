@@ -48,7 +48,7 @@ def argv_strategy(doc: str) -> SearchStrategy[list[str]]:
     can draw exactly that argv, and ``docopt`` answers it by printing the doc and exiting the process -
     which inside a property test is a ``SystemExit``, not a parse. The same holds for ``version=``.
 
-    Requires the ``docopt2[hypothesis]`` extra. Raises :class:`~docopt2.DocoptLanguageError` at once
+    Requires the ``docopt2[hypothesis]`` extra. Raises [`DocoptLanguageError`][docopt2.DocoptLanguageError] at once
     on a malformed usage, before any example is drawn.
     """
     pattern = _usage_pattern(doc)  # eager, so a malformed usage fails here, not mid-draw
