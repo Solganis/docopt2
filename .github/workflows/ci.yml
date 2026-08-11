@@ -38,7 +38,14 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
+        # Turned off on every setup-uv step in this repo, because `enable-cache` defaults to
+        # "auto", which means ON for hosted runners. It buys nothing here: `uv sync --locked`
+        # takes about 2s in every job, so a restore/save cycle costs the same or more. It also
+        # costs posture, since restoring a previous run's artifacts is the supply-chain surface
+        # zizmor's cache-poisoning rule is about, and this repo SHA-pins its actions.
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -76,6 +83,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -123,6 +132,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
 
       - name: Install zsh and fish
         if: runner.os == 'Linux'
