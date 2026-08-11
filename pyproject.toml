@@ -148,7 +148,14 @@ target-version = "py310"  # the lowest supported Python; UP rewrites target this
 src = ["src", "tests"]
 # Vendored copies of the original docopt, kept verbatim as a differential oracle and a
 # reference checkout; never linted (not this project's code, and must not be modernized).
-extend-exclude = ["tests/_vendor", "docopt-master"]
+#
+# `*.md` is excluded because ruff 0.16 added markdown to its default `include`, so a bare
+# `ruff format .` would reformat the python blocks in README and docs/. Those blocks are
+# teaching snippets, not modules: their inline `# output` comments are aligned into a column
+# for scanning, and ruff collapses that to a fixed two spaces and pads the short examples
+# with blank lines. Their correctness is already gated by tests/test_docs_fences.py (which
+# executes every block) and tests/test_readme.py, so layout stays a reader's call.
+extend-exclude = ["tests/_vendor", "docopt-master", "*.md"]
 
 [tool.ruff.lint]
 # Enable preview rules, but ONLY the ones named explicitly in `select`
