@@ -61,7 +61,7 @@ packages = ["src/docopt2"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.20",
+    "ruff>=0.16.1",  # the first release that reads `output-prefer-rule-codes`
     "ty>=0.0.58",
     # Dev-only. Does not affect the zero runtime-dependency guarantee (that concerns
     # [project.dependencies]). Used to dogfood the project's own test modules; the ported
@@ -84,11 +84,10 @@ docs = [
     "mkdocs-material>=9.7.6",
     "mkdocstrings[python]>=1.0.4",
 ]
-# Second and third type checkers: the library is consumed by people on different
-# checkers, so the code is kept clean under all three. `ty` is the gate; these run
-# locally on changed files, not in the deps/CI floor.
+# The checkers beside ty: users are on different ones, so the CI lint job holds the code clean under all four.
 typecheck = [
     "mypy>=2.2.0",
+    "pyrefly>=1.3.2",
     "pyright>=1.1.411",
 ]
 # Mutation testing. Its own group because mutmut forks and calls os.wait: it does not run on
@@ -146,6 +145,7 @@ exclude_lines = [
 line-length = 120
 target-version = "py310"  # the lowest supported Python; UP rewrites target this floor
 src = ["src", "tests"]
+output-prefer-rule-codes = true  # under preview ruff prints rule names, and a `# noqa` needs the code
 # Vendored copies of the original docopt, kept verbatim as a differential oracle and a
 # reference checkout; never linted (not this project's code, and must not be modernized).
 #
@@ -158,9 +158,7 @@ src = ["src", "tests"]
 extend-exclude = ["tests/_vendor", "docopt-master", "*.md"]
 
 [tool.ruff.lint]
-# Enable preview rules, but ONLY the ones named explicitly in `select`
-# (explicit-preview-rules), so a single preview rule (E301) is opted into without
-# pulling in every unstable rule ruff ships behind the preview flag.
+# Preview is on only for the rules `select` names (explicit-preview-rules), not for every unstable rule ruff ships.
 preview = true
 explicit-preview-rules = true
 
@@ -176,9 +174,13 @@ select = [
     "B",     # flake8-bugbear - likely bugs and footguns
     "A",     # flake8-builtins - don't shadow builtins (help= is an explained exception)
     "C4",    # flake8-comprehensions - drop redundant list()/dict()/set() wrappers
+    "FA",    # flake8-future-annotations - `X | Y` in an evaluated annotation needs the future import on the floor
+    "FURB",  # refurb - idiom simplifications in the same family as SIM/PIE/C4
     "PIE",   # flake8-pie - small idiom simplifications
+    "RSE",   # flake8-raise - no empty parens on a bare `raise SomeError()`
     "PGH",   # pygrep-hooks - forbid blanket noqa/type: ignore (must name a rule code)
     "PLE",   # Pylint errors - real-error subset (not style)
+    "PLW1514",  # Pylint, preview-gated: text-mode `open()` names its encoding, or Windows reads UTF-8 as cp1252
     "SIM",   # flake8-simplify - collapse redundant constructs
     "T10",   # flake8-debugger - no committed breakpoint()/pdb calls
     "RUF",   # Ruff-specific rules
@@ -208,6 +210,9 @@ ignore = []
 # Suppressions must be ty-native `# ty: ignore[rule]`. Make ty disregard mypy's
 # generic `# type: ignore` so a stray mypy-style comment can't silently mask a ty error.
 respect-type-ignore-comments = false
+
+[tool.ty.rules]
+blanket-ignore-comment = "error"  # a `# ty: ignore` names the rule it silences
 
 [tool.ty.src]
 # Match the CI type gate: check the package and the typing-surface test only. The rest of

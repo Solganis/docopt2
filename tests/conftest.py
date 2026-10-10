@@ -41,8 +41,7 @@ def pytest_collect_file(file_path: Path, parent: pytest.Collector) -> DocoptTest
 def parse_test(raw: str) -> Iterator[tuple[str, list[Case]]]:
     """Yield ``(docstring, cases)`` fixtures parsed from a ``.docopt`` file body."""
     raw = re.sub(r"#.*$", "", raw, flags=re.MULTILINE).strip()
-    if raw.startswith('"""'):
-        raw = raw[3:]
+    raw = raw.removeprefix('"""')
     for fixture in raw.split('r"""'):
         doc, _, body = fixture.partition('"""')
         cases: list[Case] = []

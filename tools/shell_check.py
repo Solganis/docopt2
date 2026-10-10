@@ -74,7 +74,7 @@ _READY = "DOCOPT2-READY"
 # no space at all, so it must vanish: a shell paints the matched `--` of `--drifting` in one colour and the
 # rest in another, and turning that into a space would split the candidate and the check would "miss" it.
 _MOVE = re.compile(r"\x1b\[[0-9;?]*[A-HJKSTfd]|\r")
-_ZERO = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()>=][A-Za-z0-9]?|\x1bP.*?\x1b\\|\x07", re.S)
+_ZERO = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()>=][A-Za-z0-9]?|\x1bP.*?\x1b\\|\x07", re.DOTALL)
 
 
 def _install(bin_dir: Path, prog: str, doc: str) -> None:

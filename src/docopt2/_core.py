@@ -98,7 +98,7 @@ def _extras(default_help: bool, version: object, options: list[Pattern], doc: st
 
 def _argv_snippet(argv: list[str] | tuple[str, ...] | str, token: str, label: str) -> Snippet:
     """An 'in the arguments:' snippet with a caret under ``token`` (dropped if not a literal substring)."""
-    argv_text = argv if isinstance(argv, str) else " ".join(str(item) for item in argv)
+    argv_text = argv if isinstance(argv, str) else " ".join(argv)
     at = argv_text.find(token)
     carets = [Caret(at, at + len(token), label)] if at != -1 else []
     return Snippet(argv_text, "in the arguments:", carets)
@@ -547,7 +547,7 @@ class Cli:
     ``YourClass.parse(argv)`` returns an instance typed as the subclass.
 
     It is deliberately a base class rather than a method-injecting decorator, which would degrade the result
-    to ``Any``. This keeps real static types under mypy, pyright and ty.
+    to ``Any``. This keeps real static types under ty, mypy, pyright and pyrefly.
     """
 
     __cli_doc__: ClassVar[str | None] = None
@@ -612,7 +612,7 @@ class Dispatch:
     """
 
     def __init__(self, doc: str) -> None:
-        self.doc = doc
+        self.doc: str = doc
         self._handlers: list[tuple[tuple[str, ...], _DispatchHandler, type[Any] | None]] = []
 
     def on(self, *command_path: str, schema: type[Any] | None = None) -> Callable[[_DispatchHandler], _DispatchHandler]:

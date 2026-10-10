@@ -13,7 +13,7 @@ from docopt2._diagnostics import Caret, Diagnostic, Snippet
 from docopt2._errors import DocoptExit, DocoptLanguageError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator, Iterator
 
 LeafValue: TypeAlias = str | int | bool | list[str] | None
 Span: TypeAlias = tuple[int, int] | None
@@ -43,7 +43,7 @@ class _MatchBudgetExceededError(Exception):
 
 
 @contextlib.contextmanager
-def match_budget(limit: int = MATCH_LIMIT) -> Iterator[None]:
+def match_budget(limit: int = MATCH_LIMIT) -> Generator[None]:
     """Bound the total outcomes the enclosed match may materialize. Past ``limit``, _MatchBudgetExceeded."""
     token = _match_budget.set([limit])
     try:
@@ -281,7 +281,7 @@ class BranchPattern(Pattern):
     """Branch/inner node of a pattern tree."""
 
     def __init__(self, *children: Pattern) -> None:
-        self.children = list(children)
+        self.children: list[Pattern] = list(children)
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({', '.join(repr(child) for child in self.children)})"
@@ -309,8 +309,7 @@ class Command(Argument):
     """A (sub)command literal, written as a bare word in the usage pattern."""
 
     def __init__(self, name: str | None, value: bool = False) -> None:
-        self._name = name
-        self.value = value
+        super().__init__(name, value)
 
     def single_match(self, left: list[Pattern]) -> SingleMatch:
         for index, pattern in enumerate(left):
@@ -333,12 +332,13 @@ class Option(LeafPattern):
         env: str | None = None,
         config_key: str | None = None,
     ) -> None:
-        self.short = short
-        self.long = long
-        self.argcount = argcount
-        self.value = None if value is False and argcount else value
-        self.env = env  # `[env: VAR]` fallback source, resolved at parse time in docopt(), not here
-        self.config_key = config_key  # `[config: dotted.key]` fallback, resolved against docopt(config=)
+        self.short: str | None = short
+        self.long: str | None = long
+        self.argcount: int = argcount
+        self._cached_repr = None
+        self._value = None if value is False and argcount else value
+        self.env: str | None = env  # `[env: VAR]` fallback source, resolved at parse time in docopt(), not here
+        self.config_key: str | None = config_key  # `[config: dotted.key]` fallback, resolved against docopt(config=)
 
     @classmethod
     def parse(cls, option_description: str, source: str = "") -> Option:
@@ -612,12 +612,12 @@ class Tokens(list[str]):
         exit_code: int = 1,
     ) -> None:
         super().__init__(source.split() if isinstance(source, str) else source)
-        self.error = error
-        self.text = text  # the full source string, for caret rendering
+        self.error: ErrorType = error
+        self.text: str = text  # the full source string, for caret rendering
         self.spans: list[Span] = spans if spans is not None else [None] * len(self)
         self._last_span: Span = None
-        self.usage = usage  # threaded onto a DocoptExit so argv errors carry usage/exit_code too
-        self.exit_code = exit_code
+        self.usage: str = usage  # threaded onto a DocoptExit so argv errors carry usage/exit_code too
+        self.exit_code: int = exit_code
 
     @property
     def parsing_argv(self) -> bool:
@@ -727,7 +727,7 @@ def parse_shorts(tokens: Tokens, options: list[Option]) -> list[Pattern]:
                 value = tokens.move()
             else:
                 # Accept the `-s=value` form; a leading `=` is the separator, not part of the value.
-                value = left[1:] if left.startswith("=") else left
+                value = left.removeprefix("=")
                 left = ""
         if tokens.parsing_argv:
             option.value = value if value is not None else True

@@ -26,7 +26,7 @@ from docopt2._typed import _scalar_coercers
 # unguarded either.
 
 _ROOT = Path(__file__).parent.parent
-_BLOCK = re.compile(r'<div class="docopt2-term">(.*?)</div>', re.S)
+_BLOCK = re.compile(r'<div class="docopt2-term">(.*?)</div>', re.DOTALL)
 
 
 def _visible(markup: str) -> str:
@@ -179,7 +179,7 @@ def test_the_docs_show_only_output_the_tool_really_produces():
 # docs omit, and a row the docs invent - which is why `_scalar_coercers()` is data and not an if-chain.
 # `[^`]+`, not `.+?`: a backtick-quoted token cannot contain a backtick, and a lazy `.` that can match one
 # lets a run of them be grouped exponentially many ways - catastrophic backtracking (CodeQL py/redos).
-_TABLE_ROW = re.compile(r"^\| (`[^`]+`(?:, `[^`]+`)*)(?: subclass)? \|", re.M)
+_TABLE_ROW = re.compile(r"^\| (`[^`]+`(?:, `[^`]+`)*)(?: subclass)? \|", re.MULTILINE)
 # The forms whose coercion carries its own semantics, so they are spelled out in `_coerce`, not in the map.
 _SPELLED_OUT = {
     "str",

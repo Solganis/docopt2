@@ -39,9 +39,9 @@ class Caret:
     """A ``[start, end)`` range in a snippet's source, drawn as ``^`` with a short label beneath."""
 
     def __init__(self, start: int, end: int, label: str = "") -> None:
-        self.start = start
-        self.end = end
-        self.label = label
+        self.start: int = start
+        self.end: int = end
+        self.label: str = label
 
     def __repr__(self) -> str:
         return f"Caret(start={self.start!r}, end={self.end!r}, label={self.label!r})"
@@ -56,9 +56,9 @@ class Snippet:
     """One captioned source (a usage string or an argv line) and the carets drawn under it."""
 
     def __init__(self, source: str, intro: str, carets: list[Caret]) -> None:
-        self.source = source
-        self.intro = intro
-        self.carets = carets
+        self.source: str = source
+        self.intro: str = intro
+        self.carets: list[Caret] = carets
 
     def __repr__(self) -> str:
         return f"Snippet(source={self.source!r}, intro={self.intro!r}, carets={self.carets!r})"
@@ -107,11 +107,11 @@ class Diagnostic:
         help: str | None = None,  # noqa: A002 - the diagnostic's own "help:" line, not the builtin
         level: str = "error",  # "error" (red) or "warning" (yellow, used by the static linter)
     ) -> None:
-        self.summary = summary
-        self.snippets = snippets if snippets is not None else []
-        self.note = note
-        self.help = help
-        self.level = level
+        self.summary: str = summary
+        self.snippets: list[Snippet] = snippets if snippets is not None else []
+        self.note: str | None = note
+        self.help: str | None = help
+        self.level: str = level
 
     def __repr__(self) -> str:
         return (

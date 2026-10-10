@@ -1,0 +1,9 @@
+# without a config pyrefly falls back to `basic`, which turns most diagnostic classes off
+preset = "default"
+
+# another checker's `# ty: ignore` or `# type: ignore` must not silence this one
+enabled-ignores = ["pyrefly"]
+
+python-version = "3.14"
+
+project-includes = ["src/docopt2", "tests/typing_surface"]

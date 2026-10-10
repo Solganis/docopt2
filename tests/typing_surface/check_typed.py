@@ -1,4 +1,4 @@
-# Not a pytest module (no test_ prefix); verified by running mypy/pyright/ty over it.
+# Not a pytest module (no test_ prefix); verified by running ty/mypy/pyright/pyrefly over it.
 # assert_type fails the checker if the inferred type is wrong.
 from __future__ import annotations
 

@@ -18,12 +18,10 @@
   <a href="https://pepy.tech/projects/docopt2"><img src="https://static.pepy.tech/badge/docopt2/month" alt="Downloads"></a>
   <br>
   <a href="https://solganis.github.io/docopt2/concepts/design-boundaries/#zero-runtime-dependencies"><img src="https://img.shields.io/badge/runtime%20deps-0-2ea043" alt="zero runtime dependencies, pydantic support optional"></a>
-  <a href="https://solganis.github.io/docopt2/guides/typed-results/"><img src="https://img.shields.io/badge/type--checked-ty%20%7C%20mypy%20%7C%20pyright-2ea043" alt="the typed API is checked by ty, mypy --strict, and pyright"></a>
+  <a href="https://solganis.github.io/docopt2/guides/typed-results/"><img src="https://img.shields.io/badge/type--checked-ty%20%7C%20mypy%20%7C%20pyright%20%7C%20pyrefly-2ea043" alt="the typed API is checked by ty, mypy --strict, pyright and pyrefly"></a>
   <a href="https://solganis.github.io/docopt2/"><img src="https://img.shields.io/badge/docs-online-black" alt="Documentation"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/Solganis/docopt2"><img src="https://img.shields.io/ossf-scorecard/github.com/Solganis/docopt2?label=OpenSSF%20Scorecard" alt="OpenSSF Scorecard"></a>
 </p>
-
----
 
 <h2 align="center">What is docopt2?</h2>
 
@@ -35,7 +33,7 @@ Put the `Usage:` and `Options:` text in your docstring - the help you would writ
 The <a href="https://solganis.github.io/docopt2/">full documentation</a> walks through <a href="https://solganis.github.io/docopt2/getting-started/">Getting started</a> and the guides.
 </p>
 
-<h2 align="center">Features</h2>
+<h3 align="center">Features</h3>
 
 <table>
 <tr>

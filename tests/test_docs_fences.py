@@ -18,7 +18,7 @@ from assertpy2 import assert_that
 # order reads best. Blocks with no `# ...` tail are still executed - they set up the names later ones use.
 
 _ROOT = Path(__file__).parent.parent
-_FENCE = re.compile(r"```python\n(.*?)```", re.S)
+_FENCE = re.compile(r"```python\n(.*?)```", re.DOTALL)
 # A DSL reference page is a table of one-liners (`docopt("Usage: prog ship new <name>", ...)`); repeating an
 # import above each would drown it. The reader is told once, in prose, so the runner supplies the same names.
 _PREAMBLE = "from docopt2 import *  # noqa: F403"
@@ -26,7 +26,7 @@ _PREAMBLE = "from docopt2 import *  # noqa: F403"
 # by the time this suite runs, other tests have imported pydantic. tests/test_import_cost.py pins that exact
 # claim in a subprocess instead - a better guard than this one could ever be, so the block is skipped here.
 _ANSWERED_IN_A_CLEAN_PROCESS = ('"pydantic" in sys.modules',)
-_ANNOTATION = re.compile(r"\s+->\s.*\Z", re.S)
+_ANNOTATION = re.compile(r"\s+->\s.*\Z", re.DOTALL)
 
 
 def _split_output(source: str) -> tuple[str, str | None]:

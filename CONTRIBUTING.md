@@ -39,8 +39,19 @@ uv run ty check src/docopt2
 uv run pytest
 ```
 
-CI requires 100% code coverage (line and branch); a PR that drops below it fails. It also runs
-`mypy --strict` and `pyright` on the typed surface, across Python 3.10 - 3.15.
+CI requires 100% code coverage (line and branch), and a PR that drops below it fails. It also runs
+`mypy --strict`, `pyright` and `pyrefly` on the typed surface, across Python 3.10 - 3.15.
+
+Type annotations are held at 100% too. Both checks need the extra checkers, installed with
+`uv sync --group typecheck`:
+
+```bash
+# every annotation in the package
+uv run pyrefly coverage check src/docopt2
+
+# every exported symbol has a type a checker can name
+uv run pyright --verifytypes docopt2 --ignoreexternal
+```
 
 ## Commit style
 
