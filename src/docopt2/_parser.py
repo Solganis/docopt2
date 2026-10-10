@@ -1,9 +1,7 @@
 # Parsing engine derived from the original docopt (MIT); see NOTICE.
 from __future__ import annotations
 
-import contextlib
 import contextvars
-import copy
 import functools
 import itertools
 import re
@@ -13,7 +11,7 @@ from docopt2._diagnostics import Caret, Diagnostic, Snippet
 from docopt2._errors import DocoptExit, DocoptLanguageError
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator
+    from collections.abc import Iterator
 
 LeafValue: TypeAlias = str | int | bool | list[str] | None
 Span: TypeAlias = tuple[int, int] | None
@@ -42,14 +40,19 @@ class _MatchBudgetExceededError(Exception):
     """One match explored more outcomes than allowed - an adversarial argv or a malformed usage pattern."""
 
 
-@contextlib.contextmanager
-def match_budget(limit: int = MATCH_LIMIT) -> Generator[None]:
+class MatchBudget:
     """Bound the total outcomes the enclosed match may materialize. Past ``limit``, _MatchBudgetExceeded."""
-    token = _match_budget.set([limit])
-    try:
-        yield
-    finally:
-        _match_budget.reset(token)
+
+    _token: contextvars.Token[list[int] | None]
+
+    def __init__(self, limit: int = MATCH_LIMIT) -> None:
+        self._limit = limit
+
+    def __enter__(self) -> None:
+        self._token = _match_budget.set([self._limit])
+
+    def __exit__(self, *raised: object) -> None:
+        _match_budget.reset(self._token)
 
 
 def _bounded(outcomes: Iterator[MatchOutcome]) -> Iterator[MatchOutcome]:
@@ -92,7 +95,13 @@ _CONFIG_PATTERN = re.compile(r"\[config:\s*([^\]\s]+)\s*]", flags=re.IGNORECASE)
 
 def _leaf_with_value(leaf: Pattern, value: LeafValue) -> Pattern:
     """Return a copy of ``leaf`` carrying ``value`` so matching accumulates immutably."""
-    clone = copy.copy(leaf)
+    if type(leaf) in _OWN_LEAVES:
+        clone = object.__new__(type(leaf))  # what copy.copy() comes to for these, at 218 ns against its 763
+        clone.__dict__.update(leaf.__dict__)
+    else:
+        import copy  # deferred: 0.75 ms with the weakref it imports, and only a caller's own leaf class asks
+
+        clone = copy.copy(leaf)
     clone.value = value
     return clone
 
@@ -289,7 +298,10 @@ class BranchPattern(Pattern):
     def flat(self, *types: type[Pattern]) -> list[Pattern]:
         if type(self) in types:
             return [self]
-        return list(itertools.chain.from_iterable(child.flat(*types) for child in self.children))
+        found: list[Pattern] = []
+        for child in self.children:
+            found += child.flat(*types)
+        return found
 
     def to_dict(self) -> dict[str, Any]:
         return {"type": type(self).__name__, "children": [child.to_dict() for child in self.children]}
@@ -417,6 +429,9 @@ class Option(LeafPattern):
         if self.argcount:
             node["default"] = self._value
         return node
+
+
+_OWN_LEAVES = frozenset({Argument, Command, Option})
 
 
 def _sequence_matches(

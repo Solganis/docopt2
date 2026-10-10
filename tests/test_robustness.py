@@ -22,12 +22,12 @@ from docopt2 import DocoptExit, DocoptLanguageError
 from docopt2._completion import _frontier
 from docopt2._parser import (
     MATCH_LIMIT,
+    MatchBudget,
     Tokens,
     _MatchBudgetExceededError,
     expand_options_shortcut,
     formal_tokens,
     formal_usage,
-    match_budget,
     parse_argv,
     parse_defaults,
     parse_pattern,
@@ -234,5 +234,5 @@ def test_the_match_budget_raises_once_its_ceiling_is_spent():
     pattern.fix()
     tokens = Tokens([f"-{chr(97 + index)}" for index in range(12)], usage=usage, exit_code=1)
     argv = parse_argv(tokens, list(options))  # options_first / negative_numbers / allow_abbrev keep defaults
-    with pytest.raises(_MatchBudgetExceededError), match_budget(100):
+    with pytest.raises(_MatchBudgetExceededError), MatchBudget(100):
         next(pattern.matches(argv, []), None)

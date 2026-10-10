@@ -20,3 +20,10 @@ def test_lazy_tooling_loads_on_first_access_and_is_callable():
 
 def test_unknown_attribute_raises_attribute_error():
     assert_that(lambda: docopt2.this_name_does_not_exist).raises(AttributeError).when_called_with()
+
+
+def test_every_public_name_resolves_whether_it_is_loaded_with_the_package_or_on_first_access():
+    unresolved = [name for name in docopt2.__all__ if not hasattr(docopt2, name)]
+    assert_that(unresolved).is_empty()
+    assert_that(callable(docopt2.complete)).is_true()
+    assert_that(callable(docopt2.generate_completion)).is_true()

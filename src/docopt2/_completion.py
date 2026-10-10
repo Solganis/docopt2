@@ -5,6 +5,7 @@ import os
 import re
 from typing import TYPE_CHECKING, cast
 
+from docopt2._core import COMPLETION_REQUEST_ENV
 from docopt2._errors import DocoptExit, DocoptLanguageError
 from docopt2._parser import (
     MATCH_LIMIT,
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
 
 # Environment protocol shared with the generated shell scripts: when completion fires, the script
 # sets these variables and re-invokes the program, whose docopt() call answers with the candidates.
-_TRIGGER_ENV = "_DOCOPT2_COMPLETE"
+_TRIGGER_ENV = COMPLETION_REQUEST_ENV
 _WORDS_ENV = "_DOCOPT2_WORDS"
 
 

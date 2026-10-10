@@ -17,6 +17,8 @@ _MUST_STAY_UNIMPORTED = (
     "shutil",
     "json",
     "docopt2._compat",
+    "docopt2._completion",
+    "docopt2._help",
     "docopt2._lint",
     "docopt2._fmt",
     "docopt2._format",
@@ -67,8 +69,8 @@ def test_importing_docopt2_never_imports_pydantic():
 
 def test_the_deferred_names_still_resolve_when_they_are_asked_for():
     # Laziness must not become absence: reading the version, or reaching for a tool, still works.
-    loaded = _modules_loaded_by("import docopt2; docopt2.__version__; docopt2.check")
-    assert_that(loaded).contains("importlib.metadata", "docopt2._lint")
+    loaded = _modules_loaded_by("import docopt2; docopt2.__version__; docopt2.check; docopt2.complete")
+    assert_that(loaded).contains("importlib.metadata", "docopt2._lint", "docopt2._completion")
 
 
 def test_a_schema_still_coerces_the_types_whose_modules_are_deferred():
@@ -91,3 +93,64 @@ def test_a_schema_still_coerces_the_types_whose_modules_are_deferred():
     assert_that(completed.stdout.split()).is_equal_to(
         ["WindowsPath" if sys.platform == "win32" else "PosixPath", "Decimal", "UUID", "date"]
     )
+
+
+def test_importing_docopt2_pulls_in_no_module_just_to_copy_or_to_manage_a_context():
+    # `copy` (which drags in `weakref`) served one leaf clone, `contextlib` one context manager, and a TypeVar
+    # with a string bound built a ForwardRef, which from 3.14 lives in `annotationlib` and drags in `ast`.
+    loaded = _modules_loaded_by("import docopt2; docopt2.docopt('Usage: prog <x>', ['a'], complete=False)")
+    assert_that(sorted(loaded & {"copy", "weakref"})).is_empty()
+    if sys.version_info >= (3, 14):  # below it `typing` imports contextlib itself, and has no annotationlib
+        assert_that(sorted(loaded & {"contextlib", "annotationlib", "ast"})).is_empty()
+
+
+_HOMES_OF_THE_SCALARS = {"typing_extensions", "pathlib", "decimal", "uuid", "datetime"}
+
+
+def test_a_schema_pulls_in_no_module_its_annotations_do_not_name():
+    # A class cannot be an annotation before its module is imported, so nothing is imported on a schema's
+    # behalf: the first typed call used to import all five for a schema of `str` and `int`.
+    code = (
+        "import docopt2\n"
+        "class Args(docopt2.Cli):\n"
+        "    __cli_doc__ = 'Usage: prog <host> <port>'\n"
+        "    host: str\n"
+        "    port: int\n"
+        "print(Args.parse(['h', '80']).port)"
+    )
+    loaded = _modules_loaded_by(code)
+    assert_that(loaded).contains("80")  # the parse ran and coerced
+    assert_that(sorted(loaded & _HOMES_OF_THE_SCALARS)).is_empty()
+
+
+def test_a_schema_that_names_one_scalar_home_pulls_in_only_that_one():
+    code = (
+        "import pathlib, docopt2\n"
+        "class Args(docopt2.Cli):\n"
+        "    __cli_doc__ = 'Usage: prog <path>'\n"
+        "    path: pathlib.Path\n"
+        "print(type(Args.parse(['x']).path).__name__)"
+    )
+    loaded = _modules_loaded_by(code)
+    assert_that(loaded).contains("WindowsPath" if sys.platform == "win32" else "PosixPath")
+    assert_that(sorted(loaded & (_HOMES_OF_THE_SCALARS - {"pathlib"}))).is_empty()
+
+
+def test_a_scalar_home_imported_after_the_first_typed_call_is_still_reached():
+    # the table is looked up per call, so what was not imported for the first schema is not lost to the second
+    code = (
+        "import docopt2\n"
+        "class First(docopt2.Cli):\n"
+        "    __cli_doc__ = 'Usage: prog <port>'\n"
+        "    port: int\n"
+        "First.parse(['80'])\n"
+        "import decimal, typing_extensions\n"
+        "class Second(docopt2.Cli):\n"
+        "    __cli_doc__ = 'Usage: prog <amount>'\n"
+        "    amount: decimal.Decimal\n"
+        "class Third(typing_extensions.TypedDict):\n"
+        "    name: typing_extensions.NotRequired[str]\n"
+        "print(repr(Second.parse(['1.5']).amount), docopt2.docopt('Usage: prog [<name>]', [], schema=Third))"
+    )
+    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert_that(completed.stdout.strip()).is_equal_to("Decimal('1.5') {}")

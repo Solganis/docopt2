@@ -9,14 +9,13 @@ import sys
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, ClassVar, TypeVar, cast, overload
 
-from docopt2._completion import reply_to_completion_request
 from docopt2._diagnostics import Caret, Diagnostic, Snippet, use_color
 from docopt2._errors import DocoptExit, DocoptLanguageError
-from docopt2._help import render_help
 from docopt2._parser import (
     MATCH_LIMIT,
     Argument,
     Command,
+    MatchBudget,
     MatchOutcome,
     Option,
     Pattern,
@@ -25,7 +24,6 @@ from docopt2._parser import (
     expand_options_shortcut,
     formal_tokens,
     formal_usage,
-    match_budget,
     nearest_usage_line,
     parse_argument_defaults,
     parse_argv,
@@ -38,7 +36,9 @@ from docopt2._spellcheck import _closest, suggest_option
 from docopt2._typed import _CoercionError, bind_schema
 
 SchemaT = TypeVar("SchemaT")
-CliT = TypeVar("CliT", bound="Cli")
+
+# only a script from generate_completion sets it: docopt() then answers the request instead of parsing
+COMPLETION_REQUEST_ENV = "_DOCOPT2_COMPLETE"
 
 
 class Source(enum.Enum):
@@ -87,6 +87,8 @@ def _extras(default_help: bool, version: object, options: list[Pattern], doc: st
         if help_style == "rich":
             # scope the rendered help to the command path already typed (the positionals before --help)
             tokens = tuple(str(leaf.value) for leaf in options if type(leaf) is Argument and leaf.value is not None)
+            from docopt2._help import render_help  # deferred: 0.3 of the 9.1 ms import, for a rich --help alone
+
             print(render_help(doc, tokens, color=use_color(sys.stdout)))
         else:
             print(doc.strip("\n"))
@@ -402,13 +404,12 @@ def docopt(
     """
     if doc is None:
         raise DocoptLanguageError(Diagnostic(summary="doc (the usage message) must not be None").render())
-    if complete:
-        # On by default (opt out with complete=False): answer a shell completion request from the
-        # environment and exit; only a generate_completion script sets it, so a normal run gets None.
-        completion_reply = reply_to_completion_request(doc)
-        if completion_reply is not None:
-            print(completion_reply)
-            sys.exit()
+    if complete and COMPLETION_REQUEST_ENV in os.environ:
+        # On by default (opt out with complete=False): answer a shell completion request and exit.
+        from docopt2._completion import reply_to_completion_request  # deferred: 0.3 of the 9.1 ms import
+
+        print(reply_to_completion_request(doc))
+        sys.exit()
     show_help = help if default_help is None else default_help
     if help_style not in ("raw", "rich"):
         raise ValueError(f"help_style must be 'raw' or 'rich', not {help_style!r}")
@@ -445,7 +446,7 @@ def docopt(
     greedy: MatchOutcome | None = None
     try:
         pattern.fix()  # mutates in place and returns self, so `pattern` is the fixed tree from here on
-        with match_budget():
+        with MatchBudget():
             outcome_iter = pattern.matches(argv_patterns, [])
             greedy = next(outcome_iter, None)
             if greedy is not None:
@@ -605,6 +606,8 @@ class Cli:
         )
 
 
+# bound=Cli, not "Cli": a string builds a ForwardRef, which on 3.14+ imports annotationlib and ast (1.3 of 11.3 ms)
+CliT = TypeVar("CliT", bound=Cli)
 _DispatchHandler = Callable[[Any], Any]
 
 

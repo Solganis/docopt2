@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from docopt2._completion import complete, generate_completion
 from docopt2._core import Arguments, Cli, Dispatch, Source, docopt, parse_tree
 from docopt2._errors import DocoptExit, DocoptLanguageError
 from docopt2._parser import (
@@ -28,6 +27,7 @@ from docopt2._parser import (
 
 if TYPE_CHECKING:  # real types for the lazily-loaded tooling below, at zero runtime import cost
     from docopt2._compat import check_compat
+    from docopt2._completion import complete, generate_completion
     from docopt2._fmt import format_usage
     from docopt2._format import format_argv
     from docopt2._generate import generate_config_template, generate_examples
@@ -81,8 +81,10 @@ __all__ = [
 _LAZY_MODULES = {
     "check": "docopt2._lint",
     "check_compat": "docopt2._compat",
+    "complete": "docopt2._completion",
     "format_argv": "docopt2._format",
     "format_usage": "docopt2._fmt",
+    "generate_completion": "docopt2._completion",
     "generate_config_template": "docopt2._generate",
     "generate_examples": "docopt2._generate",
     "generate_stub": "docopt2._stub",

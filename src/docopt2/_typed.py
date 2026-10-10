@@ -4,11 +4,12 @@ import enum
 import functools
 import sys
 import types
-import weakref
+import typing
 from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
+    Final,
     Literal,
     TypeVar,
     Union,
@@ -21,75 +22,106 @@ from typing import (
 from docopt2._errors import DocoptExit, DocoptLanguageError
 
 if TYPE_CHECKING:
+    import weakref
     from collections.abc import Callable, Mapping, Sequence
 
 SchemaT = TypeVar("SchemaT")
 
+_BUILTIN_SCALARS: Final = (int, float)
+_SCALAR_HOMES: Final = frozenset({"pathlib", "decimal", "uuid", "datetime"})
+# (home module, class, the classmethod that parses a string - or "" where calling the class does)
+_HOMED_SCALARS: Final = (
+    ("pathlib", "Path", ""),
+    ("decimal", "Decimal", ""),
+    ("uuid", "UUID", ""),
+    ("datetime", "datetime", "fromisoformat"),
+    ("datetime", "date", "fromisoformat"),
+    ("datetime", "time", "fromisoformat"),
+)
+
 
 @functools.cache
+def _homed_coercers(imported: frozenset[str]) -> dict[Any, Callable[[Any], Any]]:
+    """The coercers of ``_HOMED_SCALARS`` whose home module is in ``imported``, in table order."""
+    table: dict[Any, Callable[[Any], Any]] = {}
+    for home, name, parser in _HOMED_SCALARS:
+        if home in imported:
+            scalar = getattr(sys.modules[home], name)
+            table[scalar] = getattr(scalar, parser) if parser else scalar
+    return table
+
+
 def _scalar_coercers() -> dict[Any, Callable[[Any], Any]]:
-    """The annotations whose coercion is nothing but "call this on the value".
+    """The annotations whose coercion is nothing but "call this on the value", the whole CLOSED set.
 
     Data rather than an if-chain, so the documented table can be held against the real set: `_coerce`
     claims a CLOSED set, and a closed set that only the code knows drifts from the docs the moment a type
     is added. The forms with their own semantics (str, bool, Enum, list, Literal, `| None`) stay spelled
     out in `_coerce`.
 
-    Built on first use, not at import: `datetime`, `decimal`, `pathlib` and `uuid` together are most of
-    what importing docopt2 costs, and a docopt() call without a schema never coerces anything at all.
+    This imports all four home modules. `_coerce` asks `_coercers_in_reach` first and comes here only
+    before it refuses an annotation, and so does the gate that holds the documented table against this one.
     """
-    from datetime import date, datetime, time  # deferred: see the docstring
-    from decimal import Decimal  # deferred: see the docstring
-    from pathlib import Path  # deferred: see the docstring
-    from uuid import UUID  # deferred: see the docstring
+    for home in _SCALAR_HOMES:
+        __import__(home)
+    return {scalar: scalar for scalar in _BUILTIN_SCALARS} | _homed_coercers(_SCALAR_HOMES)
 
-    return {
-        int: int,
-        float: float,
-        Path: Path,
-        Decimal: Decimal,
-        UUID: UUID,
-        datetime: datetime.fromisoformat,
-        date: date.fromisoformat,
-        time: time.fromisoformat,
-    }
+
+def _coercers_in_reach() -> dict[Any, Callable[[Any], Any]]:
+    """The part of the homed table an annotation is expected to name right now.
+
+    A class is rarely an annotation before its module is imported, so the home modules are looked up and
+    not imported: importing all four was 3.9 of the 9.0 ms a first call with a schema took. A name blocked
+    with ``sys.modules[name] = None`` is not imported either. `_coerce` asks the whole table before it
+    refuses, so an annotation this one misses is still recognized.
+    """
+    modules = sys.modules
+    return _homed_coercers(frozenset(home for home in _SCALAR_HOMES if modules.get(home) is not None))
 
 
 @functools.cache
+def _markers(extensions_imported: bool) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    """``Required`` and ``NotRequired`` as ``typing`` has them (neither below 3.11), then as
+    ``typing_extensions`` does where it is imported."""
+    modules = [typing, sys.modules["typing_extensions"]] if extensions_imported else [typing]
+    required = tuple(marker for module in modules if (marker := getattr(module, "Required", None)) is not None)
+    optional = tuple(marker for module in modules if (marker := getattr(module, "NotRequired", None)) is not None)
+    return required, optional
+
+
 def _optionality_markers() -> tuple[tuple[Any, ...], tuple[Any, ...]]:
     """The ``Required`` / ``NotRequired`` markers a TypedDict field can carry, from both sources.
 
     ``typing`` has them from 3.11; ``typing_extensions`` is the only source on the 3.10 floor, and a
-    caller may use it on any version. It is looked up on first use, not at import: it sits in most
-    environments as somebody else's dependency, it drags in `inspect`, and together they cost more than
-    the rest of docopt2 put together - for a marker only a TypedDict schema can even carry.
+    caller may use it on any version. It is looked up and never imported: a schema cannot carry a marker
+    of a module nobody imported, and importing it was 4.4 of the 9.0 ms a first call with a schema took.
     """
-    required: tuple[Any, ...] = ()
-    not_required: tuple[Any, ...] = ()
-    if sys.version_info >= (3, 11):  # pragma: no branch - always taken on the interpreter the suite runs under
-        from typing import NotRequired, Required  # deferred: see the docstring
-
-        required, not_required = (Required,), (NotRequired,)
-    try:
-        from typing_extensions import NotRequired as TeNotRequired  # deferred: see the docstring
-        from typing_extensions import Required as TeRequired  # deferred: see the docstring
-    except ImportError:  # pragma: no cover - typing_extensions is optional
-        return required, not_required
-    return (*required, TeRequired), (*not_required, TeNotRequired)
+    return _markers("typing_extensions" in sys.modules)
 
 
-# get_type_hints (compiling the forward refs from `from __future__ import annotations`) dominates
-# binding cost, but annotations are static, so memoize per type; a WeakKeyDictionary keeps a
-# dynamically built schema collectable rather than pinning it forever.
-_HINTS_CACHE: weakref.WeakKeyDictionary[type[Any], dict[str, Any]] = weakref.WeakKeyDictionary()
+@functools.cache
+def _hints_cache() -> weakref.WeakKeyDictionary[type[Any], dict[str, Any]]:
+    """One memo of resolved hints per schema type. The keys are weak, so a dynamically built schema can be
+    collected, unless its own hints refer back to it.
+
+    Built on first use: `weakref` was 0.6 of the 11.3 ms `import docopt2` took, and only a schema asks.
+    """
+    import weakref  # deferred: see the docstring
+
+    return weakref.WeakKeyDictionary()
 
 
 def _resolved_hints(schema: type[Any]) -> dict[str, Any]:
-    """Return ``get_type_hints(schema, include_extras=True)``, cached per schema type."""
-    cached = _HINTS_CACHE.get(schema)
+    """Return ``get_type_hints(schema, include_extras=True)``, cached per schema type.
+
+    get_type_hints (compiling the forward refs from `from __future__ import annotations`) dominates
+    binding cost, and annotations are static.
+    """
+    cache = _hints_cache()
+    cached = cache.get(schema)
     if cached is None:
         cached = get_type_hints(schema, include_extras=True)
-        _HINTS_CACHE[schema] = cached
+        cache[schema] = cached
     return cached
 
 
@@ -174,8 +206,15 @@ def _coerce(value: Any, annotation: Any) -> Any:
             member_values = [member.value for member in annotation]
             message = f"{value!r} is not a valid {annotation.__name__}"
             return annotation(_coerce_choice(value, member_values, lambda matched: matched, message))
+    for builtin in _BUILTIN_SCALARS:
+        if annotation is builtin:
+            return builtin(value)
     # Iterated, not looked up, so an unhashable annotation reaches the "unsupported" error below rather
     # than raising TypeError from the dict lookup itself.
+    for supported, coercer in _coercers_in_reach().items():
+        if annotation is supported:
+            return coercer(value)
+    # the whole table before refusing: a class can outlive its home in sys.modules, or come from `_datetime`
     for supported, coercer in _scalar_coercers().items():
         if annotation is supported:
             return coercer(value)

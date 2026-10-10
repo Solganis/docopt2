@@ -405,7 +405,12 @@ def test_completion_can_be_opted_out(monkeypatch):
     # complete=False: even with a request in the environment, argv is parsed normally.
     monkeypatch.setenv("_DOCOPT2_COMPLETE", "1")
     monkeypatch.setenv("_DOCOPT2_WORDS", "commit")
-    assert_that(docopt(_GIT_DOC, "commit --amend", complete=False)["--amend"]).is_true()
+    try:
+        parsed = docopt(_GIT_DOC, "commit --amend", complete=False)
+    except SystemExit as answered:  # what a completion request ends in
+        parsed = answered
+    assert_that(parsed).is_instance_of(dict)
+    assert_that(parsed["--amend"]).is_true()
 
 
 def test_docopt_parses_normally_when_no_request_is_present(monkeypatch):
