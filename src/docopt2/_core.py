@@ -99,11 +99,53 @@ def _extras(default_help: bool, version: object, options: list[Pattern], doc: st
 
 
 def _argv_snippet(argv: list[str] | tuple[str, ...] | str, token: str, label: str) -> Snippet:
-    """An 'in the arguments:' snippet with a caret under ``token`` (dropped if not a literal substring)."""
+    """An 'in the arguments:' snippet, its caret under ``token`` only where the line holds that text at one place."""
     argv_text = argv if isinstance(argv, str) else " ".join(argv)
     at = argv_text.find(token)
-    carets = [Caret(at, at + len(token), label)] if at != -1 else []
+    carets = [Caret(at, at + len(token), label)] if at != -1 and at == argv_text.rfind(token) else []
     return Snippet(argv_text, "in the arguments:", carets)
+
+
+def _placed_tokens(argv: list[str] | tuple[str, ...] | str, usage: str, exit_code: int) -> Tokens:
+    """The argv as a stream that knows where each token stands in the line a diagnostic prints for it."""
+    places: list[tuple[int, int]] = []
+    if isinstance(argv, str):
+        line, end = argv, 0
+        for token in argv.split():
+            start = argv.index(token, end)
+            end = start + len(token)
+            places.append((start, end))
+    else:
+        line, start = " ".join(argv), 0
+        for token in argv:
+            places.append((start, start + len(token)))
+            start += len(token) + 1
+    return Tokens(argv, spans=[*places], text=line, usage=usage, exit_code=exit_code)
+
+
+def _caret_under(leaf: Pattern, leaves: list[Pattern], placed_leaves: list[Pattern], label: str) -> list[Caret]:
+    """The caret under ``leaf`` of ``leaves``, at the place its twin has in the placed read of the same argv."""
+    at = next(index for index, held in enumerate(leaves) if held is leaf)
+    span = placed_leaves[at].span if at < len(placed_leaves) else None  # an argv that can be read only once
+    return [Caret(*span, label)] if span is not None else []
+
+
+def _argv_leaves(
+    tokens: Tokens,
+    pattern: Pattern,
+    options: list[Option],
+    options_first: bool,
+    negative_numbers: bool,
+    allow_abbrev: bool,
+) -> list[Pattern]:
+    """The argv as leaves, an undeclared ``--`` dropped: POSIX ends option parsing with it, and it is no positional."""
+    leaves = parse_argv(tokens, list(options), options_first, negative_numbers, allow_abbrev)
+    if not any(leaf.name == "--" for leaf in pattern.flat(Command)):
+        for index, leaf in enumerate(leaves):
+            if type(leaf) is Argument and leaf.value == "--":
+                del leaves[index]
+                break
+    return leaves
 
 
 def _env_truthy(value: str) -> bool:
@@ -150,8 +192,8 @@ def _span_of(leaves: Iterable[Pattern], name: str) -> tuple[int, int] | None:
 def _coercion_diagnostic(
     doc: str, argv: list[str] | tuple[str, ...] | str, err: _CoercionError, result: Arguments
 ) -> Diagnostic:
-    """Render a schema coercion failure with the same two-span caret used for match errors: the value
-    in the argv, cross-referenced to the usage element that declared its type."""
+    """Render a schema coercion failure: the usage element that declared the type, and the value in the
+    argv where it came from the argv and its text stands there at one place."""
     usage = single_usage_section(doc)
     snippets = []
     if err.key in result.provided:  # an env, config or default value is not in the argv, whatever text the argv holds
@@ -427,15 +469,16 @@ def docopt(
         pattern = parse_pattern(formal_tokens(usage), options)
     except RecursionError:
         raise DocoptLanguageError(Diagnostic(summary="the usage pattern nests too deeply to parse").render()) from None
-    argv_tokens = Tokens(argv, usage=usage, exit_code=exit_code)
-    argv_patterns = parse_argv(argv_tokens, list(options), options_first, negative_numbers, allow_abbrev)
+    # the same five arguments at each of the three reads, spelled out: as one tuple they cost 220 ns more per parse
+    try:
+        tokens = Tokens(argv, usage=usage, exit_code=exit_code)
+        argv_patterns = _argv_leaves(tokens, pattern, options, options_first, negative_numbers, allow_abbrev)
+    except DocoptExit:
+        # refused while being read: read it again with its places known, and the same refusal carries its caret
+        tokens = _placed_tokens(argv, usage, exit_code)
+        _argv_leaves(tokens, pattern, options, options_first, negative_numbers, allow_abbrev)
+        raise  # an argv that can be read only once is not refused the second time
     expand_options_shortcut(pattern, options)
-    # POSIX `--` ends option parsing; drop it unless the usage declares a `--`, so it is not a positional.
-    if not any(leaf.name == "--" for leaf in pattern.flat(Command)):
-        for index, leaf in enumerate(argv_patterns):
-            if type(leaf) is Argument and leaf.value == "--":
-                del argv_patterns[index]
-                break
     _extras(show_help, version, argv_patterns, doc, help_style)
     # Greedy-first: the first outcome is the greedy result, so every argv vanilla accepts is unchanged;
     # if it leaves leaves over, the search continues (bounded) for a fully-consuming match.
@@ -493,12 +536,18 @@ def docopt(
             return bind_schema(result, schema)
         except _CoercionError as exc:
             raise _exit(_coercion_diagnostic(doc, argv, exc, result), collected=complete_match, left=left) from exc
+    # by where a leaf stands, not by its text: the same text can stand earlier in the line, in a token the usage took
+    placed = _placed_tokens(argv, usage, exit_code)
+    placed_leaves = _argv_leaves(placed, pattern, options, options_first, negative_numbers, allow_abbrev)
     if suggest:
-        raw_tokens = argv.split() if isinstance(argv, str) else argv
-        hint = suggest_option(raw_tokens, options, allow_abbrev)
+        # the options as the parser read them: a token it took as a value or as a positional is no mistyped option
+        typed = [leaf for leaf in argv_patterns if isinstance(leaf, Option) and leaf.long is not None]
+        hint = suggest_option([str(leaf.long) for leaf in typed], options, allow_abbrev)
         if hint is not None:
             unknown, suggestion = hint
-            snippets = [_argv_snippet(argv, unknown, "not a known option")]
+            mistyped = next(leaf for leaf in typed if leaf.long == unknown)
+            carets = _caret_under(mistyped, argv_patterns, placed_leaves, "not a known option")
+            snippets = [Snippet(placed.text, "in the arguments:", carets)]
             declared_at = _span_of(pattern.flat(Option), suggestion)
             if declared_at is not None:  # the suggested option is written in the usage: cross-reference it
                 where = Snippet(usage, "in the usage:", [Caret(*declared_at, f"`{suggestion}` is defined here")])
@@ -513,7 +562,8 @@ def docopt(
         # given twice), add a second caret at that declaration - the argv-to-usage cross-reference.
         offending = left[0]
         shown = str(offending.name) if isinstance(offending, Option) else str(offending.value)
-        snippets = [_argv_snippet(argv, shown, "not allowed here")]
+        carets = _caret_under(offending, argv_patterns, placed_leaves, "not allowed here")
+        snippets = [Snippet(placed.text, "in the arguments:", carets)]
         usage_span = _span_of(pattern.flat(Option), shown)
         advice: str | None
         if usage_span is not None:

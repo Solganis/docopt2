@@ -171,6 +171,10 @@ docopt(doc, "--port=abc", schema=Args)   # raises the diagnostic below
 <span class="dt-fg">   |</span>
 <span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `abc` is not a valid int</span></div>
 
+The argv snippet appears only when the value's text stands at exactly one place in the arguments. With
+`prog abc abc` against `Usage: prog <name> <count>` and `count: int`, the text `abc` stands at two places.
+The diagnostic then shows the usage snippet alone, which is better than a caret under the wrong `abc`.
+
 Only a **user value** gets this two-span treatment. A schema that disagrees with the usage - a field with
 no matching element, an unsupported annotation - is the developer's error, not the user's, and raises
 [`DocoptLanguageError`](../reference/exceptions.md) with no argv caret. See

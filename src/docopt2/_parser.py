@@ -110,9 +110,9 @@ class Pattern:
     """Base class for every node in a usage-pattern tree."""
 
     _name: str | None
-    # Source offsets of this node in the usage section, for caret diagnostics. Inert metadata: it is
-    # excluded from repr/__eq__/__hash__/to_dict, so nodes equal on structure stay equal and matching
-    # is unaffected. None when unknown (argv-parsed leaves, the formal-usage wrapper, parse_tree()).
+    # Source offsets of this node, for caret diagnostics: in the usage section, or for a leaf of an argv read to
+    # report a refusal, in the line that argv prints as. Inert metadata: excluded from repr/__eq__/__hash__/to_dict,
+    # so matching is unaffected. None when unknown (any other argv leaf, the formal-usage wrapper, parse_tree()).
     span: Span = None
 
     @property
@@ -663,9 +663,9 @@ class Tokens(list[str]):
         """The source span of the next token, if any."""
         return self.spans[0] if self.spans else None
 
-    def fail(self, message: str) -> DocoptExit | DocoptLanguageError:
-        """Build the error as a diagnostic, with a caret at the current (or last consumed) token."""
-        span = self.current_span() or self._last_span
+    def fail(self, message: str, at: Span = None) -> DocoptExit | DocoptLanguageError:
+        """Build the error as a diagnostic, its caret ``at`` the named token, else at the current or last one."""
+        span = at or self.current_span() or self._last_span
         intro = "in the arguments:" if self.parsing_argv else "in the usage:"
         carets = [Caret(span[0], span[1], "here")] if span is not None else []
         snippets = [Snippet(self.text, intro, carets)] if self.text else []
@@ -686,28 +686,31 @@ def parse_long(tokens: Tokens, options: list[Option], allow_abbrev: bool = True)
         similar = [option for option in options if option.long and option.long.startswith(long)]
     if len(similar) > 1:
         names = ", ".join(str(option.long) for option in similar)
-        raise tokens.fail(f"`{long}` is not a unique prefix of: {names}")
+        raise tokens.fail(f"`{long}` is not a unique prefix of: {names}", span)
     if len(similar) < 1:
         argcount = 1 if eq == "=" else 0
         option = Option(None, long, argcount)
         options.append(option)
         if tokens.parsing_argv:
             option = Option(None, long, argcount, value if argcount else True)
+            span = span and (span[0], span[0] + len(long))  # the name as typed: the token may go on into a value
         option.span = span
         return [option]
     matched = similar[0]
     option = Option(matched.short, matched.long, matched.argcount, matched.value)
     if option.argcount == 0:
         if value is not None:
-            raise tokens.fail(f"`{option.long}` takes no argument")
+            raise tokens.fail(f"`{option.long}` takes no argument", span)
     elif value is None:
         # `)`/`]` close a group only in the usage pattern; in argv they are ordinary values.
         closers = (None, "--", ")", "]") if not tokens.parsing_argv else (None, "--")
         if tokens.current() in closers:
-            raise tokens.fail(f"`{option.long}` requires an argument")
+            # a usage shows where the argument was expected, an argv which option went without one
+            raise tokens.fail(f"`{option.long}` requires an argument", span if tokens.parsing_argv else None)
         value = tokens.move()
     if tokens.parsing_argv:
         option.value = value if value is not None else True
+        span = span and (span[0], span[0] + len(long))
     option.span = span
     return [option]
 
@@ -722,7 +725,7 @@ def parse_shorts(tokens: Tokens, options: list[Option]) -> list[Pattern]:
         short, left = "-" + left[0], left[1:]
         similar = [option for option in options if option.short == short]
         if len(similar) > 1:
-            raise tokens.fail(f"`{short}` is specified {len(similar)} times")
+            raise tokens.fail(f"`{short}` is specified {len(similar)} times", span)
         if len(similar) < 1:
             option = Option(short, None, 0)
             options.append(option)
@@ -738,7 +741,7 @@ def parse_shorts(tokens: Tokens, options: list[Option]) -> list[Pattern]:
             if left == "":
                 closers = (None, "--", ")", "]") if not tokens.parsing_argv else (None, "--")
                 if tokens.current() in closers:
-                    raise tokens.fail(f"`{short}` requires an argument")
+                    raise tokens.fail(f"`{short}` requires an argument", span if tokens.parsing_argv else None)
                 value = tokens.move()
             else:
                 # Accept the `-s=value` form; a leading `=` is the separator, not part of the value.
@@ -748,6 +751,12 @@ def parse_shorts(tokens: Tokens, options: list[Option]) -> list[Pattern]:
             option.value = value if value is not None else True
         option.span = span
         parsed.append(option)
+    if span is not None and tokens.parsing_argv:
+        # in the argv each flag of the token is pointed at by its own letter, the first one with the dash
+        start, letter = span[0], span[0] + len(token) - len(token.lstrip("-"))
+        for stacked in parsed:
+            stacked.span = (start, letter + 1)
+            start = letter = letter + 1
     return parsed
 
 
@@ -977,20 +986,33 @@ def parse_argv(
             ``--ver`` -> ``--version`` de-abbreviation.
     """
     parsed: list[Pattern] = []
+    placed = tokens.current_span() is not None
     current = tokens.current()
     while current is not None:
         if current == "--":
-            return parsed + [Argument(None, value) for value in tokens]
+            return parsed + _rest_as_positionals(tokens, placed)
         if current.startswith("--"):
             parsed += parse_long(tokens, options, allow_abbrev)
         elif current.startswith("-") and current != "-" and not (negative_numbers and _is_number(current)):
             parsed += parse_shorts(tokens, options)
         elif options_first:
-            return parsed + [Argument(None, value) for value in tokens]
+            return parsed + _rest_as_positionals(tokens, placed)
         else:
-            parsed.append(Argument(None, tokens.move()))
+            argument = Argument(None, tokens.move())
+            if placed:
+                argument.span = tokens._last_span
+            parsed.append(argument)
         current = tokens.current()
     return parsed
+
+
+def _rest_as_positionals(tokens: Tokens, placed: bool) -> list[Pattern]:
+    """Every token left in the stream as a positional, each at its place in a stream that knows the places."""
+    rest: list[Pattern] = [Argument(None, value) for value in tokens]
+    if placed:
+        for argument, span in zip(rest, tokens.spans, strict=True):
+            argument.span = span
+    return rest
 
 
 def _option_chunks(doc: str) -> Iterator[str]:
