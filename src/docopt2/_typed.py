@@ -200,7 +200,7 @@ def _field_names(schema: type[Any], hints: dict[str, Any]) -> list[str]:
     if _is_dataclass(schema):
         import dataclasses  # deferred; only a real dataclass schema pays for it
 
-        return [field.name for field in dataclasses.fields(schema)]
+        return [field.name for field in dataclasses.fields(schema) if field.init]
     if _is_typeddict(schema):
         return list(hints)
     return [
@@ -322,7 +322,8 @@ def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
     Raises:
         DocoptLanguageError: The schema and usage message disagree (a field has no
             matching usage element, two elements collide on one field, or a field uses
-            an unsupported annotation).
+            an unsupported annotation), or the schema is a plain class with no
+            constructor to take its fields.
         DocoptExit: A user-supplied value cannot be coerced to the declared type.
     """
     # Reflective pydantic detection: pydantic is never imported, so it stays optional.
@@ -358,4 +359,14 @@ def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
             values[name] = _coerce(raw, annotation)
         except (ValueError, TypeError, ArithmeticError) as exc:
             raise _CoercionError(key, raw, _type_name(annotation)) from exc
-    return schema(**values)
+    try:
+        return schema(**values)
+    except TypeError as exc:
+        # only a class that defines no construction of its own; a TypeError out of the user's code is theirs
+        inherited = (schema.__init__ is object.__init__, schema.__new__ is object.__new__)
+        if all(inherited) and type(schema).__call__ is type.__call__:
+            raise DocoptLanguageError(
+                f"schema `{schema.__name__}` is a plain class with no constructor to take its fields; "
+                "make it a dataclass or subclass `Cli`"
+            ) from exc
+        raise

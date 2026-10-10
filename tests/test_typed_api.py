@@ -431,6 +431,75 @@ def test_dataclass_default_used_when_optional_element_absent():
 
 
 @dataclasses.dataclass
+class WithInternalField:
+    host: str
+    seen: list[str] = dataclasses.field(init=False, default_factory=list)
+
+
+def test_a_dataclass_field_the_constructor_does_not_take_is_not_bound():
+    # `init=False` is the dataclass's own state; asking the usage for it refused a schema that was fine
+    assert_that(_raised_binding(WithInternalField)).is_none()
+    bound = docopt("Usage: prog <host>", "h", schema=WithInternalField)
+    assert_that(bound).is_equal_to(WithInternalField(host="h"))
+    assert_that(bound.seen).is_empty()
+
+
+class PlainAnnotated:
+    host: str
+
+
+def _raised_binding(schema: type) -> Exception | None:
+    """Whatever binding ``<host>`` onto ``schema`` raises, so a test judges which exception it was."""
+    try:
+        docopt("Usage: prog <host>", "h", schema=schema)
+    except Exception as error:
+        return error
+    return None
+
+
+def test_a_plain_class_with_no_constructor_is_refused_as_a_schema_by_name():
+    refusal = _raised_binding(PlainAnnotated)
+    assert_that(refusal).is_instance_of(DocoptLanguageError)
+    assert_that(str(refusal)).contains("`PlainAnnotated`").contains("dataclass").contains("`Cli`")
+    assert_that(refusal.__cause__).is_instance_of(TypeError)
+
+
+class RefusingInit:
+    host: str
+
+    def __init__(self, host: str) -> None:
+        raise TypeError(f"__init__ refused {host}")
+
+
+class RefusingNew:
+    host: str
+
+    def __new__(cls, host: str) -> RefusingNew:
+        raise TypeError(f"__new__ refused {host}")
+
+
+class _ConstructingMeta(type):
+    def __call__(cls, **fields: str) -> object:
+        raise TypeError(f"the metaclass refused {sorted(fields)}")
+
+
+class BuiltByItsMetaclass(metaclass=_ConstructingMeta):
+    host: str
+
+
+def test_a_type_error_raised_by_the_schemas_own_construction_is_left_alone():
+    # the last has no `__init__` and no `__new__` of its own, like the plain class, yet its metaclass builds it
+    for schema, said in [
+        (RefusingInit, "__init__ refused h"),
+        (RefusingNew, "__new__ refused h"),
+        (BuiltByItsMetaclass, "the metaclass refused ['host']"),
+    ]:
+        refusal = _raised_binding(schema)
+        assert_that(type(refusal)).is_equal_to(TypeError)
+        assert_that(str(refusal)).is_equal_to(said)
+
+
+@dataclasses.dataclass
 class RequiredName:
     name: str
 

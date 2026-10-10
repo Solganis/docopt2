@@ -160,16 +160,24 @@ Where a value came from stays visible:
   value resolves from without reading the code.
 
 !!! note "Empty is treated as absent"
-    A blank or unset source falls through to the next layer - the shell `${VAR:-default}` convention - so
+    An empty or unset source falls through to the next layer - the shell `${VAR:-default}` convention - so
     an empty `APP_PORT=` never silently overrides the config or the default with an empty string. The same
     holds for a `null` or empty config value.
+
+    Only the empty string counts. A value of whitespace is a value, since `SEP=" "` is what a separator
+    option is set to.
 
 !!! warning "A config key must name a value, not a table"
     An option takes one value, so `[config: server]` against `{"server": {"port": 80}}` is a mistake. The
     key stops one level short.
 
     docopt2 says so, with a caret and the keys that would have worked, instead of handing `--server` the
-    string `{'port': 80}`. Scalars, dates and times pass through as written.
+    string `{'port': 80}`.
+
+A config value reaches a valued option as text, the way a command-line value would. What arrives is the loaded
+value rendered back, not the characters in the file: a number written `1.50` arrives as `1.5`, and a date
+and time written with a `T` arrives with a space. A boolean arrives as `true` or `false`, the way JSON,
+YAML and TOML spell it.
 
 ### Generate a config skeleton
 
@@ -199,8 +207,8 @@ print(generate_config_template(doc))
 # verbose = false  # --verbose
 ```
 
-Options without a `[config:]` key are left out, and the output is valid TOML - integers, floats, and
-booleans stay bare, everything else is quoted - so it round-trips straight back through `tomllib`.
+Options without a `[config:]` key are left out, and the output is valid TOML - a number or a boolean that
+reads back unchanged stays bare, everything else is quoted - so it round-trips straight back through `tomllib`.
 
 !!! note "Contradictory keys fail loudly"
     Config keys that cannot coexist in one TOML document raise `DocoptLanguageError` rather than emit a

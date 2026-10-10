@@ -39,6 +39,9 @@ before you run.
 - a [`Cli`](../reference/cli.md) subclass (class-first API)
 - a pydantic model (reflective, optional - no `import pydantic` in the core)
 
+A plain annotated class with no constructor is not one of them. It is refused with a `DocoptLanguageError`
+that says to make it a dataclass or subclass `Cli`.
+
 ### Dataclass
 
 The plain case: annotate the fields, and each is coerced to its declared type.

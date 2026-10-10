@@ -8,7 +8,7 @@ import pytest
 from assertpy2 import assert_that
 from pytest import importorskip
 
-from docopt2 import Cli, Dispatch, DocoptExit, docopt
+from docopt2 import Cli, Dispatch, DocoptExit, Source, docopt
 from docopt2._parser import parse_defaults
 
 # tomllib is stdlib from 3.11; on the 3.10 floor the dev group installs tomli. The value set below is only
@@ -113,7 +113,10 @@ def test_the_failure_degrades_to_a_caretless_diagnostic_behind_the_options_short
     [
         (8080, "8080"),
         ("host", "host"),
-        (False, "False"),
+        # a boolean arrives as JSON, YAML and TOML spell it; `str()` would hand a valued option Python's `True`
+        (True, "true"),
+        (False, "false"),
+        ("True", "True"),  # a string is never respelled
         # tomllib yields date, datetime and time natively. `time` is the sharp one: no schema annotation
         # names it, so a value set copied from the coercible types would reject a legitimate TOML value.
         (datetime.date(2020, 1, 1), "2020-01-01"),
@@ -125,6 +128,20 @@ def test_the_failure_degrades_to_a_caretless_diagnostic_behind_the_options_short
 )
 def test_a_config_value_still_reaches_the_option(held, expected):
     assert_that(docopt(_UNDER, "", complete=False, config={"a": {"b": held}})["--x"]).is_equal_to(expected)
+
+
+@pytest.mark.parametrize(
+    ("written", "arrives"),
+    [
+        ("1.50", "1.5"),
+        ("1979-05-27T07:32:00Z", "1979-05-27 07:32:00+00:00"),
+        ("true", "true"),
+        ('"1.50"', "1.50"),
+    ],
+)
+def test_a_config_value_arrives_as_the_loaded_value_rendered_back_not_as_the_file_wrote_it(written, arrives):
+    loaded = tomllib.loads(f"[a]\nb = {written}\n")
+    assert_that(docopt(_UNDER, "", complete=False, config=loaded)["--x"]).is_equal_to(arrives)
 
 
 def test_every_type_tomllib_can_produce_is_either_a_value_or_a_loud_failure():
@@ -147,9 +164,31 @@ def test_every_type_tomllib_can_produce_is_either_a_value_or_a_loud_failure():
 
 
 def test_an_empty_env_falls_through_to_config(monkeypatch):
-    # A blank env var is treated as unset (the shell ${VAR:-default} convention), so config still applies.
+    # An empty env var is treated as unset (the shell ${VAR:-default} convention), so config still applies.
     monkeypatch.setenv("APP_PORT", "")
     assert_that(docopt(_DOC, "", complete=False, config=_CFG)["--port"]).is_equal_to("8080")
+
+
+def test_a_whitespace_value_is_a_value_in_either_layer(monkeypatch):
+    # `SEP=" "` is what a separator option is set to, so only the empty string counts as absent
+    monkeypatch.setenv("APP_PORT", " ")
+    spaced = docopt(_DOC, "", complete=False, config=_CFG)
+    assert_that(spaced["--port"]).is_equal_to(" ")
+    assert_that(spaced.source("--port")).is_equal_to(Source.ENV)
+    monkeypatch.delenv("APP_PORT")
+    from_config = docopt(_DOC, "", complete=False, config={"server": {"port": " "}})
+    assert_that(from_config["--port"]).is_equal_to(" ")
+    assert_that(from_config.source("--port")).is_equal_to(Source.CONFIG)
+
+
+def test_a_config_boolean_still_switches_a_flag_and_counts_once_for_a_counted_one():
+    doc = "Usage: prog [--quiet] [-v...]\n\nOptions:\n  --quiet  Quiet [config: q].\n  -v  Verbose [config: v]."
+    assert_that(dict(docopt(doc, "", complete=False, config={"q": True, "v": True}))).is_equal_to(
+        {"--quiet": True, "-v": 1}
+    )
+    assert_that(dict(docopt(doc, "", complete=False, config={"q": False, "v": False}))).is_equal_to(
+        {"--quiet": False, "-v": 0}
+    )
 
 
 def test_an_empty_config_value_falls_through_to_the_default(monkeypatch):

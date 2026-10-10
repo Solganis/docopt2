@@ -113,11 +113,16 @@ def _env_count(value: str) -> int:
     """A repeating (counted) flag's fallback value as an int: a plain number is that count, else 0 or 1.
 
     A counted flag holds an int everywhere else (``-vv`` -> ``2``); ``_env_truthy`` would collapse an
-    ``[env:]`` value to a bool and break that type. ``V=3`` means verbosity 3; ``V=on`` means 1.
+    ``[env:]`` value to a bool and break that type. ``V=3`` means verbosity 3; ``V=on`` means 1. A digit
+    string ``int()`` refuses (a superscript, or one past the interpreter's digit limit, zeros and all)
+    counts once.
     """
     text = value.strip()
     if text.isdigit():
-        return int(text)
+        try:
+            return int(text)
+        except ValueError:  # isdigit() also says yes to a superscript two, and int() stops at a digit limit
+            return 1
     return 1 if _env_truthy(value) else 0
 
 
@@ -140,14 +145,17 @@ def _span_of(leaves: Iterable[Pattern], name: str) -> tuple[int, int] | None:
     return next((leaf.span for leaf in leaves if leaf.name == name and leaf.span is not None), None)
 
 
-def _coercion_diagnostic(doc: str, argv: list[str] | tuple[str, ...] | str, err: _CoercionError) -> Diagnostic:
+def _coercion_diagnostic(
+    doc: str, argv: list[str] | tuple[str, ...] | str, err: _CoercionError, result: Arguments
+) -> Diagnostic:
     """Render a schema coercion failure with the same two-span caret used for match errors: the value
     in the argv, cross-referenced to the usage element that declared its type."""
     usage = single_usage_section(doc)
     snippets = []
-    in_argv = _argv_snippet(argv, str(err.raw), f"expected {err.expected}")
-    if in_argv.carets:  # only caret the argv when the value is literally there (a CLI value, not env/default)
-        snippets.append(in_argv)
+    if err.key in result.provided:  # an env, config or default value is not in the argv, whatever text the argv holds
+        in_argv = _argv_snippet(argv, str(err.raw), f"expected {err.expected}")
+        if in_argv.carets:
+            snippets.append(in_argv)
     # Build the pattern the same way docopt() does (formal_tokens), so the leaf spans align with `usage`;
     # parse_tree() uses formal_usage and would offset the caret.
     pattern = parse_pattern(formal_tokens(usage), parse_defaults(doc))
@@ -231,8 +239,9 @@ def _config_lookup(config: Mapping[str, Any], key: str) -> Any:
 def _fallback_value(option: Option, config: Mapping[str, Any] | None) -> tuple[str, Source] | None:
     """The env-then-config fallback for an omitted option (env wins), with its source, or None to default.
 
-    An empty or unset source is treated as absent - the shell ``${VAR:-default}`` convention - so a blank
-    environment variable never silently overrides the config or default with an empty string.
+    An empty or unset source is treated as absent - the shell ``${VAR:-default}`` convention - so an empty
+    environment variable never silently overrides the config or default with an empty string. A value of
+    whitespace is a value: ``SEP=" "`` is what a separator option is set to.
     """
     if option.env is not None:
         env_value = os.environ.get(option.env)
@@ -246,8 +255,10 @@ def _fallback_value(option: Option, config: Mapping[str, Any] | None) -> tuple[s
             # schema: without one, a config value is never coerced, and nothing downstream would notice.
             if not isinstance(found, _config_value_types()):
                 raise _ConfigShapeError(cast("str", option.name), option.config_key, found)
-            if str(found):  # non-empty; a null or blank config value falls through
-                return str(found), Source.CONFIG  # a string, so the schema coerces it like a CLI value
+            # a boolean as JSON, YAML and TOML all spell it, not as Python's str() does
+            text = str(found).lower() if isinstance(found, bool) else str(found)
+            if text:  # non-empty; a null or empty config value falls through
+                return text, Source.CONFIG  # a string, so the schema coerces it like a CLI value
     return None
 
 
@@ -480,7 +491,7 @@ def docopt(
         try:
             return bind_schema(result, schema)
         except _CoercionError as exc:
-            raise _exit(_coercion_diagnostic(doc, argv, exc), collected=complete_match, left=left) from exc
+            raise _exit(_coercion_diagnostic(doc, argv, exc, result), collected=complete_match, left=left) from exc
     if suggest:
         raw_tokens = argv.split() if isinstance(argv, str) else argv
         hint = suggest_option(raw_tokens, options, allow_abbrev)
@@ -650,7 +661,7 @@ class Dispatch:
             bound = bind_schema(arguments, schema)
         except _CoercionError as exc:
             resolved_argv = sys.argv[1:] if argv is None else argv
-            diagnostic = _coercion_diagnostic(self.doc, resolved_argv, exc)
+            diagnostic = _coercion_diagnostic(self.doc, resolved_argv, exc, arguments)
             raise DocoptExit(diagnostic=diagnostic, usage=usage, exit_code=exit_code) from exc
         return handler(bound)
 

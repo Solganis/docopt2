@@ -1,4 +1,5 @@
 import dataclasses
+import sys
 
 from assertpy2 import assert_that
 
@@ -56,6 +57,36 @@ def test_a_counted_flag_from_env_keeps_its_int_count_type(monkeypatch):
     zero = docopt(doc, [], complete=False)["-v"]
     assert_that(zero).is_equal_to(0)
     assert_that(type(zero)).is_equal_to(int)
+
+
+_COUNTED = "Usage: prog [-v...]\n\nOptions:\n  -v  Verbosity [env: V]."
+
+
+def _count_read_from_env():
+    """The count ``-v`` resolves to, or the ValueError that got out, so a test compares either with a number."""
+    try:
+        return docopt(_COUNTED, [], complete=False)["-v"]
+    except ValueError as leaked:
+        return leaked
+
+
+def test_a_count_that_int_cannot_read_counts_once_instead_of_raising(monkeypatch):
+    monkeypatch.setenv("V", "\N{ARABIC-INDIC DIGIT THREE}")  # a decimal digit of any script is a number to int()
+    assert_that(_count_read_from_env()).is_equal_to(3)
+    monkeypatch.setenv("V", "\N{SUPERSCRIPT TWO}")  # str.isdigit() says yes to it, int() says ValueError
+    assert_that(_count_read_from_env()).is_equal_to(1)
+
+
+def test_a_count_with_more_digits_than_int_converts_counts_once(monkeypatch):
+    # the limit is set here, since the ambient one can be raised or switched off (PYTHONINTMAXSTRDIGITS)
+    ambient = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(640)
+    try:
+        for digits, count in [("9" * 700, 1), ("0" * 700, 1), ("007", 7)]:
+            monkeypatch.setenv("V", digits)
+            assert_that(_count_read_from_env()).described_as(f"{len(digits)} digits").is_equal_to(count)
+    finally:
+        sys.set_int_max_str_digits(ambient)
 
 
 def test_env_value_coerces_through_the_schema(monkeypatch):

@@ -85,7 +85,10 @@ def test_toml_value_renders_each_scalar_kind():
     assert_that(_toml_value("-3")).is_equal_to("-3")
     assert_that(_toml_value("1.5")).is_equal_to("1.5")  # float
     assert_that(_toml_value("3.14")).is_equal_to("3.14")  # a float that reads back unchanged stays bare
-    assert_that(_toml_value("true")).is_equal_to("true")  # bool-looking default
+    assert_that(_toml_value("true")).is_equal_to("true")  # a loaded boolean reads back as exactly this
+    assert_that(_toml_value("false")).is_equal_to("false")
+    assert_that(_toml_value("True")).is_equal_to('"True"')  # any other spelling would read back changed
+    assert_that(_toml_value("FALSE")).is_equal_to('"FALSE"')
     assert_that(_toml_value("info")).is_equal_to('"info"')  # plain string, quoted
     assert_that(_toml_value('a"b\\c')).is_equal_to('"a\\"b\\\\c"')  # quotes and backslashes escaped
     assert_that(_toml_value("007")).is_equal_to('"007"')  # leading zeros are not a valid TOML int -> string
@@ -95,6 +98,10 @@ def test_toml_value_renders_each_scalar_kind():
     assert_that(_toml_value("1.10")).is_equal_to('"1.10"')
     assert_that(_toml_value("10.20")).is_equal_to('"10.20"')
     assert_that(_toml_value("-0")).is_equal_to('"-0"')
+    # TOML promises a loader 64 bits, which 18 digits always fit and 19 may not
+    assert_that(_toml_value("9" * 18)).is_equal_to("9" * 18)
+    assert_that(_toml_value("-" + "9" * 18)).is_equal_to("-" + "9" * 18)
+    assert_that(_toml_value("9" * 19)).is_equal_to('"' + "9" * 19 + '"')
 
 
 def test_a_numeric_default_resolves_back_to_the_declared_value_through_the_template():

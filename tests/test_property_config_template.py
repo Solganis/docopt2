@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+from assertpy2 import assert_that
 from hypothesis import given
 from hypothesis import strategies as st
 from pytest import importorskip
 
-from docopt2 import DocoptLanguageError, generate_config_template
+from docopt2 import DocoptLanguageError, docopt, generate_config_template
 
 # tomllib is stdlib from 3.11; on the 3.10 floor the dev group installs tomli, so these properties
 # hold on every supported version instead of quietly skipping on the oldest one.
@@ -79,3 +81,53 @@ def test_config_template_never_emits_silent_invalid_toml(doc):
     except DocoptLanguageError:
         return  # colliding/duplicate keys are rejected loudly - the acceptable failure mode
     tomllib.loads(out)  # anything actually emitted must parse
+
+
+def _resolves_to_its_declared_defaults(doc: str) -> bool:
+    """Whether the template of ``doc``, fed back as ``config=``, resolves every option to its default."""
+    tomllib = importorskip(_TOML)
+    template = generate_config_template(doc)
+    return docopt(doc, "", config=tomllib.loads(template), complete=False) == docopt(doc, "", complete=False)
+
+
+@pytest.mark.parametrize("default", ["true", "True", "TRUE", "false", "FALSE", "1.10", "007", "9" * 19, " x ", "a b"])
+def test_a_default_reads_back_unchanged_through_the_template(default):
+    doc = f"Usage: prog [options]\n\nOptions:\n  --opt0=<v0>  Desc [default: {default}] [config: g0].\n"
+    assert_that(docopt(doc, "", complete=False)["--opt0"]).is_equal_to(default)  # the usage itself is read as meant
+    assert_that(_resolves_to_its_declared_defaults(doc)).is_true()
+
+
+def test_an_integer_default_past_the_digit_limit_is_quoted_instead_of_raising():
+    # the limit is set here, since the ambient one can be raised or switched off (PYTHONINTMAXSTRDIGITS)
+    doc = "Usage: prog [options]\n\nOptions:\n  --opt0=<v0>  Desc [default: " + "9" * 700 + "] [config: g0].\n"
+    ambient = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(640)
+    try:
+        assert_that(_resolves_to_its_declared_defaults(doc)).is_true()
+    finally:
+        sys.set_int_max_str_digits(ambient)
+
+
+def test_the_template_fed_back_as_config_resolves_every_option_to_its_declared_default():
+    drawn: list[str] = []
+    well_formed: list[str] = []
+
+    tomllib = importorskip(_TOML)
+
+    @given(doc=_config_doc())
+    def check(doc):
+        drawn.append(doc)
+        try:
+            declared = docopt(doc, "", complete=False)
+        except DocoptLanguageError:
+            return  # a fuzzed default injected a second "usage:" or a section header
+        well_formed.append(doc)
+        try:
+            template = generate_config_template(doc)
+        except DocoptLanguageError as refusal:
+            raise AssertionError(f"a usage docopt reads was refused a template: {refusal}") from refusal
+        assert docopt(doc, "", config=tomllib.loads(template), complete=False) == declared
+
+    check()
+    # a refusal is the rare case, so a run that refused most of what it drew proved nothing about the rest
+    assert_that(len(well_formed)).is_greater_than(len(drawn) * 0.9)

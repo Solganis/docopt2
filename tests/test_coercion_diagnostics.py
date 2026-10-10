@@ -54,6 +54,44 @@ def test_bad_env_value_carets_the_usage_but_not_the_argv(monkeypatch):
     assert_that(message).does_not_contain("in the arguments:")
 
 
+@dataclasses.dataclass
+class _PortAndName:
+    port: int | None
+    name: str
+
+
+def test_a_bad_env_value_does_not_blame_an_argv_token_with_the_same_text(monkeypatch):
+    # the text of the failing value being somewhere in the argv says nothing about where the value came from
+    monkeypatch.setenv("APP_PORT", "bad")
+    doc = "Usage: prog [--port=<n>] <name>\n\nOptions:\n  --port=<n>  Port [env: APP_PORT]."
+    with raises(DocoptExit) as info:
+        docopt(doc, ["bad"], complete=False, schema=_PortAndName)
+    message = str(info.value)
+    assert_that(message).contains("invalid value for `--port`").contains("in the usage:")
+    assert_that(message).does_not_contain("in the arguments:")
+
+
+def test_the_same_bad_value_given_on_the_command_line_is_still_pointed_at(monkeypatch):
+    monkeypatch.delenv("APP_PORT", raising=False)
+    doc = "Usage: prog [--port=<n>] <name>\n\nOptions:\n  --port=<n>  Port [env: APP_PORT]."
+    with raises(DocoptExit) as info:
+        docopt(doc, ["--port=bad", "x"], complete=False, schema=_PortAndName)
+    assert_that(_caret_aligns_under(str(info.value), "--port=bad x", "bad")).is_true()
+
+
+def test_dispatch_does_not_blame_an_argv_token_for_an_env_value_either(monkeypatch):
+    monkeypatch.setenv("APP_PORT", "bad")
+    app = Dispatch("Usage: prog set [--port=<n>] <name>\n\nOptions:\n  --port=<n>  Port [env: APP_PORT].")
+
+    @app.on("set", schema=_PortAndName)
+    def _set(args):
+        return args
+
+    with raises(DocoptExit) as info:
+        app.run(["set", "bad"])
+    assert_that(str(info.value)).contains("invalid value for `--port`").does_not_contain("in the arguments:")
+
+
 def test_bad_default_via_options_shortcut_has_no_carets():
     # value from a default AND the option only lives in [options] (no usage span) -> summary + help only.
     doc = "Usage: prog [options]\n\nOptions:\n  --level=<n>  Level [default: high]."

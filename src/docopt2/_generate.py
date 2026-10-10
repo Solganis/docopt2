@@ -170,7 +170,9 @@ def _toml_value(value: object) -> str:
     parsed to a Python ``int``/``float``, and the resolver reads it back with ``str()``. ``1.10`` would
     parse to ``1.1`` and resolve the option to a different value than declared, so it is quoted instead;
     ``8080`` and ``3.14`` round-trip and stay bare. (Leading zeros like ``007`` are not valid TOML numbers
-    and were always quoted.)
+    and were always quoted.) The same rule decides a boolean: a loaded one reads back as ``true`` or
+    ``false``, so only those two spellings are bare and ``True`` is quoted. An integer of more than 18
+    digits is quoted too: TOML promises a loader 64 bits and no more, and ``int()`` stops at a digit limit.
     """
     if value is None:
         return '""'
@@ -179,12 +181,12 @@ def _toml_value(value: object) -> str:
     if value is False:
         return "false"
     text = str(value)
-    if re.fullmatch(r"-?(0|[1-9]\d*)", text) and str(int(text)) == text:
+    if re.fullmatch(r"-?(0|[1-9]\d{0,17})", text) and str(int(text)) == text:
         return text  # a bare TOML integer that reads back unchanged
     if re.fullmatch(r"-?(0|[1-9]\d*)\.\d+", text) and str(float(text)) == text:
         return text  # a bare TOML float that reads back unchanged
-    if text.lower() in ("true", "false"):
-        return text.lower()
+    if text in ("true", "false"):
+        return text
     return _toml_quote(text)
 
 

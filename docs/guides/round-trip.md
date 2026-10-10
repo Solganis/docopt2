@@ -24,31 +24,48 @@ format_argv(args, doc)   # ['./data', './backups', '--compress', '--keep=10']
 `format_argv(result, doc)` returns an argv token list (no program name) that parses back to `result`:
 
 ```python
-docopt(doc, format_argv(args, doc), complete=False) == args   # always True
+docopt(doc, format_argv(args, doc), help=False, complete=False) == args   # True
 ```
 
 That equality is the whole point, and it is a **guarantee, not a hope**. Internally `format_argv` generates a
 candidate argv from each usage line and re-parses it, returning the first that reproduces the result.
+
+The guarantee is about that replay: `help=False`, and every other setting at its default. It is the replay
+`format_argv` checks its own answer with. Two things follow:
+
+- A result that carries `--help` formats. Replayed with `help=True`, its argv prints the help and exits.
+- A result that took another setting to produce (`options_first=True`, `negative_numbers=True`) is formatted
+  to parse back under the defaults, not under that setting.
 
 So the output is always *a* valid argv, though not necessarily the shortest one, nor the exact string the
 user typed. The canonical form is fixed and predictable:
 
 - **Everything that carries a value.** What the user supplied, plus whatever `[env:]` or `[config:]` resolved.
   Only elements left at their `[default: ...]` are omitted, so a defaulted `--keep` would not appear and an
-  explicit one would.
-- **Env and config values are written out**, never skipped, so the argv stands on its own. A persisted command
-  that silently depended on an unrecorded variable would not reproduce the run.
+  explicit one would. The defaults are written out as well where leaving them out no longer parses back: the
+  environment changed since the parse, or the mapping was built by hand.
+- **Env and config values are written out**, so the argv stands on its own. A persisted command that
+  silently depended on an unrecorded variable would not reproduce the run. One thing cannot be written: a flag
+  read as off and a count of zero have no token, so an argv formatted while `V=0` leaves `-v` to the variable.
 - **Usage order.** Tokens follow the order of the matched usage line.
 - **Long form.** An option is written `--name=value` when it has a long form, `-x value` when it is short only.
+  One value cannot stand as a token of its own, so a short option holding `--` is written `-x=--`.
   A counted flag repeats (`-v -v -v`), a repeatable option repeats (`--x=1 --x=2`).
+- **A positional that would read as an option goes behind `--`.** Written bare, a value such as `-x` or `--`
+  is read back as an option. So the options are written first, then `--`, then every positional. A lone `-`
+  is a positional already and stays where it is.
 - **The line the result took.** For a multi-pattern usage, the alternative the result matched is chosen (the
   `commit` line for a commit result), verified by the re-parse.
 
 A result that no usage pattern can reproduce raises `ValueError` rather than return a wrong argv.
 
-That means a hand-built or inconsistent mapping, or a degenerate grammar in which one value is reachable
+That means an inconsistent mapping, or a degenerate grammar in which one value is reachable
 through differently-shaped positions (`(-a | -b)...`, `[<name>] <path> <name>`). Such a shape has a genuinely
 ambiguous argv, so there is no single canonical form to return.
+
+A parser setting can produce a result with no argv too. With `negative_numbers=True` a `-5` is read as a
+positional, and `--` protects it on the way back, unless the usage declares a `--` of its own after it
+(`prog <n> -- <tail>`). There a second `--` would itself be read as `<n>`.
 
 ## What it is for
 
