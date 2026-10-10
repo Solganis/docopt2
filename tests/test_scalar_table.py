@@ -89,7 +89,9 @@ def test_every_scalar_of_the_table_is_coerced_from_its_text():
 def test_a_scalar_class_is_still_coerced_after_its_home_left_sys_modules(monkeypatch, home):
     # a class outlives its entry there, and `date` is the same class when it comes from `_datetime`
     typed._scalar_coercers()
-    monkeypatch.delitem(sys.modules, home)
+    # with its submodules: from 3.13 `pathlib` is a package, and one left half in place cannot be imported again
+    for name in [name for name in sys.modules if name == home or name.startswith(f"{home}.")]:
+        monkeypatch.delitem(sys.modules, name)
     doc = "Usage: prog <count> <ratio> <path> <amount> <ident> <at> <day> <hour>"
     argv = [
         "3",
