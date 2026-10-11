@@ -305,7 +305,7 @@ def _exhaustively_walked(children, left, *, optional, block, in_repetition):
     profile caught it. The list below now carries it, and the property test guards the rest.
     """
     if not children:
-        yield left, set(), False
+        yield left, (), False
         return
     head, rest = children[0], children[1:]
     for remaining, frontier, blocks in _frontier(head, left, block=block, in_repetition=in_repetition):
@@ -315,7 +315,7 @@ def _exhaustively_walked(children, left, *, optional, block, in_repetition):
             for tail_remaining, tail_frontier, tail_blocks in _exhaustively_walked(
                 rest, remaining, optional=optional, block=block, in_repetition=in_repetition
             ):
-                yield tail_remaining, frontier | tail_frontier, tail_blocks
+                yield tail_remaining, frontier + tail_frontier, tail_blocks
     if optional:
         yield from _exhaustively_walked(rest, left, optional=optional, block=block, in_repetition=in_repetition)
 

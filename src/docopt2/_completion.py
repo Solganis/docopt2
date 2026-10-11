@@ -10,6 +10,7 @@ from docopt2._errors import DocoptExit, DocoptLanguageError
 from docopt2._parser import (
     MATCH_LIMIT,
     Argument,
+    BranchPattern,
     Command,
     Either,
     LeafPattern,
@@ -31,6 +32,11 @@ from docopt2._parser import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
+    from typing import Any
+
+    from docopt2._parser import SingleMatch
+
+_A_VALUE = "\0"  # stands for the next word where a prefix is probed for an option waiting for its argument
 
 # Environment protocol shared with the generated shell scripts: when completion fires, the script
 # sets these variables and re-invokes the program, whose docopt() call answers with the candidates.
@@ -43,11 +49,12 @@ _WORDS_ENV = "_DOCOPT2_WORDS"
 
 def _frontier(
     node: Pattern, left: list[Pattern], *, block: bool, in_repetition: bool = False
-) -> Iterator[tuple[list[Pattern], set[Pattern], bool]]:
+) -> Iterator[tuple[list[Pattern], tuple[Pattern, ...], bool]]:
     """Yield ``(remaining, frontier, blocks)`` per partial-consumption path; a token sequence is a
     valid prefix iff some path leaves ``remaining == []``.
 
-    ``frontier`` is the leaves that could match the NEXT token. An option floats (offerable, and the
+    ``frontier`` is the leaves that could match the NEXT token, in the order the path meets them, so its first
+    positional is the one the path fills next. An option floats (offerable, and the
     path proceeds past it, non-blocking); an unfilled positional/command sets ``blocks`` to ``block``,
     so the command pass (``block=True``) stops at the next positional while the option pass
     (``block=False``) floats past it to reach later options. A present positional that fails is dead.
@@ -58,11 +65,11 @@ def _frontier(
     if isinstance(node, LeafPattern):
         position, matched = node.single_match(left)
         if matched is not None and position is not None:
-            yield left[:position] + left[position + 1 :], set(), False  # already typed; consume it
+            yield left[:position] + left[position + 1 :], (), False  # already typed; consume it
         elif isinstance(node, Option):
-            yield left, {node}, False  # floats: offerable next, sequence proceeds (deferred)
+            yield left, (node,), False  # floats: offerable next, sequence proceeds (deferred)
         elif not any(type(leaf) is Argument for leaf in left):
-            yield left, {node}, block  # unfilled positional/command (only options, if any, remain)
+            yield left, (node,), block  # unfilled positional/command (only options, if any, remain)
         return
     if isinstance(node, Either):
         for child in node.children:
@@ -83,9 +90,9 @@ def _frontier(
 
 def _frontier_seq(
     children: list[Pattern], left: list[Pattern], *, optional: bool, block: bool, in_repetition: bool
-) -> Iterator[tuple[list[Pattern], set[Pattern], bool]]:
+) -> Iterator[tuple[list[Pattern], tuple[Pattern, ...], bool]]:
     if not children:
-        yield left, set(), False
+        yield left, (), False
         return
     head, rest = children[0], children[1:]
     floated = False
@@ -93,28 +100,84 @@ def _frontier_seq(
         if blocks:  # an unfilled required positional; stop, do not advance past it
             yield remaining, frontier, True
             continue
-        if len(remaining) == len(left):  # head consumed nothing: it floated (an option always does)
-            floated = True
+        if len(remaining) == len(left) and all(isinstance(leaf, Option) for leaf in frontier):
+            floated = True  # head took nothing and put only options ahead (an option alone always does)
         for tail_remaining, tail_frontier, tail_blocks in _frontier_seq(  # advance, carrying its frontier
             rest, remaining, optional=optional, block=block, in_repetition=in_repetition
         ):
-            yield tail_remaining, frontier | tail_frontier, tail_blocks
-    # An optional child may be skipped. When head floated, the take-branch already recursed into `rest`
-    # with this same `left` carrying head's frontier on top, so the skip yields a strict subset at the same
-    # remaining - EXCEPT inside a OneOrMore, where the skip-branch's EMPTY frontier is what lets the
-    # repetition re-enter (`[-a <name>]...` must skip `-a` to consume a second `<name>`, then offer `-a`
-    # on the next round). So the prune is sound only outside a repetition. There it matters: a top-level
-    # `[options]` over N flags forked into 2**n paths, and a Tab press on a 25-flag CLI took over a second.
+            yield tail_remaining, frontier + tail_frontier, tail_blocks
+    # An optional child may be skipped. The skip is pruned where head floated: the take-branch holds the same
+    # paths with head's options on top. Not inside a OneOrMore, whose re-entry needs the skip's empty frontier
+    # (`[-a <name>]...`), and `floated` leaves out a head that puts a command or a positional ahead
+    # (`[go] <env>`). Unpruned, `[options]` over 25 flags forked into 2**25 paths and a Tab took over a second.
     if optional and not (floated and not in_repetition):
         yield from _frontier_seq(rest, left, optional=optional, block=block, in_repetition=in_repetition)
 
 
-def _resolve(doc: str, typed: list[str]) -> list[str]:
-    """Names (commands and options) that may legally follow the already-typed ``typed`` tokens."""
+class _Typed(Argument):
+    """A positional read by its schema field. A token the field does not take is none it can be given, so a path
+    that would hand it one is dead, as a path that hands a command another word is."""
+
+    def __init__(self, name: str | None, offered: list[str], takes: Callable[[str, object], bool]) -> None:
+        super().__init__(name)
+        self.offered = offered
+        self._takes = takes
+
+    def single_match(self, left: list[Pattern]) -> SingleMatch:
+        found = super().single_match(left)
+        given = found[1]
+        return found if given is not None and self._takes(str(self.name), given.value) else (None, None)
+
+
+def _type(node: Pattern, values_for: Callable[[str], list[str]], takes: Callable[[str, object], bool]) -> None:
+    """Put a ``_Typed`` in the place of every positional of the tree."""
+    if not isinstance(node, BranchPattern):
+        return
+    for index, child in enumerate(node.children):
+        if type(child) is Argument:
+            node.children[index] = _Typed(child.name, values_for(str(child.name)), takes)
+        _type(child, values_for, takes)
+
+
+def _bindable(leaves: list[Pattern], takes: Callable[[str, object], bool]) -> bool:
+    """Whether every option of ``leaves`` that was given a value was given one its field takes."""
+    given = [leaf for leaf in leaves if isinstance(leaf, Option) and isinstance(leaf.value, str)]
+    return all(takes(str(leaf.name), leaf.value) for leaf in given)
+
+
+def _taking_all(pattern: Pattern, leaves: list[Pattern]) -> Iterator[tuple[Pattern, ...]]:
+    """The frontier of each path on which the usage takes all of ``leaves`` as a prefix, positionals not blocking.
+
+    The `--` separator is left out: read as a positional nothing matches, it would kill every path.
+    """
+    typed = [leaf for leaf in leaves if not (type(leaf) is Argument and leaf.value == "--")]
+    paths = itertools.islice(_frontier(pattern, typed, block=False), MATCH_LIMIT)
+    return (frontier for remaining, frontier, _blocks in paths if remaining == [])
+
+
+def _resolve(
+    doc: str, typed: list[str], values_for: Callable[[str], list[str]], takes: Callable[[str, object], bool] | None
+) -> list[str]:
+    """What may legally follow the already-typed ``typed`` tokens: commands, options, and the values of an element.
+
+    With ``takes``, the fields of a schema read the tokens too: a prefix that holds a value its field does not
+    take has nothing to follow it, since no argv that starts that way can be bound.
+    """
     options = parse_defaults(doc)
     pattern = parse_pattern(formal_usage(single_usage_section(doc)), options)
     expand_options_shortcut(pattern, options)
-    base = parse_argv(Tokens(list(typed)), list(options))
+    if takes is not None:
+        _type(pattern, values_for, takes)
+    try:
+        base = parse_argv(Tokens(list(typed)), list(options))
+    except DocoptExit:
+        # refused as it stands: one more token makes it read only where the last option waited for its argument
+        given = parse_argv(Tokens([*typed, _A_VALUE]), list(options))
+        fits = any(True for _frontier_of_a_path in _taking_all(pattern, given))  # the usage takes it there too
+        fits = fits and (takes is None or _bindable(given[:-1], takes))
+        return sorted(values_for(str(given[-1].name))) if fits else []
+    if takes is not None and not _bindable(base, takes):
+        return []
     after_separator = "--" in typed and not any(leaf.name == "--" for leaf in pattern.flat(Command))
     # Command pass: the typed positionals only (options and `--` stripped), positionals blocking so
     # only the next command in order is offered. Bounded, so an exponential-skip pattern cannot hang.
@@ -127,12 +190,11 @@ def _resolve(doc: str, typed: list[str]) -> list[str]:
     # positionals to every reachable unconsumed option (repeats return via `...`); dead branches prune. Its
     # remaining==[] frontiers also decide command viability: a command whose line cannot consume a typed
     # option is a dead end docopt() would reject, so after `--reload` (only on the serve line) `db` is out.
-    # Drop the `--` separator too, or it reads as an unmatched positional and kills every branch.
-    base_options = [leaf for leaf in base if not (type(leaf) is Argument and leaf.value == "--")]
     reachable: set[Pattern] = set()
-    for remaining, frontier, _b in itertools.islice(_frontier(pattern, base_options, block=False), MATCH_LIMIT):
-        if remaining == []:
-            reachable |= frontier
+    filled_next: set[Pattern] = set()  # the positional each path fills next: the first one of its frontier
+    for frontier in _taking_all(pattern, base):
+        reachable.update(frontier)
+        filled_next.update(itertools.islice((leaf for leaf in frontier if not isinstance(leaf, Option)), 1))
     viable_commands = {leaf.name for leaf in reachable if type(leaf) is Command}
     names: set[str] = {
         cast("str", leaf.name)
@@ -140,24 +202,43 @@ def _resolve(doc: str, typed: list[str]) -> list[str]:
         for leaf in frontier
         if type(leaf) is Command and leaf.name in viable_commands
     }
+    for leaf in filled_next:
+        if isinstance(leaf, _Typed):
+            names.update(leaf.offered)
     if after_separator:
         return sorted(names)  # options are not parsed after a POSIX `--` separator
-    names.update(str(leaf.long or leaf.short) for leaf in reachable if isinstance(leaf, Option))
+    for leaf in reachable:
+        if isinstance(leaf, Option):
+            names.add(str(leaf.long or leaf.short))
+            if leaf.long is not None and leaf.argcount:
+                names.update(f"{leaf.long}={value}" for value in values_for(leaf.long))
     return sorted(names)
 
 
-def complete(doc: str, words: Sequence[str]) -> list[str]:
+def complete(doc: str, words: Sequence[str], schema: type[Any] | None = None) -> list[str]:
     """Return the completion candidates for the last (cursor) word of ``words``.
 
     Earlier tokens are consumed against the usage pattern. The command literals and option names
-    (never positional values) that could legally come next are returned, filtered to the partial
-    word. A malformed doc or a prefix ending mid-option-argument yields no candidates, never raises.
+    that could legally come next are returned, filtered to the partial word. A malformed doc yields
+    no candidates, never raises.
+
+    A value is a candidate only with ``schema``, and only for a field that takes a closed set, a
+    ``Literal`` or an ``Enum``. Such a field completes as the next positional, as the argument the
+    last option is waiting for, and as ``--option=value`` beside the option's own name. Without it,
+    a prefix that ends on an option waiting for its argument yields no candidates.
+
+    A schema other than a pydantic model reads the typed words too: after a value that its field does
+    not take there are no candidates, since no argv that starts that way can be bound.
     """
+    return _complete(doc, words, [] if schema is None else [schema], per_command=False)
+
+
+def _complete(doc: str, words: Sequence[str], schemas: Sequence[type[Any]], *, per_command: bool) -> list[str]:
     tokens = list(words)
     incomplete = tokens[-1] if tokens else ""
     typed = tokens[:-1]
     try:
-        candidates = _resolve(doc, typed)
+        candidates = _resolve(doc, typed, *_fields(schemas, per_command))
     except (DocoptLanguageError, DocoptExit, RecursionError):
         # a malformed doc, a prefix ending mid-option-argument, or a pathologically deep pattern:
         # complete nothing rather than raising into the shell
@@ -186,8 +267,30 @@ def _describe(doc: str) -> dict[str, str]:
     return descriptions
 
 
-def reply_to_completion_request(doc: str) -> str | None:
+def _fields(
+    schemas: Sequence[type[Any]], per_command: bool
+) -> tuple[Callable[[str], list[str]], Callable[[str, object], bool] | None]:
+    """By the key of a usage element: the values to offer for it, and whether a text is one its field takes.
+
+    With no schema there is nothing to offer and nothing to ask, so the second is None. Schemas that each bind
+    the lines of one command take any text: which of them binds a line is not known before the line is whole.
+    """
+    if not schemas:
+        return (lambda _key: []), None
+    from docopt2._typed import _key_to_field, field_choices, field_takes  # deferred: only a schema asks for them
+
+    choices = field_choices(schemas)
+    takes = (lambda _field, _text: True) if per_command else field_takes(schemas[0])
+    return (lambda key: choices.get(_key_to_field(key), [])), (lambda key, text: takes(_key_to_field(key), text))
+
+
+def reply_to_completion_request(
+    doc: str, schemas: Sequence[type[Any]] = (), *, per_command: bool = False
+) -> str | None:
     """If a completion request is in the environment, return its reply, else None.
+
+    ``per_command`` says that each of ``schemas`` binds the lines of one command, as in a handler table, and
+    not every line of the usage.
 
     Each reply line is ``name\\tdescription`` (the description may be empty). The request var holds the
     completed tokens before the cursor. Only a [`generate_completion`][docopt2.generate_completion] script
@@ -204,7 +307,9 @@ def reply_to_completion_request(doc: str) -> str | None:
         descriptions = _describe(doc)
     except DocoptLanguageError:
         descriptions = {}  # a malformed Options section must not raise into the shell on Tab
-    return "\n".join(f"{name}\t{descriptions.get(name, '')}" for name in complete(doc, [*words, ""]))
+    candidates = _complete(doc, [*words, ""], schemas, per_command=per_command)
+    # `--option=value` is described as its option is, and a value alone has no description
+    return "\n".join(f"{name}\t{descriptions.get(name.partition('=')[0], '')}" for name in candidates)
 
 
 # --- shell scripts: thin callbacks that ask the program at completion time ----------------------
@@ -231,10 +336,18 @@ def _render_bash(prog: str, function: str) -> str:
         '            typed+=("$part")\n'
         "        fi\n"
         "    done\n"
+        # the cursor in the value of `--opt=`: bash completes behind the `=` itself, so ask as for `--opt` waiting
+        "    local current=${COMP_WORDS[COMP_CWORD]}\n"
+        "    local last=$(( ${#typed[@]} - 1 ))\n"
+        "    if [[ $current == = ]]; then\n"
+        "        current=\n"
+        "    elif [[ $last -ge 0 && ${COMP_WORDS[COMP_CWORD-1]} == = ]]; then\n"
+        "        typed[$last]=${typed[$last]%=}\n"
+        "    fi\n"
         "    local IFS=$'\\n'\n"
         '    local words="${typed[*]}"\n'  # completed tokens, glued back, without the program name
         '    local reply; reply="$(__TRIGGER__=1 __WORDS__="$words" "${COMP_WORDS[0]}" 2>/dev/null | cut -f1)"\n'
-        '    COMPREPLY=( $(compgen -W "$reply" -- "${COMP_WORDS[COMP_CWORD]}") )\n'
+        '    COMPREPLY=( $(compgen -W "$reply" -- "$current") )\n'
         "}\n"
         "complete -F __FUNC__ __PROG__\n"
     )

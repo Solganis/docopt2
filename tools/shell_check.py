@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+import inspect
 import os
 import platform
 import re
@@ -9,8 +11,11 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Literal
 
-from docopt2 import complete, generate_completion
+from docopt2 import Command, complete, generate_completion
+from docopt2._parser import formal_usage, parse_defaults, parse_pattern, single_usage_section
+from docopt2._typed import field_choices
 
 # The completion tests pin what the generated SCRIPTS say; they never run them, which is exactly where a
 # completion bug hides. A shell's scripting interface does not close the gap either: a hand-built COMP_WORDS
@@ -44,27 +49,54 @@ Options:
   --opt=<v>  An option that takes a value.
 """
 
-_DOCS = {"naval": _NAVAL, "tool": _TOOL}
+_DEPLOYER = """Deployer.
+
+Usage:
+  deployer <env> [--format=<f>]
+
+Options:
+  --format=<f>  Output format.
+"""
+
+
+@dataclasses.dataclass
+class _Deploy:
+    env: Literal["dev", "staging", "prod"]
+    format: Literal["json", "jsonl", "yaml"] | None
+
+
+_DOCS = {"naval": _NAVAL, "tool": _TOOL, "deployer": _DEPLOYER}
+_SCHEMAS = {"deployer": _Deploy}  # a program with a schema completes the values its closed sets hold
 
 _PROGRAM = '''#!{python}
 """{doc}"""
+import dataclasses
 import sys
+from typing import Literal
+
 from docopt2 import docopt, generate_completion
 
+{schema}
 if len(sys.argv) >= 3 and sys.argv[1] == "--completion":
     print(generate_completion(__doc__, prog="{prog}", shell=sys.argv[2]))
     sys.exit(0)
-print(docopt(__doc__))
+print(docopt(__doc__, schema={schema_name}))
 '''
 
 # `tool --opt=x` is a token bash shreds at a wordbreak, and the `$fpath` case below fires on zsh's FIRST
 # Tab. Both are known to fail against an unfixed script, so this check is proven to catch what it guards.
+# the last five complete a value: a positional, an option's argument, three behind `--format=` (the last: nothing)
 _CASES = [
-    ("naval", []),
-    ("naval", ["mine"]),
-    ("naval", ["mine", "set"]),
-    ("naval", ["ship"]),
-    ("tool", ["--opt=x"]),
+    ("naval", [], ""),
+    ("naval", ["mine"], ""),
+    ("naval", ["mine", "set"], ""),
+    ("naval", ["ship"], ""),
+    ("tool", ["--opt=x"], ""),
+    ("deployer", [], ""),
+    ("deployer", ["prod", "--format"], ""),
+    ("deployer", ["prod"], "--format="),
+    ("deployer", ["prod"], "--format=j"),
+    ("deployer", ["prod"], "--format=x"),
 ]
 
 _READY = "DOCOPT2-READY"
@@ -80,7 +112,15 @@ _ZERO = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()>=][A-Za-z
 def _install(bin_dir: Path, prog: str, doc: str) -> None:
     """Put `prog` on PATH under its bare name: every generated script invokes the command the user typed."""
     script = bin_dir / f"{prog}.py"
-    script.write_text(_PROGRAM.format(python=sys.executable, doc=doc, prog=prog), encoding="utf-8", newline="\n")
+    schema = _SCHEMAS.get(prog)
+    program = _PROGRAM.format(
+        python=sys.executable,
+        doc=doc,
+        prog=prog,
+        schema=inspect.getsource(schema) if schema else "",
+        schema_name=schema.__name__ if schema else "None",
+    )
+    script.write_text(program, encoding="utf-8", newline="\n")
     if platform.system() == "Windows":
         (bin_dir / f"{prog}.cmd").write_text(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n', encoding="ascii")
     else:
@@ -177,7 +217,7 @@ def _zsh_autoloaded(work: Path, prog: str, typed: list[str]) -> str:
     return _tab(["zsh", "-f", "-i"], setup, " ".join([prog, *typed, ""]), tabs=1)
 
 
-def _posix(shell: str, work: Path, prog: str, typed: list[str]) -> str:
+def _posix(shell: str, work: Path, prog: str, line: str) -> str:
     script = work / f"{prog}.{shell}"
     setup = {
         # show-all-if-ambiguous: readline otherwise only inserts the common prefix on the first Tab and
@@ -187,37 +227,58 @@ def _posix(shell: str, work: Path, prog: str, typed: list[str]) -> str:
         "fish": f"function fish_prompt; printf '> '; end\nsource {script}",
     }[shell]
     binary = {"bash": ["bash", "--norc", "-i"], "zsh": ["zsh", "-f", "-i"], "fish": ["fish", "-i"]}[shell]
-    return _tab(binary, setup, " ".join([prog, *typed, ""]))
+    return _tab(binary, setup, line)
 
 
-def _powershell(work: Path, prog: str, typed: list[str]) -> str:
-    line = " ".join([prog, *typed, ""])
+def _powershell(work: Path, prog: str, line: str) -> str:
     driver = (
         f". '{work / f'{prog}.ps1'}'; "
         f"[System.Management.Automation.CommandCompletion]::CompleteInput('{line}', {len(line)}, $null)"
         ".CompletionMatches | ForEach-Object { $_.CompletionText }"
     )
-    return subprocess.run(
-        ["pwsh", "-NoProfile", "-Command", driver], capture_output=True, text=True, check=False
-    ).stdout
+    # check=True: a driver that failed prints nothing, and nothing is what a case may be waiting for
+    return subprocess.run(["pwsh", "-NoProfile", "-Command", driver], capture_output=True, text=True, check=True).stdout
 
 
-def _nushell(work: Path, prog: str, typed: list[str]) -> str:
+def _nushell(work: Path, prog: str, line: str) -> str:
     """nushell exposes its completion engine to code, so no pty: feed the line to `commandline complete`
     (nushell 0.114+). The module is `use`d by the file name the check writes it under."""
     script = work / f"{prog}-completions.nu"
-    line = " ".join([prog, *typed, ""])
     driver = f'use {script} *; "{line}" | commandline complete | str join (char newline)'
-    return subprocess.run(["nu", "-n", "-c", driver], capture_output=True, text=True, check=False).stdout
+    return subprocess.run(["nu", "-n", "-c", driver], capture_output=True, text=True, check=True).stdout
 
 
 _EXECUTABLE = {"bash": "bash", "zsh": "zsh", "fish": "fish", "powershell": "pwsh", "nushell": "nu"}
 
 
-def _report(label: str, expected: list[str], raw: str) -> int:
-    """Hold what the shell offered against the grammar; on a miss, show the escapes it actually painted."""
+def _offers(offered: str, name: str) -> bool:
+    """Whether the shell painted ``name`` as a candidate: whole, or the way fish's pager does when every
+    candidate starts alike, with the shared start cut down to an ellipsis (`…rmat=jsonl`)."""
+    whole = re.search(rf"(?<![\w=-]){re.escape(name)}(?![\w=-])", offered) is not None
+    tails = (re.escape(name[cut:]) for cut in range(1, len(name) - 2))
+    return whole or any(re.search(rf"…{tail}(?![\w=-])", offered) for tail in tails)
+
+
+def _everything(prog: str) -> set[str]:
+    """Every name a program can be offered at some point of some line: its commands, options and values."""
+    doc, schema = _DOCS[prog], _SCHEMAS.get(prog)
+    options = parse_defaults(doc)
+    pattern = parse_pattern(formal_usage(single_usage_section(doc)), options)
+    names = {str(leaf.name) for leaf in pattern.flat(Command)}
+    names |= {name for option in options for name in (option.long, option.short) if name}
+    values = field_choices([schema]) if schema else {}
+    names |= {value for texts in values.values() for value in texts}
+    return names | {
+        f"{option.long}={value}" for option in options if option.long for value in values.get(option.long[2:], [])
+    }
+
+
+def _report(label: str, expected: list[str], raw: str, absent: set[str]) -> int:
+    """Hold what the shell offered against the grammar, both ways: every name it should offer is there, and
+    none of ``absent`` is. On a miss, show the escapes it actually painted."""
     offered = _clean(raw)
-    missing = [name for name in expected if not re.search(rf"(?<![\w=-]){re.escape(name)}(?![\w=-])", offered)]
+    missing = [name for name in expected if not _offers(offered, name)]
+    missing += [f"nothing, where it offered {name}" for name in sorted(absent) if _offers(offered, name)]
     print(f"{'ok  ' if not missing else 'FAIL'} {label} <TAB>", flush=True)
     if missing:
         print(f"       expected: {expected}", flush=True)
@@ -251,20 +312,28 @@ def main() -> int:
             suffix = "ps1" if shell == "powershell" else shell
             name = f"{prog}-completions.nu" if shell == "nushell" else f"{prog}.{suffix}"
             (work / name).write_text(generate_completion(doc, prog=prog, shell=shell), encoding="utf-8", newline="\n")
-        for prog, typed in _CASES:
-            expected = complete(_DOCS[prog], [*typed, ""])
+        for prog, typed, cursor in _CASES:
+            expected = complete(_DOCS[prog], [*typed, cursor], schema=_SCHEMAS.get(prog))
+            if shell == "bash" and "=" in cursor:  # bash completes the word behind the `=` on its own
+                expected = [name.rpartition("=")[2] for name in expected]
+            line = " ".join([prog, *typed, cursor])  # the cursor word is typed with no space after it
             if shell == "powershell":
-                raw = _powershell(work, prog, typed)
+                raw = _powershell(work, prog, line)
             elif shell == "nushell":
-                raw = _nushell(work, prog, typed)
+                raw = _nushell(work, prog, line)
             else:
-                raw = _posix(shell, work, prog, typed)
-            failures += _report(f"{shell:11} {prog} {' '.join(typed)}", expected, raw)
+                raw = _posix(shell, work, prog, line)
+            # not judged: the line's own words, and what bash and zsh put into it (a grown cursor word, a value)
+            absent = _everything(prog) - set(expected) - set(line.split())
+            absent -= {name.rpartition("=")[2] for name in expected}
+            absent -= {name for name in absent if cursor and name.startswith(cursor)}
+            failures += _report(f"{shell:11} {line}", expected, raw, absent)
         if shell == "zsh":  # the documented $fpath install, on the FIRST Tab
             failures += _report(
                 "zsh         naval mine (autoloaded from $fpath)",
                 complete(_NAVAL, ["mine", ""]),
                 _zsh_autoloaded(work, "naval", ["mine"]),
+                _everything("naval") - set(complete(_NAVAL, ["mine", ""])) - {"naval", "mine"},
             )
     total = len(shells) * len(_CASES) + ("zsh" in shells)
     print(f"\n{total - failures} passed, {failures} failed, over {', '.join(shells)}")

@@ -180,8 +180,7 @@ def test_the_budget_stops_an_exponential_match_instead_of_running_it_to_exhausti
 
 
 def test_scoring_the_usage_lines_of_a_refusal_runs_under_a_budget_too():
-    # The same optionals inside ONE group: the match trips its budget as above, and then the lines are scored
-    # to word the refusal. Scoring that group used to run under no budget, 2**n descents for n optionals.
+    # the same optionals in ONE group: scoring the lines to word the refusal ran 2**n descents under no budget
     flags = " ".join(f"[-{chr(97 + index)}]" for index in range(18))
     stopped_at, later, unbudgeted = _descents_of_a_refusal(f"usage: prog ({flags} <END>)", 18)
     assert_that((stopped_at, unbudgeted)).is_equal_to((5001, 0))

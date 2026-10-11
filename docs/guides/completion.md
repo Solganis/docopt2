@@ -43,10 +43,17 @@ _naval_completion() {
             typed+=("$part")
         fi
     done
+    local current=${COMP_WORDS[COMP_CWORD]}
+    local last=$(( ${#typed[@]} - 1 ))
+    if [[ $current == = ]]; then
+        current=
+    elif [[ $last -ge 0 && ${COMP_WORDS[COMP_CWORD-1]} == = ]]; then
+        typed[$last]=${typed[$last]%=}
+    fi
     local IFS=$'\n'
     local words="${typed[*]}"
     local reply; reply="$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" 2>/dev/null | cut -f1)"
-    COMPREPLY=( $(compgen -W "$reply" -- "${COMP_WORDS[COMP_CWORD]}") )
+    COMPREPLY=( $(compgen -W "$reply" -- "$current") )
 }
 complete -F _naval_completion naval
 ```
@@ -67,6 +74,10 @@ rest of the line. And `--opt=<value>` is exactly the form the usage DSL teaches,
 not an edge one.
 
 bash emits the separator as its own word, so the loop can glue the shards back together unambiguously.
+
+The lines after the loop are for a cursor that stands in the value of `--opt=`. bash completes what
+stands behind the `=` on its own, so the program is asked as if `--opt` were waiting for its argument,
+and the value alone is the word to complete.
 
 ### Installing it
 
@@ -108,10 +119,11 @@ and always parses `argv` normally.
 generated scripts call.
 
 Earlier tokens are consumed against the usage pattern, then the command literals and option names that could
-legally come next are returned, filtered to the partial word. Positional values are never suggested.
+legally come next are returned, filtered to the partial word. A value is suggested only with a schema, as
+[Completing values](#completing-values) shows.
 
-A malformed doc, or a prefix ending mid-option-argument, yields no candidates rather than raising into the
-shell.
+A malformed doc yields no candidates rather than raising into the shell. So does a prefix that ends on an
+option waiting for its argument, unless a schema gives that option a closed set of values.
 
 ```python
 from docopt2 import complete
@@ -145,8 +157,8 @@ complete(doc, ["mine", "set", "1", "2", ""])
 Each call narrows to what the usage actually allows at that point:
 
 - **After `ship`**, only that branch's continuations are offered: the `new` and `shoot` commands, plus the
-  floating `--speed`. `move` is absent, because it sits behind the `<name>` positional, and `<name>` itself is
-  never suggested.
+  floating `--speed`. `move` is absent, because it sits behind the `<name>` positional, and `<name>` takes any
+  text, so there is nothing to suggest for it.
 - **After the two coordinates of `mine set`**, only its remaining flags are left.
 
 The last word filters the candidates by prefix, exactly as the shell would:
@@ -162,6 +174,54 @@ And the never-raise guarantee, so a broken usage can never break the user's shel
 complete("not a usage message", [""])                   # []
 complete("Usage: prog --speed=<kn>", ["--speed", ""])   # []
 ```
+
+## Completing values
+
+Commands and option names come from the usage. A value can be completed too, where a
+[schema](typed-results.md) says which values there are: a field typed as a `Literal` or an `Enum`.
+
+```python
+import dataclasses
+from typing import Literal
+from docopt2 import complete
+
+@dataclasses.dataclass
+class Args:
+    env: Literal["dev", "staging", "prod"]
+    format: Literal["json", "yaml"] | None
+
+doc = "Usage: app <env> [--format=<f>]\n\nOptions:\n  --format=<f>  Output format."
+
+complete(doc, [""], schema=Args)
+# ['--format', '--format=json', '--format=yaml', 'dev', 'prod', 'staging']
+
+complete(doc, ["prod", "--format", ""], schema=Args)
+# ['json', 'yaml']
+
+complete(doc, ["prod", "--format=y"], schema=Args)
+# ['--format=yaml']
+```
+
+Such a field completes in three places: as the next positional, as the argument the last option is waiting
+for, and as `--option=value` beside the option's own name.
+
+A program gets this with no extra call. `docopt(doc, schema=Args)`, a `Cli` subclass and a `Dispatch`
+table with a schema per handler all answer the script's request with these values in the reply. A table
+offers a value only where every handler that declares the field takes it, since any of them may be the
+one that binds the line.
+
+Only a value that the field's own coercion accepts, and that is one plain word, is offered: letters,
+digits and `_ . / @ % + , -`, not led by a dash. That leaves out what a shell would expand or split,
+what bash breaks a word at, and what an argv reads as an option. A field of any other type, a `str`, an
+`int` or a `Path`, completes nothing.
+
+A dataclass, a `TypedDict` or a `Cli` subclass reads the words already typed too. After a positional or an
+option value that its field does not take, nothing is offered: no argv that starts that way can be bound.
+
+A pydantic model and a `Dispatch` table do not judge what is typed. A model binds by rules of its own,
+validators included, and which handler of a table binds the line is not known before the line is whole.
+For the same reason a model completes its closed sets of strings only: it refuses the text `1` for
+`Literal[1, 2]`.
 
 ## See also
 

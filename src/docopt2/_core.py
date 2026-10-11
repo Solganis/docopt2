@@ -494,7 +494,7 @@ def docopt(
         # On by default (opt out with complete=False): answer a shell completion request and exit.
         from docopt2._completion import reply_to_completion_request  # deferred: 0.3 of the 9.1 ms import
 
-        print(reply_to_completion_request(doc))
+        print(reply_to_completion_request(doc, [] if schema is None else [schema]))
         sys.exit()
     show_help = help if default_help is None else default_help
     if help_style not in ("raw", "rich"):
@@ -748,6 +748,13 @@ class Dispatch:
             # Forwarding it would hand docopt() a schema, and dispatch would then try to route on the
             # instance instead of the mapping - an AttributeError deep inside, for a legible mistake.
             raise TypeError("Dispatch.run() takes no `schema`; register one per handler with `on(..., schema=...)`")
+        if options.get("complete", True) and self.doc is not None and COMPLETION_REQUEST_ENV in os.environ:
+            # answered here: docopt() below is given no schema, and the handlers' ones are what complete values
+            from docopt2._completion import reply_to_completion_request  # deferred, as in docopt()
+
+            schemas = [schema for *_, schema in self._handlers if schema is not None]
+            print(reply_to_completion_request(self.doc, schemas, per_command=True))
+            sys.exit()
         arguments = cast("Arguments", docopt(self.doc, argv, **options))
         # Thread the usage and the caller's exit_code onto any exit raised HERE, as docopt()'s own _exit
         # does - or str(exc) loses the Usage block and the process ignores the requested status.

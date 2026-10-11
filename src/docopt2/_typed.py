@@ -137,6 +137,106 @@ def _key_to_field(key: str) -> str:
     return core.lower().replace("-", "_").replace(" ", "_")
 
 
+_WORD_PUNCTUATION = "_./@%+,-"
+
+
+def _closed_values(annotation: Any) -> list[Any]:
+    """The values ``annotation`` takes where it is a closed set, a ``Literal`` or an ``Enum``, else none.
+
+    Read the way ``_coerce`` reads it: through ``Annotated``, beside ``None``, and as the element of a list.
+    """
+    if hasattr(annotation, "__metadata__"):
+        return _closed_values(get_args(annotation)[0])
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is types.UnionType or origin is Union:
+        return _closed_values(next((arg for arg in args if arg is not type(None)), str))
+    if origin is list:
+        return _closed_values(args[0]) if args else []
+    if origin is Literal:
+        return list(args)
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return [member.value for member in annotation]
+    return []
+
+
+def _is_pydantic(schema: type[Any]) -> bool:
+    return callable(getattr(schema, "model_validate", None))
+
+
+def _declared(schemas: Sequence[type[Any]]) -> dict[str, list[Any]]:
+    """The annotations each field name is declared with across ``schemas``, read as declaring nothing where they
+    do not resolve.
+
+    A pydantic model takes an argv text by rules of its own, a ``Literal[1]`` refuses the text ``1``. So only
+    its closed sets of strings are read as closed, where its rules and this module's agree.
+    """
+    declared: dict[str, list[Any]] = {}
+    for schema in schemas:
+        try:
+            hints = _resolved_hints(schema)
+            fields = _field_names(schema, hints)
+        except Exception:  # a Tab press must not raise into the shell, whatever the annotations do
+            continue
+        for name in fields:
+            annotation = _unwrap_annotation(hints[name])
+            if _is_pydantic(schema) and not all(isinstance(value, str) for value in _closed_values(annotation)):
+                annotation = str
+            declared.setdefault(name, []).append(annotation)
+    return declared
+
+
+def field_takes(schema: type[Any]) -> Callable[[str, object], bool]:
+    """Whether a text is one the field of that name coerces, as binding ``schema`` would coerce it.
+
+    A field the schema does not declare takes any text. So does every field of a pydantic model: the model
+    binds itself, validators included, and what it refuses cannot be told from its annotations.
+    """
+    declared = {} if _is_pydantic(schema) else _declared([schema])
+    return lambda name, text: all(_takes(text, annotation) for annotation in declared.get(name, ()))
+
+
+def field_choices(schemas: Sequence[type[Any]]) -> dict[str, list[str]]:
+    """For each field of ``schemas`` that takes a closed set of values, the argv texts it accepts.
+
+    A text is kept only where it is one plain word and the coercion of the field takes it, in every schema
+    that declares the field: whichever of them binds the result, it binds a value that was offered. A schema
+    whose annotations do not resolve is read as declaring nothing.
+    """
+    found: dict[str, list[str]] = {}
+    for name, declarations in _declared(schemas).items():
+        closed = [str(value) for annotation in declarations for value in _closed_values(annotation)]
+        texts = list(dict.fromkeys(closed))
+        kept = [text for text in texts if all(_is_offerable(text, annotation) for annotation in declarations)]
+        if kept:
+            found[name] = kept
+    return found
+
+
+def _is_offerable(text: str, annotation: Any) -> bool:
+    """Whether ``text`` is one plain word that the coercion of ``annotation`` takes, alone or as a list's element.
+
+    A plain word is letters, digits and ``_ . / @ % + , -``, not led by a dash: nothing a shell expands,
+    splits or breaks a word at, and nothing an argv reads as an option.
+    """
+    plain = all(character.isalnum() or character in _WORD_PUNCTUATION for character in text)
+    if not text or text.startswith("-") or not plain:
+        return False
+    return _takes(text, annotation)
+
+
+def _takes(text: object, annotation: Any) -> bool:
+    """Whether the coercion of ``annotation`` takes ``text``, alone or as the element of a list."""
+    return _coerces(text, annotation) or _coerces([text], annotation)
+
+
+def _coerces(value: Any, annotation: Any) -> bool:
+    try:
+        _coerce(value, annotation)
+    except (ValueError, TypeError, ArithmeticError, DocoptLanguageError):
+        return False
+    return True
+
+
 _UNPARSEABLE = object()  # a sentinel distinct from every real choice, so a failed parse never matches
 
 

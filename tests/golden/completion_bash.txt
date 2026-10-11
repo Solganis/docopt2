@@ -9,9 +9,16 @@ _git_tool_completion() {
             typed+=("$part")
         fi
     done
+    local current=${COMP_WORDS[COMP_CWORD]}
+    local last=$(( ${#typed[@]} - 1 ))
+    if [[ $current == = ]]; then
+        current=
+    elif [[ $last -ge 0 && ${COMP_WORDS[COMP_CWORD-1]} == = ]]; then
+        typed[$last]=${typed[$last]%=}
+    fi
     local IFS=$'\n'
     local words="${typed[*]}"
     local reply; reply="$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" 2>/dev/null | cut -f1)"
-    COMPREPLY=( $(compgen -W "$reply" -- "${COMP_WORDS[COMP_CWORD]}") )
+    COMPREPLY=( $(compgen -W "$reply" -- "$current") )
 }
 complete -F _git_tool_completion git-tool
