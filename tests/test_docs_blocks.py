@@ -3,6 +3,7 @@ import html
 import re
 from pathlib import Path
 
+import pytest
 from assertpy2 import assert_that
 from pytest import raises
 
@@ -57,6 +58,14 @@ def _fails(doc: str, argv: str, **kwargs: object) -> str:
     return str(exit_signal).removesuffix("\n" + exit_signal.usage)
 
 
+def _fails_with_environment(variables: dict[str, str], doc: str, **kwargs: object) -> str:
+    """The diagnostic of a parse of no arguments, with ``variables`` in the environment for that parse only."""
+    with pytest.MonkeyPatch.context() as environment:
+        for name, value in variables.items():
+            environment.setenv(name, value)
+        return _fails(doc, "", **kwargs)
+
+
 def _rejects(doc: str, argv: str) -> str:
     """The diagnostic a malformed usage message renders."""
     with raises(DocoptLanguageError) as exit_info:
@@ -67,6 +76,16 @@ def _rejects(doc: str, argv: str) -> str:
 @dataclasses.dataclass
 class _Port:
     port: int
+
+
+@dataclasses.dataclass
+class _OptionalPort:
+    port: int | None
+
+
+@dataclasses.dataclass
+class _Tags:
+    tag: list[int]
 
 
 _GIT_PUSH = "Git push.\n\nUsage:\n  git push [--force] <remote>\n\nOptions:\n  --force  Force the push.\n"
@@ -149,6 +168,13 @@ def _produced() -> dict[str, str]:
         ),
         "diag: near miss": _fails(_GIT_MULTI, "push"),
         "diag: bad value": _fails("Usage: prog --port=<n>", "--port=abc", schema=_Port),
+        "diag: bad value of several": _fails("Usage: prog [--tag=<n>]...", "--tag=7 --tag 7x --tag=9", schema=_Tags),
+        "diag: bad value from the environment": "$ APP_PORT=http prog\n"
+        + _fails_with_environment(
+            {"APP_PORT": "http"},
+            "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [env: APP_PORT].",
+            schema=_OptionalPort,
+        ),
         "diag: unclosed group": _rejects("Usage: prog [--force <remote>", "push"),
         "diag: mismatched delimiters": _rejects("Usage: prog (a | b]", "a"),
         # docs/guides/typed-results.md

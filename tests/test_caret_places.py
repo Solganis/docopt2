@@ -142,16 +142,15 @@ def test_a_token_the_parser_did_not_read_as_an_option_is_never_reported_as_a_mis
     ("doc", "argv", "schema", "key", "in_argv", "in_usage"),
     [
         (_COPY, ["abc", "x1"], _Copy, "<count>", (4, "x1"), (19, "<count>")),
-        # the text of the bad value stands at more than one place: no caret rather than one that may be wrong
-        (_COPY, ["abc", "abc"], _Copy, "<count>", ("no such snippet",), (19, "<count>")),
-        (_COPY, ["x1y", "x1"], _Copy, "<count>", ("no such snippet",), (19, "<count>")),
-        (_AMOUNT, ["-aaa"], _Amount, "--amount", ("no such snippet",), (12, "-a")),
-        (_AMOUNT, ["--amount="], _Amount, "--amount", ("no such snippet",), (12, "-a")),
+        # the text of the bad value stands at more than one place: the caret is under the token that held it
+        (_COPY, ["abc", "abc"], _Copy, "<count>", (4, "abc"), (19, "<count>")),
+        (_COPY, ["x1y", "x1"], _Copy, "<count>", (4, "x1"), (19, "<count>")),
+        (_AMOUNT, ["-aaa"], _Amount, "--amount", (2, "aa"), (12, "-a")),
+        # an empty argument has no text of its own: the token it is attached to
+        (_AMOUNT, ["--amount="], _Amount, "--amount", (0, "--amount="), (12, "-a")),
     ],
 )
-def test_a_value_the_schema_refuses_is_pointed_at_only_where_its_place_is_certain(
-    doc, argv, schema, key, in_argv, in_usage
-):
+def test_a_value_the_schema_refuses_is_pointed_at_by_its_place_in_the_line(doc, argv, schema, key, in_argv, in_usage):
     summary = f"error: invalid value for `{key}`"
     assert_that(_pointed_at(doc, argv, schema=schema)).is_equal_to((summary, *in_argv))
     assert_that(_pointed_at(doc, argv, source="in the usage:", schema=schema)).is_equal_to((summary, *in_usage))

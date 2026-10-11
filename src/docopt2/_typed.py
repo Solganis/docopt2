@@ -446,13 +446,41 @@ class _CoercionError(DocoptExit):
 
     Carries the pieces docopt()/Dispatch need to render a two-span diagnostic (the usage element, the
     raw value, the expected type); ``str()`` is a usable message on its own for a direct bind call.
+
+    Of a repeated element ``raw`` is the one value refused, ``index`` its place among the values, ``expected``
+    the type of one value and ``declared`` the type of the field.
     """
 
-    def __init__(self, key: str, raw: Any, expected: str) -> None:
+    def __init__(
+        self, key: str, raw: Any, expected: str, index: int | None = None, declared: str | None = None
+    ) -> None:
         self.key = key
         self.raw = raw
         self.expected = expected
+        self.index = index
+        self.declared = declared or expected
         super().__init__(f"invalid value for {key}: {raw!r} (expected {expected})")
+
+
+def _element_type(annotation: Any) -> Any:
+    """The type of one value of a list annotation, read through ``Annotated`` and beside ``None`` as ``_coerce``
+    reads it."""
+    if hasattr(annotation, "__metadata__"):
+        return _element_type(get_args(annotation)[0])
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is types.UnionType or origin is Union:
+        return _element_type(next((arg for arg in args if arg is not type(None)), str))
+    return args[0] if origin is list and args else str
+
+
+def _refusal(key: str, raw: Any, annotation: Any) -> _CoercionError:
+    """The refusal of ``raw`` by ``annotation``: of a list, of the first value that its element type does not take."""
+    element, declared = _element_type(annotation), _type_name(annotation)
+    values = raw if isinstance(raw, list) else []
+    refused = next(((index, item) for index, item in enumerate(values) if not _coerces(item, element)), None)
+    if refused is None:
+        return _CoercionError(key, raw, declared)
+    return _CoercionError(key, refused[1], _type_name(element), refused[0], declared)
 
 
 def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
@@ -504,7 +532,7 @@ def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
         try:
             values[name] = _coerce(raw, annotation)
         except (ValueError, TypeError, ArithmeticError) as exc:
-            raise _CoercionError(key, raw, _type_name(annotation)) from exc
+            raise _refusal(key, raw, annotation) from exc
     try:
         return schema(**values)
     except TypeError as exc:

@@ -171,9 +171,49 @@ docopt(doc, "--port=abc", schema=Args)   # raises the diagnostic below
 <span class="dt-fg">   |</span>
 <span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `abc` is not a valid int</span></div>
 
-The argv snippet appears only when the value's text stands at exactly one place in the arguments. With
-`prog abc abc` against `Usage: prog <name> <count>` and `count: int`, the text `abc` stands at two places.
-The diagnostic then shows the usage snippet alone, which is better than a caret under the wrong `abc`.
+The caret stands under the token that held the value, whatever else the line holds. With `prog abc abc`
+against `Usage: prog <name> <count>` and `count: int`, it is under the second `abc`.
+
+Of a repeated element the one value that is refused is named, by the type of one value:
+
+```python
+@dataclasses.dataclass
+class Tags:
+    tag: list[int]
+
+docopt("Usage: prog [--tag=<n>]...", "--tag=7 --tag 7x --tag=9", schema=Tags)   # raises the diagnostic below
+```
+
+<div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: invalid value for `--tag`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the arguments:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    --tag=7 --tag 7x --tag=9</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                  </span><span class="dt-caret">^^</span><span class="dt-label"> expected int</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog [--tag=&lt;n&gt;]...</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                 </span><span class="dt-caret">^^^^^^^^^</span><span class="dt-label"> typed as list[int]</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `7x` is not a valid int</span></div>
+
+A value that was never in the arguments is shown where it was written. Here the option is declared with
+`[env: APP_PORT]`, and the variable holds `http`:
+
+<div class="docopt2-term"><span class="dt-fg">$ APP_PORT=http prog</span>
+<span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: invalid value for `--port`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the environment:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    APP_PORT=http</span>
+<span class="dt-fg">   |</span><span class="dt-fg">             </span><span class="dt-caret">^^^^</span><span class="dt-label"> expected int | None</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog [--port=&lt;n&gt;]</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                 </span><span class="dt-caret">^^^^^^^^^^</span><span class="dt-label"> typed as int | None</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `http` is not a valid int | None</span></div>
+
+A value from a `[config: ...]` key is shown the same way, as `server.port = http`. A `[default: ...]` that
+its own field refuses is shown as the usage message writes it.
 
 Only a **user value** gets this two-span treatment. A schema that disagrees with the usage - a field with
 no matching element, an unsupported annotation - is the developer's error, not the user's, and raises

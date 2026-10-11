@@ -19,6 +19,7 @@ from docopt2._parser import (
     MatchOutcome,
     Option,
     Pattern,
+    Span,
     Tokens,
     _MatchBudgetExceededError,
     closest_usage_line,
@@ -97,14 +98,6 @@ def _extras(default_help: bool, version: object, options: list[Pattern], doc: st
     if version and any(option.name == "--version" and option.value for option in options):
         print(version)
         sys.exit()
-
-
-def _argv_snippet(argv: list[str] | tuple[str, ...] | str, token: str, label: str) -> Snippet:
-    """An 'in the arguments:' snippet, its caret under ``token`` only where the line holds that text at one place."""
-    argv_text = argv if isinstance(argv, str) else " ".join(argv)
-    at = argv_text.find(token)
-    carets = [Caret(at, at + len(token), label)] if at != -1 and at == argv_text.rfind(token) else []
-    return Snippet(argv_text, "in the arguments:", carets)
 
 
 def _placed_tokens(argv: list[str] | tuple[str, ...] | str, usage: str, exit_code: int) -> Tokens:
@@ -231,23 +224,89 @@ def _span_of(leaves: Iterable[Pattern], name: str) -> tuple[int, int] | None:
     return next((leaf.span for leaf in leaves if leaf.name == name and leaf.span is not None), None)
 
 
+class _Placed(str):
+    """An argv value that carries where it was typed through a match, which only hands values on."""
+
+    span: Span = None
+
+
+def _place_in_argv(
+    placed: Tokens, usage: str, options: list[Option], err: _CoercionError, reading: tuple[bool, bool, bool]
+) -> Span:
+    """Where the value ``err`` refuses was typed: the argv matched again, on values that carry their place."""
+    options_first, negative_numbers, allow_abbrev = reading
+    pattern = parse_pattern(formal_tokens(usage), options)
+    leaves = _argv_leaves(placed, pattern, options, options_first, negative_numbers, allow_abbrev)
+    expand_options_shortcut(pattern, options)
+    for leaf in leaves:
+        if isinstance(leaf.value, str):
+            carried = _Placed(leaf.value)
+            carried.span = leaf.value_span if isinstance(leaf, Option) else leaf.span
+            leaf.value = carried
+    greedy: MatchOutcome | None = None
+    whole: list[Pattern] | None = None
+    try:
+        with MatchBudget():
+            outcomes = pattern.fix().matches(leaves, [])
+            greedy = next(outcomes, None)
+            tried = itertools.chain([greedy] if greedy else [], itertools.islice(outcomes, MATCH_LIMIT))
+            whole = next((taken for left, taken in tried if left == []), None)
+    except (_MatchBudgetExceededError, RecursionError):  # as for docopt(), the greedy read stands
+        pass
+    # a whole reading where there is one, else the greedy one with its surplus: what docopt() bound, in either case
+    taken = whole if whole is not None else greedy[1] if greedy else []
+    bound = next((leaf.value for leaf in taken if leaf.name == err.key), None)
+    value = bound[err.index] if isinstance(bound, list) and err.index is not None else bound
+    return getattr(value, "span", None)
+
+
+def _written_elsewhere(err: _CoercionError, result: Arguments, options: list[Option]) -> tuple[str, str, str]:
+    """A value that is not in the argv, as it stands where it was written: what precedes it on that line, what
+    follows it, and what the line is called."""
+    source = result.source(err.key)
+    declared = {option.name: option for option in options}
+    if source is Source.ENV:
+        return f"{declared[err.key].env}=", "", "in the environment:"
+    if source is Source.CONFIG:
+        return f"{declared[err.key].config_key} = ", "", "in the config:"
+    words = list(result[err.key]) if err.index is not None else [err.raw]
+    at = err.index or 0
+    before = "".join(f"{word} " for word in words[:at])
+    after = "".join(f" {word}" for word in words[at + 1 :])
+    return f"[default: {before}", f"{after}]", "as the default:"
+
+
 def _coercion_diagnostic(
-    doc: str, argv: list[str] | tuple[str, ...] | str, err: _CoercionError, result: Arguments
+    doc: str,
+    argv: list[str] | tuple[str, ...] | str,
+    err: _CoercionError,
+    result: Arguments,
+    reading: tuple[bool, bool, bool],
 ) -> Diagnostic:
-    """Render a schema coercion failure: the usage element that declared the type, and the value in the
-    argv where it came from the argv and its text stands there at one place."""
+    """Render a schema coercion failure: the value where it was written, in the argv, the environment, the
+    config or a default, and the usage element that declared the type.
+
+    ``reading`` is how the argv was read: ``options_first``, ``negative_numbers``, ``allow_abbrev``.
+    """
     usage = single_usage_section(doc)
+    options = parse_defaults(doc)
     snippets = []
-    if err.key in result.provided:  # an env, config or default value is not in the argv, whatever text the argv holds
-        in_argv = _argv_snippet(argv, str(err.raw), f"expected {err.expected}")
-        if in_argv.carets:
-            snippets.append(in_argv)
+    text, label = str(err.raw), f"expected {err.expected}"
+    if result.source(err.key) is Source.CLI:
+        placed = _placed_tokens(argv, usage, 1)
+        at = _place_in_argv(placed, usage, options, err, reading)
+        if at is not None and at[0] < at[1]:
+            snippets.append(Snippet(placed.text, "in the arguments:", [Caret(*at, label)]))
+    elif text:
+        before, after, intro = _written_elsewhere(err, result, options)
+        caret = Caret(len(before), len(before) + len(text), label)
+        snippets.append(Snippet(f"{before}{text}{after}", intro, [caret]))
     # Build the pattern the same way docopt() does (formal_tokens), so the leaf spans align with `usage`;
     # parse_tree() uses formal_usage and would offset the caret.
     pattern = parse_pattern(formal_tokens(usage), parse_defaults(doc))
     where = _span_of(pattern.flat(), err.key)
     if where is not None:
-        caret = Caret(*where, f"typed as {err.expected}")
+        caret = Caret(*where, f"typed as {err.declared}")
         snippets.append(Snippet(usage, "in the usage:", [caret]))
     # "one of `a`, `b`" reads as "is not one of ..."; a plain type reads as "is not a valid int".
     hint = None
@@ -579,7 +638,9 @@ def docopt(
         try:
             return bind_schema(result, schema)
         except _CoercionError as exc:
-            raise _exit(_coercion_diagnostic(doc, argv, exc, result), collected=complete_match, left=left) from exc
+            reading = (options_first, negative_numbers, allow_abbrev)
+            refused = _coercion_diagnostic(doc, argv, exc, result, reading)
+            raise _exit(refused, collected=complete_match, left=left) from exc
     # by where a leaf stands, not by its text: the same text can stand earlier in the line, in a token the usage took
     placed = _placed_tokens(argv, usage, exit_code)
     placed_leaves = _argv_leaves(placed, pattern, options, options_first, negative_numbers, allow_abbrev)
@@ -771,7 +832,12 @@ class Dispatch:
             bound = bind_schema(arguments, schema)
         except _CoercionError as exc:
             resolved_argv = sys.argv[1:] if argv is None else argv
-            diagnostic = _coercion_diagnostic(self.doc, resolved_argv, exc, arguments)
+            reading = (
+                options.get("options_first", False),
+                options.get("negative_numbers", False),
+                options.get("allow_abbrev", True),
+            )
+            diagnostic = _coercion_diagnostic(self.doc, resolved_argv, exc, arguments, reading)
             raise DocoptExit(diagnostic=diagnostic, usage=usage, exit_code=exit_code) from exc
         return handler(bound)
 

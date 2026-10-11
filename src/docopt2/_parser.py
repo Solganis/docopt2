@@ -114,6 +114,7 @@ class Pattern:
     # report a refusal, in the line that argv prints as. Inert metadata: excluded from repr/__eq__/__hash__/to_dict,
     # so matching is unaffected. None when unknown (any other argv leaf, the formal-usage wrapper, parse_tree()).
     span: Span = None
+    value_span: Span = None  # of an option of such an argv read, where its argument stands
 
     @property
     def value(self) -> LeafValue:
@@ -710,7 +711,11 @@ def parse_long(tokens: Tokens, options: list[Option], allow_abbrev: bool = True)
         value = tokens.move()
     if tokens.parsing_argv:
         option.value = value if value is not None else True
-        span = span and (span[0], span[0] + len(long))
+        if span is not None:
+            if option.argcount:
+                attached = (span[0] + len(long) + 1, span[1]) if value else span  # `--opt=` holds no text to point at
+                option.value_span = attached if eq else tokens._last_span
+            span = (span[0], span[0] + len(long))
     option.span = span
     return [option]
 
@@ -757,6 +762,10 @@ def parse_shorts(tokens: Tokens, options: list[Option]) -> list[Pattern]:
         for stacked in parsed:
             stacked.span = (start, letter + 1)
             start = letter = letter + 1
+        given = parsed[-1].value
+        if isinstance(given, str):
+            attached = (span[1] - len(given), span[1]) if given else span
+            parsed[-1].value_span = attached if tokens._last_span == span else tokens._last_span
     return parsed
 
 

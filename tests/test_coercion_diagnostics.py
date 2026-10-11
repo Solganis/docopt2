@@ -147,15 +147,15 @@ def test_bind_schema_raises_a_structured_coercion_error():
     assert_that(str(err)).contains("invalid value for --port").contains("expected int")
 
 
-def test_list_coercion_failure_names_the_parameterized_type():
-    # A generic keeps its argument in the message: `list[int]`, not a bare `list`.
+def test_list_coercion_failure_names_the_value_and_the_parameterized_type():
+    # the one value refused, by the type of one value; the usage element by the field's, `list[int]` and not `list`
     @dataclasses.dataclass
     class Nums:
         nums: list[int]
 
     with raises(DocoptExit) as info:
         docopt("Usage: prog <nums>...", "1 2 x", complete=False, schema=Nums)
-    assert_that(str(info.value)).contains("invalid value for `<nums>`").contains("is not a valid list[int]")
+    assert_that(str(info.value)).contains("invalid value for `<nums>`", "`x` is not a valid int", "typed as list[int]")
 
 
 def test_structural_schema_error_stays_a_language_error():
