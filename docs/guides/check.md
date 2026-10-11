@@ -39,7 +39,7 @@ parses it.
 
 ## What it flags
 
-`check` applies six rules. Each catches a construct the parser tolerates but that almost always means
+`check` applies seven rules. Each catches a construct the parser tolerates but that almost always means
 the usage message says something you did not intend.
 
 | Warning | Fires when |
@@ -50,6 +50,7 @@ the usage message says something you did not intend.
 | ambiguous variadics | two `...` positionals share one sequence, leaving the token split between them undefined |
 | redundant alternative | two branches of one alternation group are identical, so one can never be reached |
 | empty `[options]` | a usage line uses `[options]` but no options are described |
+| repeated annotation | one option carries `[default: ...]`, `[env: ...]` or `[config: ...]` more than once |
 
 Every warning is a `Diagnostic`. The unusable-option case, rendered, looks like this - the caret points
 at the exact token in your source:
@@ -168,6 +169,24 @@ print(check("Usage: prog [options] <f>")[0].render(color=True))
 <span class="dt-fg">   |</span><span class="dt-fg">                </span><span class="dt-caret">^^^^^^^^^</span><span class="dt-label"> expands to nothing</span>
 <span class="dt-fg">   |</span>
 <span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: describe options in an `Options:` section, or remove `[options]`</span></div>
+
+### Repeated annotations
+
+An option carries the same annotation twice. For `[env: ...]` and `[config: ...]` the first one is the one
+read, so a second source silently never applies. It is usually a leftover from an edit.
+
+```python
+doc = "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [config: server.port] [config: port]."
+print(check(doc)[0].render(color=True))
+```
+
+<div class="docopt2-term"><span class="dt-warn dt-b">warning</span><span class="dt-fg dt-b">: option `--port` has more than one `[config: ...]`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the options:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">      --port=&lt;n&gt;  Port [config: server.port] [config: port].</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                                             </span><span class="dt-caret">^^^^^^^^^^^^^^</span><span class="dt-label"> one too many</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: keep a single `[config: ...]` on `--port`</span></div>
 
 ## From the command line
 

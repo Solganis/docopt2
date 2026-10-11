@@ -134,8 +134,9 @@ def _caret_under(leaf: Pattern, leaves: list[Pattern], placed_leaves: list[Patte
 def _mistyped_command(pattern: Pattern, leaves: list[Pattern]) -> tuple[int, list[Pattern]] | None:
     """Where the first positional that reads as a mistyped command stands, and the argv with the command meant there.
 
-    It is close to a command of the usage, and docopt() takes the argv once that command stands in its place:
-    the proof is the search docopt() itself makes, within a budget no larger than the one a parse has.
+    It is close to a command of the usage, and the usage takes the argv once that command stands in its place:
+    the proof is the match docopt() itself makes, within a budget no larger than the one a parse has. Binding
+    the result onto a schema is no part of it.
     """
     commands = sorted({str(leaf.name) for leaf in pattern.flat(Command)})
     try:
@@ -154,12 +155,11 @@ def _mistyped_command(pattern: Pattern, leaves: list[Pattern]) -> tuple[int, lis
 
 
 def _command_written_at(written: Pattern, corrected: list[Pattern], at: int) -> tuple[int, int]:
-    """The usage span of the command at ``corrected[at]``: the line closest to that argv, the occurrence by order."""
+    """Where the usage first writes the command at ``corrected[at]``: in the line that argv comes closest to if
+    that line writes it, else anywhere."""
     meant = corrected[at].value
-    earlier = sum(type(leaf) is Argument and leaf.value == meant for leaf in corrected[:at])
     in_line = [leaf.span for leaf in closest_usage_line(written, corrected).flat(Command) if leaf.name == meant]
-    spans = [span for span in in_line or [leaf.span for leaf in written.flat(Command) if leaf.name == meant] if span]
-    return spans[min(earlier, len(spans) - 1)]
+    return next(span for span in in_line or [leaf.span for leaf in written.flat(Command) if leaf.name == meant] if span)
 
 
 def _mistyped(
@@ -445,8 +445,8 @@ def docopt(
         default_help: Alias for ``help``. When not None it takes precedence.
         suggest: On a failed parse, add a "did you mean ..." hint to the ``DocoptExit`` message
             for a mistyped long option that resembles a known one, and for a mistyped command where
-            the argv is accepted once the command meant stands in its place. False leaves these two
-            hints out. A value a schema refuses keeps its own "did you mean" either way.
+            the usage accepts the argv once the command meant stands in its place. False leaves these
+            two hints out. A value a schema refuses keeps its own "did you mean" either way.
         negative_numbers: Treat tokens like ``-3`` or ``-6.28`` as positional arguments
             instead of short-option clusters.
         allow_abbrev: When False, a long option in ``argv`` must be written in full. An

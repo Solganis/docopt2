@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 _RESET, _BOLD, _DIM = "\033[0m", "\033[1m", "\033[2m"
 _RED, _YELLOW, _CYAN, _GREEN = "\033[31m", "\033[33m", "\033[36m", "\033[32m"
 _TAB = 8  # tab stop width; source lines are expanded to spaces so carets align under real columns
+_NO_WIDTH = frozenset({"Mn", "Me", "Cf"})  # combining marks, and format characters such as a zero-width joiner
 
 
 def use_color(stream: TextIO | None) -> bool:
@@ -92,6 +93,22 @@ def _caret_lines(snippet: Snippet) -> list[tuple[int, str, list[Caret]]]:
     return [(start, _source_line(snippet.source, start)[1], carets) for start, carets in sorted(grouped.items())]
 
 
+def _columns(text: str) -> int:
+    """The terminal columns of ``text``, counted character by character.
+
+    None for the categories Mn, Me and Cf, two for East Asian width W or F, one for anything else. An emoji
+    sequence is not read as one glyph, and terminals disagree on those.
+    """
+    if text.isascii():
+        return len(text)
+    import unicodedata  # deferred: 1.0 ms, and only a line with a character outside ASCII under a caret asks
+
+    return sum(
+        0 if unicodedata.category(character) in _NO_WIDTH else 1 + (unicodedata.east_asian_width(character) in "WF")
+        for character in text
+    )
+
+
 class Diagnostic:
     """An error lowered to a uniform shape: a summary, captioned snippets, and note/help lines.
 
@@ -140,11 +157,12 @@ class Diagnostic:
                 lines.append(f"{gutter}    {line.expandtabs(_TAB)}")
                 for caret in carets:
                     # pad by the DISPLAY width of the prefix (tabs expanded), not its character count
-                    pad = " " * len(line[: caret.start - line_start].expandtabs(_TAB))
+                    before = _columns(line[: caret.start - line_start].expandtabs(_TAB))
                     # a group's span can run past this line; clamp it, so the caret marks where it opens
                     end = min(caret.end, line_start + len(line))
-                    underline = paint(_RED, "^" * max(1, end - caret.start))
-                    lines.append(f"{gutter}    {pad}{underline} {paint(_YELLOW, caret.label)}".rstrip())
+                    through = _columns(line[: end - line_start].expandtabs(_TAB))
+                    underline = paint(_RED, "^" * max(1, through - before))
+                    lines.append(f"{gutter}    {' ' * before}{underline} {paint(_YELLOW, caret.label)}".rstrip())
         if self.snippets:  # close the gutter only when a source block was drawn
             lines.append(gutter)
         if self.note is not None:

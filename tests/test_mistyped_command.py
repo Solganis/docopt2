@@ -104,8 +104,12 @@ def _unknown(kind, typed, meant, in_argv, in_usage):
         (_COMMIT_TWICE, ["comit"], "comit", "commit", 0, ("prog commit", 7, "commit")),
         (_COMMIT_TWICE, ["comit", "f"], "comit", "commit", 0, ("prog commit <file>", 7, "commit")),
         (_NAVAL, ["shp", "shoot", "1", "2"], "shp", "ship", 0, ("naval ship shoot <x> <y>", 8, "ship")),
-        # and at the occurrence the token fills, where a line writes the command more than once
-        ("Usage: prog add add", ["add", "ad"], "ad", "add", 4, ("Usage: prog add add", 16, "add")),
+        # the line is the one the corrected argv comes closest to, which the refused argv need not
+        ("Usage:\n  prog <y> add\n  prog add <x>", ["ad", "v"], "ad", "add", 0, ("prog add <x>", 7, "add")),
+        # and where that line does not write the command, the first place the usage does
+        ("Usage:\n  prog (add <x>)\n  prog <a> tail <b>", ["ad", "tail"], "ad", "add", 0, ("prog (add <x>)", 8, "add")),
+        # where a line writes the command more than once, at the first place it does, whichever the token fills
+        ("Usage: prog add add", ["add", "ad"], "ad", "add", 4, ("Usage: prog add add", 12, "add")),
         ("Usage: prog add add", ["ad", "add"], "ad", "add", 0, ("Usage: prog add add", 12, "add")),
     ],
 )
@@ -173,6 +177,18 @@ def test_no_command_is_hinted_that_docopt_itself_would_refuse():
     assert_that(_hinted(doc, ["comit"])).is_equal_to((_NO_MATCH, None, None, None))
 
 
+class _Port(Cli):
+    __cli_doc__ = "Usage: prog commit <port>"
+    commit: bool
+    port: int
+
+
+def test_the_proof_of_a_hint_is_the_usage_taking_the_argv_not_a_schema_binding_it():
+    typo = _summary_and_help(lambda: _Port.parse(["comit", "eighty"], complete=False))
+    value = _summary_and_help(lambda: _Port.parse(["commit", "eighty"], complete=False))
+    assert_that((typo, value)).is_equal_to((_COMIT, ("error: invalid value for `<port>`", [])))
+
+
 def test_a_usage_that_takes_any_command_accepts_the_token_as_it_is():
     said = _refused(_ANY_COMMAND, ["comit", "x"])
     assert_that(said).is_equal_to([f"accepted: {docopt(_ANY_COMMAND, ['comit', 'x'], suggest=False)}"])
@@ -232,11 +248,7 @@ def test_an_option_is_cross_referenced_in_the_usage_line_the_argv_came_closest_t
 def test_a_handler_table_refuses_a_mistyped_command_with_the_same_hint():
     app = Dispatch(_GIT)
     app.on("commit")(lambda args: "committed")
-    try:
-        outcome = app.run(["comit", "--amend"], complete=False)
-    except SystemExit as refusal:
-        outcome = str(refusal).splitlines()[0]
-    assert_that(outcome).is_equal_to("error: unknown command `comit`")
+    assert_that(_summary_and_help(lambda: app.run(["comit", "--amend"], complete=False))).is_equal_to(_COMIT)
     assert_that(app.run(["commit", "--amend"], complete=False)).is_equal_to("committed")
 
 
@@ -252,16 +264,22 @@ class _Git(Cli):
     amend: bool
 
 
-def _schema_class_says(**settings):
+def _summary_and_help(call):
+    """The summary line and the help lines of the refusal ``call`` raises, or what it returned."""
     try:
-        return _Git.parse(["comit", "--amend"], complete=False, **settings)
+        return call()
     except SystemExit as refusal:
-        return str(refusal).splitlines()[0]
+        lines = str(refusal).splitlines()
+        return lines[0], [line for line in lines if line.startswith("   = help: ")]
+
+
+_COMIT = ("error: unknown command `comit`", ["   = help: did you mean `commit`?"])
 
 
 def test_a_schema_class_hints_by_default_too_and_not_with_suggest_off():
-    assert_that(_schema_class_says()).is_equal_to("error: unknown command `comit`")
-    assert_that(_schema_class_says(suggest=False)).is_equal_to(_NO_MATCH)
+    hinted = _summary_and_help(lambda: _Git.parse(["comit", "--amend"], complete=False))
+    plain = _summary_and_help(lambda: _Git.parse(["comit", "--amend"], complete=False, suggest=False))
+    assert_that((hinted, plain)).is_equal_to((_COMIT, (_NO_MATCH, [])))
 
 
 def _searched(doc, argv):

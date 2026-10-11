@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 from docopt2._diagnostics import Caret, Diagnostic, Snippet
 from docopt2._errors import DocoptLanguageError
 from docopt2._parser import (
+    _CONFIG_PATTERN,
+    _ENV_PATTERN,
     Argument,
     BranchPattern,
     Either,
@@ -42,6 +44,7 @@ def _variadic_units(node: Pattern) -> int:
 
 
 _DEFAULT = re.compile(r"\[default:.*?]", re.IGNORECASE)
+_ANNOTATIONS = {"default": _DEFAULT, "env": _ENV_PATTERN, "config": _CONFIG_PATTERN}
 _OPTION_LINE = re.compile(r"-\S")  # what the parser reads as an option: a dash and a NON-space
 
 
@@ -65,13 +68,18 @@ def _nested_eithers(node: Pattern) -> Iterator[Either]:
             yield from _nested_eithers(child)
 
 
-def _section_lines(doc: str, header: str) -> Iterator[tuple[str, int]]:
-    """Yield ``(line, offset)`` for each indented body line of every ``header`` section of ``doc``."""
+def _sections(doc: str, header: str) -> Iterator[list[tuple[str, int]]]:
+    """Yield, for every ``header`` section of ``doc``, the ``(line, offset)`` of each of its indented body lines."""
     pattern = re.compile(r"^[^\n]*" + header + r"[^\n]*\n((?:[ \t].*(?:\n|$))*)", re.IGNORECASE | re.MULTILINE)
     for section in pattern.finditer(doc):
         base = section.start(1)
-        for line in re.finditer(r"[ \t]+\S[^\n]*", section.group(1)):
-            yield line.group(), base + line.start()
+        yield [(line.group(), base + line.start()) for line in re.finditer(r"[ \t]+\S[^\n]*", section.group(1))]
+
+
+def _section_lines(doc: str, header: str) -> Iterator[tuple[str, int]]:
+    """Yield ``(line, offset)`` for each indented body line of every ``header`` section of ``doc``."""
+    for lines in _sections(doc, header):
+        yield from lines
 
 
 def _token_span(line: str, offset: int) -> Span:
@@ -105,14 +113,21 @@ def check(doc: str) -> list[Diagnostic]:
     """
     warnings: list[Diagnostic] = []
     declared: list[tuple[Option, Span, Span]] = []
-    for line, offset in _section_lines(doc, "options:"):
-        if not _OPTION_LINE.match(line.lstrip()):
-            continue  # a wrapped description, or a prose bullet: `- fast, quick` is not an option
-        try:
-            option = Option.parse(line)
-        except DocoptLanguageError:
-            return []  # docopt rejects the whole message; that error is the one worth reading, not a lint
-        declared.append((option, _token_span(line, offset), _default_span(line, offset)))
+    described: list[tuple[Option, list[tuple[str, int]]]] = []
+    for section in _sections(doc, "options:"):
+        description: list[tuple[str, int]] | None = None  # of the option above, in this section
+        for line, offset in section:
+            if not _OPTION_LINE.match(line.lstrip()):
+                if description is not None:
+                    description.append((line, offset))
+                continue  # a wrapped description, or a prose bullet: `- fast, quick` is not an option
+            try:
+                option = Option.parse(line)
+            except DocoptLanguageError:
+                return []  # docopt rejects the whole message; that error is the one worth reading, not a lint
+            declared.append((option, _token_span(line, offset), _default_span(line, offset)))
+            description = [(line, offset)]
+            described.append((option, description))
     options = [option for option, _name, _default in declared]
     try:
         # formal_tokens, not formal_usage: the latter builds the same tree but offsets every leaf span, and
@@ -121,6 +136,20 @@ def check(doc: str) -> list[Diagnostic]:
         pattern = parse_pattern(formal_tokens(usage), list(options))
     except (DocoptLanguageError, RecursionError):
         return warnings
+    for option, lines in described:
+        for kind, annotation in _ANNOTATIONS.items():
+            written = [(at + hit.start(), at + hit.end()) for line, at in lines for hit in annotation.finditer(line)]
+            if len(written) > 1:
+                warnings.append(
+                    _warn(
+                        f"option `{option.name}` has more than one `[{kind}: ...]`",
+                        doc,
+                        written[1],
+                        "in the options:",
+                        "one too many",
+                        f"keep a single `[{kind}: ...]` on `{option.name}`",
+                    )
+                )
     in_usage = {leaf.name for leaf in pattern.flat(Option)}
     required = set(always_required_names(pattern))
     has_shortcut = bool(pattern.flat(OptionsShortcut))

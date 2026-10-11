@@ -251,7 +251,7 @@ The two hints fire on different evidence.
   an unambiguous prefix, so with `allow_abbrev=True` (the default) it de-abbreviates to `--force` and is
   accepted, never flagged. `--forcce` is a prefix of nothing, and that is what marks it as a typo.
 - A command is hinted only when the correction is proven. The token must resemble a command of the usage,
-  and the argv must be accepted once that command stands in its place. So `push comit extra` gets no
+  and the usage must accept the argv once that command stands in its place. So `push comit extra` gets no
   command hint. With `commit` there it would still not parse, and `comit` may well be the name of a remote.
 
 Short flags get no hint. They fall through to the standard `unexpected argument` diagnostic.

@@ -230,6 +230,11 @@ def _is_dataclass(schema: type[Any]) -> bool:
     return hasattr(schema, "__dataclass_fields__")
 
 
+def _is_bound(hint: Any) -> bool:
+    """Whether a dataclass annotation names a value its ``__init__`` takes: a field or an InitVar, not a ClassVar."""
+    return get_origin(hint) is not ClassVar and hint is not ClassVar
+
+
 def _field_names(schema: type[Any], hints: dict[str, Any]) -> list[str]:
     """The names to bind on ``schema``, excluding ClassVars, dunders, and non-fields.
 
@@ -237,9 +242,8 @@ def _field_names(schema: type[Any], hints: dict[str, Any]) -> list[str]:
     schema already binds, so a plain/``Cli`` schema must too. Only dunders (``__cli_doc__``) are dropped.
     """
     if _is_dataclass(schema):
-        import dataclasses  # deferred; only a real dataclass schema pays for it
-
-        return [field.name for field in dataclasses.fields(schema) if field.init]
+        declared = schema.__dataclass_fields__  # dataclasses.fields() leaves the init-only ones out
+        return [name for name in hints if name in declared and declared[name].init and _is_bound(hints[name])]
     if _is_typeddict(schema):
         return list(hints)
     return [
@@ -298,7 +302,7 @@ def _omittable_fields(schema: type[Any], field_names: list[str]) -> set[str]:
 
         return {
             field.name
-            for field in dataclasses.fields(schema)
+            for field in schema.__dataclass_fields__.values()  # dataclasses.fields() leaves the init-only ones out
             if field.default is not dataclasses.MISSING or field.default_factory is not dataclasses.MISSING
         }
     if _is_typeddict(schema):
@@ -310,6 +314,9 @@ def _omittable_fields(schema: type[Any], field_names: list[str]) -> set[str]:
 def _unwrap_annotation(annotation: Any) -> Any:
     # include_extras=True keeps Required/NotRequired and Annotated wrappers (get_type_hints does not
     # strip typing_extensions' markers on 3.10); coerce the underlying type.
+    dataclasses = sys.modules.get("dataclasses")  # an InitVar cannot be an annotation before its module is imported
+    if dataclasses is not None and isinstance(annotation, dataclasses.InitVar):
+        annotation = annotation.type
     required_markers, not_required_markers = _optionality_markers()
     origin = get_origin(annotation)
     if origin in required_markers or origin in not_required_markers:

@@ -61,6 +61,24 @@ docopt(doc, "--verbose 127.0.0.1 8080", schema=Args, complete=False)
 # Args(host='127.0.0.1', port=8080, verbose=True)
 ```
 
+An init-only field, `dataclasses.InitVar[...]`, is bound and coerced like any other. It reaches
+`__post_init__` and is not stored on the instance. On Python 3.10 it cannot be combined with
+`from __future__ import annotations`: there `typing.get_type_hints` refuses the annotation itself.
+
+```python
+@dataclasses.dataclass
+class Server:
+    host: str
+    port: dataclasses.InitVar[int]
+    address: str = dataclasses.field(init=False)
+
+    def __post_init__(self, port):
+        self.address = f"{self.host}:{port}"
+
+docopt("Usage: prog <host> <port>", "127.0.0.1 8080", schema=Server, complete=False)
+# Server(host='127.0.0.1', address='127.0.0.1:8080')
+```
+
 ### TypedDict
 
 Same field declarations, but the result is a plain `dict` whose values are typed by the `TypedDict`.

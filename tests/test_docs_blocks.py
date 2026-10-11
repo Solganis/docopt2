@@ -130,6 +130,9 @@ def _produced() -> dict[str, str]:
         "check: ambiguous variadics": _checked("Usage: prog <a>... <b>..."),
         "check: redundant alternative": _checked("Usage: prog (add | add)"),
         "check: empty [options]": _checked("Usage: prog [options] <f>"),
+        "check: repeated annotation": _checked(
+            "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [config: server.port] [config: port]."
+        ),
         "check: the CLI": "$ docopt2 check cli.py\n" + "\n".join(w.render() for w in check(_CLI_PY)),
         # docs/guides/diagnostics.md
         "diag: unknown option, suggested": _fails(_GIT_PUSH, "push --forcce origin"),
