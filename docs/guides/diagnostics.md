@@ -213,7 +213,11 @@ A value that was never in the arguments is shown where it was written. Here the 
 <span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `http` is not a valid int | None</span></div>
 
 A value from a `[config: ...]` key is shown the same way, as `server.port = http`. A `[default: ...]` that
-its own field refuses is shown as the usage message writes it.
+its own field refuses is shown as `[default: http]`. Of a default of several values the line is rebuilt
+from the values, one space between them.
+
+Only a text has a place. A flag or a counted flag that the arguments gave and its type refuses, `-vvv`
+against `Literal[0, 1, 2]`, is shown by its usage element alone.
 
 Only a **user value** gets this two-span treatment. A schema that disagrees with the usage - a field with
 no matching element, an unsupported annotation - is the developer's error, not the user's, and raises

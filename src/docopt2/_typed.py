@@ -229,12 +229,48 @@ def _takes(text: object, annotation: Any) -> bool:
     return _coerces(text, annotation) or _coerces([text], annotation)
 
 
-def _coerces(value: Any, annotation: Any) -> bool:
+# what a coercer raises for a value it refuses. AttributeError is `UUID(True)`, a flag handed to a type of texts
+_REFUSALS: Final = (ValueError, TypeError, ArithmeticError, AttributeError)
+
+
+def _attempt(value: Any, annotation: Any) -> tuple[Any, Exception | None]:
+    """``value`` coerced to ``annotation``, or why it was not."""
     try:
-        _coerce(value, annotation)
-    except (ValueError, TypeError, ArithmeticError, DocoptLanguageError):
-        return False
-    return True
+        return _coerce(value, annotation), None
+    except (*_REFUSALS, DocoptLanguageError) as refused:
+        return None, refused
+
+
+def _coerce_each(values: list[Any], inner: Any) -> list[Any]:
+    """Each of ``values`` coerced to ``inner``. A refusal carries the value that was refused, its place among
+    them and the type that refused it, so that nothing is coerced again to find them."""
+    coerced: list[Any] = []
+    try:
+        coerced.extend(_coerce(item, inner) for item in values)
+    except _REFUSALS as refused:
+        at = len(coerced)  # extend() keeps what it took before the value that was refused
+        setattr(refused, "_refused_item", (at, values[at], inner))  # noqa: B010 - an attribute no exception declares
+        raise
+    return coerced
+
+
+def _coerce_union(value: Any, members: list[Any]) -> Any:
+    """``value`` bound by a union of several types: left to right, by the first member that takes it.
+
+    Each member is asked once. Where none takes the value, the first that refused the value and not its shape
+    is the one heard, so that a text of the user's is reported as theirs.
+    """
+    refusals = []
+    for member in members:
+        bound, refused = _attempt(value, member)
+        if refused is None:
+            return bound
+        refusals.append(refused)
+    raise next((refused for refused in refusals if not isinstance(refused, DocoptLanguageError)), refusals[-1])
+
+
+def _coerces(value: Any, annotation: Any) -> bool:
+    return _attempt(value, annotation)[1] is None
 
 
 _UNPARSEABLE = object()  # a sentinel distinct from every real choice, so a failed parse never matches
@@ -257,11 +293,16 @@ def _coerce_choice(value: Any, choices: Sequence[Any], select: Callable[[Any], A
     (the literal itself, or an enum member). Raises ``ValueError(message)`` when nothing matches.
     """
     if value in choices:
-        return select(value)
+        return select(choices[choices.index(value)])  # the choice, not what equals it: a flag's `True` is no `1`
     for choice in choices:
         if _parsed_as(value, type(choice)) == choice:
             return select(choice)
     raise ValueError(message)
+
+
+def _spelled(annotation: Any) -> str:
+    """An annotation as its author wrote it: a class by its name, anything else by its repr."""
+    return annotation.__name__ if get_origin(annotation) is None and isinstance(annotation, type) else repr(annotation)
 
 
 def _coerce(value: Any, annotation: Any) -> Any:
@@ -273,22 +314,23 @@ def _coerce(value: Any, annotation: Any) -> Any:
     origin = get_origin(annotation)
     args = get_args(annotation)
     if origin is types.UnionType or origin is Union:
-        inner = next((arg for arg in args if arg is not type(None)), str)
-        return _coerce(value, inner)
-    if origin is Literal:
-        return _coerce_choice(value, args, lambda literal: literal, f"{value!r} is not one of {args!r}")
+        members = [arg for arg in args if arg is not type(None)] or [str]
+        return _coerce(value, members[0]) if len(members) == 1 else _coerce_union(value, members)
     if origin is list or annotation is list:
         if not isinstance(value, list):
             raise DocoptLanguageError(
-                f"the schema type {annotation!r} is a list, but this usage element is not repeated; "
+                f"the schema type {_spelled(annotation)} is a list, but this usage element is not repeated; "
                 "mark it with `...` to repeat, or use a scalar type"
             )
         inner = args[0] if args else str
-        return [_coerce(item, inner) for item in value]
+        return _coerce_each(value, inner)
     if isinstance(value, list):
         raise DocoptLanguageError(
-            f"a repeated usage element yields a list, but the schema type {annotation!r} is not a list; use list[...]"
+            f"a repeated usage element yields a list, but the schema type {_spelled(annotation)} is not a list; "
+            "use list[...]"
         )
+    if origin is Literal:
+        return _coerce_choice(value, args, lambda literal: literal, f"{value!r} is not one of {args!r}")
     if annotation is bool:
         if isinstance(value, str):
             raise DocoptLanguageError(
@@ -318,7 +360,7 @@ def _coerce(value: Any, annotation: Any) -> Any:
     for supported, coercer in _scalar_coercers().items():
         if annotation is supported:
             return coercer(value)
-    raise DocoptLanguageError(f"typed docopt cannot coerce to unsupported annotation {annotation!r}")
+    raise DocoptLanguageError(f"typed docopt cannot coerce to unsupported annotation {_spelled(annotation)}")
 
 
 def _is_dataclass(schema: type[Any]) -> bool:
@@ -368,6 +410,12 @@ def _bind_pydantic(parsed: Mapping[str, Any], schema: type[SchemaT], validator: 
         if field in accepted
     }
     return cast("SchemaT", validator(remapped))
+
+
+def _has_no_constructor(schema: type[SchemaT]) -> bool:
+    """Whether ``schema`` is a class that defines no construction of its own, and so takes no fields."""
+    inherited = (schema.__init__ is object.__init__, schema.__new__ is object.__new__)
+    return all(inherited) and type(schema).__call__ is type.__call__
 
 
 def _is_optional(annotation: Any) -> bool:
@@ -462,25 +510,14 @@ class _CoercionError(DocoptExit):
         super().__init__(f"invalid value for {key}: {raw!r} (expected {expected})")
 
 
-def _element_type(annotation: Any) -> Any:
-    """The type of one value of a list annotation, read through ``Annotated`` and beside ``None`` as ``_coerce``
-    reads it."""
-    if hasattr(annotation, "__metadata__"):
-        return _element_type(get_args(annotation)[0])
-    origin, args = get_origin(annotation), get_args(annotation)
-    if origin is types.UnionType or origin is Union:
-        return _element_type(next((arg for arg in args if arg is not type(None)), str))
-    return args[0] if origin is list and args else str
-
-
-def _refusal(key: str, raw: Any, annotation: Any) -> _CoercionError:
-    """The refusal of ``raw`` by ``annotation``: of a list, of the first value that its element type does not take."""
-    element, declared = _element_type(annotation), _type_name(annotation)
-    values = raw if isinstance(raw, list) else []
-    refused = next(((index, item) for index, item in enumerate(values) if not _coerces(item, element)), None)
-    if refused is None:
+def _refusal(key: str, raw: Any, annotation: Any, refused: BaseException) -> _CoercionError:
+    """The refusal of ``raw`` by ``annotation``: of a list, of the one value that ``_coerce_each`` named."""
+    declared = _type_name(annotation)
+    named = getattr(refused, "_refused_item", None)
+    if named is None:
         return _CoercionError(key, raw, declared)
-    return _CoercionError(key, refused[1], _type_name(element), refused[0], declared)
+    at, item, element = named
+    return _CoercionError(key, item, _type_name(element), at, declared)
 
 
 def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
@@ -531,14 +568,12 @@ def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
             )
         try:
             values[name] = _coerce(raw, annotation)
-        except (ValueError, TypeError, ArithmeticError) as exc:
-            raise _refusal(key, raw, annotation) from exc
+        except _REFUSALS as exc:
+            raise _refusal(key, raw, annotation, exc) from exc
     try:
         return schema(**values)
     except TypeError as exc:
-        # only a class that defines no construction of its own; a TypeError out of the user's code is theirs
-        inherited = (schema.__init__ is object.__init__, schema.__new__ is object.__new__)
-        if all(inherited) and type(schema).__call__ is type.__call__:
+        if _has_no_constructor(schema):  # a TypeError out of the user's own construction is theirs
             raise DocoptLanguageError(
                 f"schema `{schema.__name__}` is a plain class with no constructor to take its fields; "
                 "make it a dataclass or subclass `Cli`"

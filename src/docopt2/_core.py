@@ -66,6 +66,8 @@ class Arguments(dict[str, Any]):
         self.extra: list[str] = []
         self._sources: dict[str, Source] = {}
 
+    _written: dict[str, str] | None = None  # the text each fallback value was resolved from, once there is one
+
     def __repr__(self) -> str:
         body = ",\n ".join(f"{key!r}: {value!r}" for key, value in sorted(self.items()))
         return f"{{{body}}}"
@@ -260,20 +262,28 @@ def _place_in_argv(
     return getattr(value, "span", None)
 
 
-def _written_elsewhere(err: _CoercionError, result: Arguments, options: list[Option]) -> tuple[str, str, str]:
-    """A value that is not in the argv, as it stands where it was written: what precedes it on that line, what
-    follows it, and what the line is called."""
+def _written_elsewhere(err: _CoercionError, result: Arguments, options: list[Option]) -> tuple[str, str, str, str]:
+    """A value that is not in the argv, on the line that shows where it was written: what precedes it there, its
+    text, what follows it, and what the line is called. No text where there is none to show.
+
+    From the environment or the config the text is the one the value was resolved from, which a flag or a
+    counted flag reads as a bool or an int. A default of several values is rebuilt from the values, one space
+    between them.
+    """
     source = result.source(err.key)
     declared = {option.name: option for option in options}
-    if source is Source.ENV:
-        return f"{declared[err.key].env}=", "", "in the environment:"
-    if source is Source.CONFIG:
-        return f"{declared[err.key].config_key} = ", "", "in the config:"
+    if source is not Source.DEFAULT:
+        written = cast("dict[str, str]", result._written)[err.key]
+        if source is Source.ENV:
+            return f"{declared[err.key].env}=", written, "", "in the environment:"
+        return f"{declared[err.key].config_key} = ", written, "", "in the config:"
+    if not isinstance(err.raw, str):  # a flag or a count the argv did not give: no default is written for one
+        return "", "", "", ""
     words = list(result[err.key]) if err.index is not None else [err.raw]
     at = err.index or 0
     before = "".join(f"{word} " for word in words[:at])
     after = "".join(f" {word}" for word in words[at + 1 :])
-    return f"[default: {before}", f"{after}]", "as the default:"
+    return f"[default: {before}", err.raw, f"{after}]", "as the default:"
 
 
 def _coercion_diagnostic(
@@ -286,21 +296,24 @@ def _coercion_diagnostic(
     """Render a schema coercion failure: the value where it was written, in the argv, the environment, the
     config or a default, and the usage element that declared the type.
 
-    ``reading`` is how the argv was read: ``options_first``, ``negative_numbers``, ``allow_abbrev``.
+    A text is shown where it was written. A flag or a count that the argv gave has no one token, and is shown
+    by its usage element alone. ``reading`` is how the argv was read: ``options_first``, ``negative_numbers``,
+    ``allow_abbrev``.
     """
     usage = single_usage_section(doc)
     options = parse_defaults(doc)
     snippets = []
-    text, label = str(err.raw), f"expected {err.expected}"
+    label = f"expected {err.expected}"
     if result.source(err.key) is Source.CLI:
         placed = _placed_tokens(argv, usage, 1)
         at = _place_in_argv(placed, usage, options, err, reading)
         if at is not None and at[0] < at[1]:
             snippets.append(Snippet(placed.text, "in the arguments:", [Caret(*at, label)]))
-    elif text:
-        before, after, intro = _written_elsewhere(err, result, options)
-        caret = Caret(len(before), len(before) + len(text), label)
-        snippets.append(Snippet(f"{before}{text}{after}", intro, [caret]))
+    else:
+        before, text, after, intro = _written_elsewhere(err, result, options)
+        if text:
+            caret = Caret(len(before), len(before) + len(text), label)
+            snippets.append(Snippet(f"{before}{text}{after}", intro, [caret]))
     # Build the pattern the same way docopt() does (formal_tokens), so the leaf spans align with `usage`;
     # parse_tree() uses formal_usage and would offset the caret.
     pattern = parse_pattern(formal_tokens(usage), parse_defaults(doc))
@@ -433,6 +446,9 @@ def _apply_fallbacks(result: Arguments, options: list[Option], config: Mapping[s
             # a repeating valued option holds a list everywhere else; keep the key's type consistent
             result[name] = [filled] if isinstance(current, list) else filled
             result._sources[name] = source
+            if result._written is None:
+                result._written = {}
+            result._written[name] = raw
 
 
 @overload

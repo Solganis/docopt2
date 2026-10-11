@@ -88,6 +88,13 @@ class _Tags:
     tag: list[int]
 
 
+@dataclasses.dataclass
+class _Unfit:
+    out: str
+    level: int
+    verbose: str
+
+
 _GIT_PUSH = "Git push.\n\nUsage:\n  git push [--force] <remote>\n\nOptions:\n  --force  Force the push.\n"
 _GIT_MULTI = (
     "Usage:\n  git push [--force] <remote>\n  git commit --message=<msg>\n  git add <path>...\n\n"
@@ -153,6 +160,9 @@ def _produced() -> dict[str, str]:
             "Usage: prog [--port=<n>]\n\nOptions:\n  --port=<n>  Port [config: server.port] [config: port]."
         ),
         "check: the CLI": "$ docopt2 check cli.py\n" + "\n".join(w.render() for w in check(_CLI_PY)),
+        "check: a schema": "\n".join(
+            found.render() for found in check("Usage: prog [--out=<f>] [--level=<n>]... [--verbose]", schema=_Unfit)
+        ),
         # docs/guides/diagnostics.md
         "diag: unknown option, suggested": _fails(_GIT_PUSH, "push --forcce origin"),
         "diag: unknown command, suggested": _fails(

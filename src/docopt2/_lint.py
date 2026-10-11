@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import enum
 import re
-from typing import TYPE_CHECKING
+import types
+from typing import TYPE_CHECKING, Any, Literal, Union, get_args, get_origin
 
 from docopt2._diagnostics import Caret, Diagnostic, Snippet
 from docopt2._errors import DocoptLanguageError
@@ -19,11 +21,26 @@ from docopt2._parser import (
     parse_pattern,
     single_usage_section,
 )
+from docopt2._stub import _key_shapes
+from docopt2._typed import (
+    _REFUSALS,
+    _attempt,
+    _coerce,
+    _field_names,
+    _has_no_constructor,
+    _is_optional,
+    _is_pydantic,
+    _key_to_field,
+    _omittable_fields,
+    _resolved_hints,
+    _type_name,
+    _unwrap_annotation,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from docopt2._parser import Pattern, Span
+    from docopt2._parser import LeafValue, Pattern, Span
 
 
 def _variadic_units(node: Pattern) -> int:
@@ -101,7 +118,131 @@ def _warn(summary: str, doc: str, span: Span, intro: str, label: str, hint: str)
     return Diagnostic(summary=summary, snippets=snippets, help=hint, level="warning")
 
 
-def check(doc: str) -> list[Diagnostic]:
+def _is_closed(annotation: Any) -> bool:
+    """Whether ``annotation`` holds a closed set, a ``Literal`` or an ``Enum``, through ``Annotated`` and in any
+    member of a union."""
+    if hasattr(annotation, "__metadata__"):
+        return _is_closed(get_args(annotation)[0])
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is types.UnionType or origin is Union:
+        return any(_is_closed(member) for member in args)
+    return origin is Literal or (origin is None and isinstance(annotation, type) and issubclass(annotation, enum.Enum))
+
+
+def _yields(yielded: LeafValue, given: bool, annotation: Any) -> list[Any]:
+    """Every kind of value an element of this fixed value can hand the binder that is no text of the user's.
+
+    A flag hands it ``True``, and ``False`` unless the usage always requires the flag. A counted flag hands it
+    a count, and one and two stand for every count, beside nought unless the usage always requires it. That
+    holds for every type but a closed set, the one way a type tells counts apart. Which counts a usage can
+    reach is not worked out, so a counted flag typed with a closed set is not asked at all.
+    """
+    if type(yielded) is bool:
+        return [True] if given else [False, True]
+    if type(yielded) is int and not _is_closed(annotation):
+        return [1, 2] if given else [0, 1, 2]
+    return []
+
+
+def _holds(value: object, annotation: Any) -> bool:
+    """Whether ``value`` is what ``annotation`` says, as far as a class, a ``Literal`` or a union of them says."""
+    if hasattr(annotation, "__metadata__"):
+        return _holds(value, get_args(annotation)[0])
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is types.UnionType or origin is Union:
+        return any(_holds(value, member) for member in args)
+    if origin is Literal:
+        return any(value == literal and type(value) is type(literal) for literal in args)  # `False` is no `0`
+    kind = origin or annotation  # of `list[int]` the list: Python 3.10 calls a parameterized generic a type
+    return not isinstance(kind, type) or isinstance(value, kind)
+
+
+def _handed(raw: object, annotation: Any) -> tuple[str, str]:
+    """What becomes of ``raw`` in a field of ``annotation``: `held`, `mistyped` or `refused`, and why."""
+    try:
+        bound = _coerce(raw, annotation)
+    except _REFUSALS:
+        return "refused", f"the element yields `{raw!r}`, which {_type_name(annotation)} does not take"
+    if _holds(bound, annotation):
+        return "held", ""
+    return "mistyped", f"the element yields `{raw!r}`, which is no {_type_name(annotation)}"
+
+
+def _misfit(yielded: LeafValue, given: bool, annotation: Any) -> str | None:
+    """Why a field of ``annotation`` cannot hold what an element of this fixed value yields, or None.
+
+    The binder's own coercion is asked, so an ``Enum`` of the schema is called with the values tried. A shape
+    it refuses, a list for an element that is not repeated, is a misfit whatever the value. So is a value it
+    hands over as another type. A value it refuses is a misfit only where it refuses every value the element
+    can yield: a text is the user's to correct. A counted flag typed with a closed set is judged by its
+    shape alone: the set is a limit the author put on the count.
+    """
+    probes = _yields(yielded, given, annotation)
+    if not probes:
+        shape = _attempt(["x"] if type(yielded) is list else "x", annotation)[1]
+        return str(shape) if isinstance(shape, DocoptLanguageError) else None
+    try:
+        told = [_handed(raw, annotation) for raw in probes]
+    except DocoptLanguageError as shape:
+        return str(shape)
+    mistyped = [why for what, why in told if what == "mistyped"]
+    refused = [why for what, why in told if what == "refused"]
+    return mistyped[0] if mistyped else refused[0] if len(refused) == len(told) else None
+
+
+def _unfit(summary: str, usage: str = "", at: Span = None, label: str = "", **lines: str) -> Diagnostic:
+    snippets = [Snippet(usage, "in the usage:", [Caret(at[0], at[1], label)])] if at is not None else []
+    return Diagnostic(summary=summary, snippets=snippets, level="error", **lines)
+
+
+def _schema_findings(doc: str, schema: type[Any]) -> list[Diagnostic]:
+    """Where ``schema`` disagrees with the usage, each a case in which binding some argv the usage accepts would
+    raise or hand a field a value of another type, whatever the user typed."""
+    name = schema.__name__
+    if _is_pydantic(schema):
+        unchecked = f"schema `{name}` is a pydantic model, which binds by rules of its own: it was not checked"
+        return [Diagnostic(summary=unchecked, level="warning")]
+    try:
+        shapes = _key_shapes(doc)
+    except (DocoptLanguageError, RecursionError):
+        unread = f"the usage message does not parse: schema `{name}` was not checked"
+        return [Diagnostic(summary=unread, level="warning")]
+    try:
+        hints = _resolved_hints(schema)
+        fields = _field_names(schema, hints)
+    except Exception as unresolved:  # whatever evaluating the annotations of a user's class raises
+        return [_unfit(f"the annotations of schema `{name}` do not resolve", note=f"{unresolved}")]
+    usage = single_usage_section(doc)
+    found: list[Diagnostic] = []
+    keys: dict[str, str] = {}
+    for key, (_yielded, _given, written) in shapes.items():
+        field = _key_to_field(key)
+        if field in keys:
+            both = f"usage elements `{keys[field]}` and `{key}` both map to field `{field}`"
+            found.append(_unfit(both, usage, written, "the second of them", help="rename one of the two elements"))
+        keys.setdefault(field, key)
+    if fields and _has_no_constructor(schema):
+        plain = f"schema `{name}` is a plain class with no constructor to take its fields"
+        found.append(_unfit(plain, help="make it a dataclass or subclass `Cli`"))
+    omittable = _omittable_fields(schema, fields)
+    for field in fields:
+        if field not in keys:
+            found.append(_unfit(f"schema field `{field}` has no matching usage element"))
+            continue
+        key, annotation = keys[field], _unwrap_annotation(hints[field])
+        yielded, given, written = shapes[key]
+        if yielded is None and not given and not _is_optional(annotation) and field not in omittable:
+            absent = f"usage element `{key}` may be absent, but field `{field}` is not optional"
+            advice = f"annotate it as `{field}: ... | None` or give it a default"
+            found.append(_unfit(absent, usage, written, "may be absent", help=advice))
+        misfit = _misfit(yielded, given, annotation)
+        if misfit is not None:
+            summary, label = f"field `{field}` does not fit usage element `{key}`", f"typed as {_type_name(annotation)}"
+            found.append(_unfit(summary, usage, written, label, note=misfit))
+    return found
+
+
+def check(doc: str, schema: type[Any] | None = None) -> list[Diagnostic]:
     """Statically lint the usage grammar itself, before any argv is parsed.
 
     Returns a list of ``"warning"``-level diagnostics for defects the usage message contains that
@@ -110,7 +251,27 @@ def check(doc: str) -> list[Diagnostic]:
 
     The check is read-only and does not affect parsing or matching. A usage message too malformed to parse
     returns no warnings, since that error surfaces at parse time instead.
+
+    With ``schema``, a dataclass, a ``TypedDict`` or a ``Cli`` subclass, the list also holds an ``"error"`` for
+    every way the schema disagrees with the usage: a field with no element, two elements for one field, an
+    element that may be absent for a field that is not optional, a type that cannot hold what the element
+    yields. Binding raises the last two only on the argv that reaches them. A pydantic model, and a schema
+    whose usage message does not parse, get one ``"warning"`` that says they were not checked.
+
+    To judge a type the check calls the coercion that binding uses, so an ``Enum`` of the schema is called with
+    the values tried, and whatever its ``_missing_`` does is done. A counted flag typed with a closed set,
+    ``Literal[0, 1, 2]`` on ``[-v]...``, is judged by its shape alone: the set is the author's limit on the count.
+
+    Fields are held against elements, and no more than that: a default is not held against its own annotation,
+    and the schema is not constructed, so what its own ``__init__`` takes or refuses is not looked at. The
+    schema is held against the whole usage. A handler of a ``Dispatch`` table binds its schema only on the
+    lines of its command, so an element those lines always give can be reported as one that may be absent.
     """
+    found = _usage_findings(doc)
+    return found if schema is None else [*found, *_schema_findings(doc, schema)]
+
+
+def _usage_findings(doc: str) -> list[Diagnostic]:
     warnings: list[Diagnostic] = []
     declared: list[tuple[Option, Span, Span]] = []
     described: list[tuple[Option, list[tuple[str, int]]]] = []

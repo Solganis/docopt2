@@ -161,7 +161,7 @@ The supported set is closed:
 | `bool` | truthiness of the flag | must map to a flag, not a value-bearing element |
 | `list[T]`, `list` | each item coerced to `T` | `T` defaults to `str` |
 | `T \| None` | `None` stays `None`, else coerce to `T` | for an optional element |
-| `T \| U` | coerced to the first member that is not `None` | so `int \| str` yields an `int` |
+| `T \| U` | the first member, left to right, that takes the value | so `int \| str` yields `5` for `5` and `'abc'` for `abc` |
 | `Annotated[T, ...]` | the metadata is dropped, `T` is coerced | as a validation library would attach it |
 | `Literal["a", "b"]` | the value, if it is one of the literals | a closed set of choices, validated |
 | `enum.Enum` subclass | `EnumType(value)` | matched by member value |
@@ -259,6 +259,9 @@ user one:
 - a non-optional field bound to an element that may be absent
 - an unsupported annotation
 - a `bool` field mapped to a value-bearing element rather than a flag
+
+Each of these is raised on the argv that reaches it. [`check(doc, schema=Args)`](check.md#checking-a-schema)
+lists them all before any argv exists.
 
 ## The Arguments mapping
 

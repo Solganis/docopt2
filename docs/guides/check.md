@@ -188,6 +188,84 @@ print(check(doc)[0].render(color=True))
 <span class="dt-fg">   |</span>
 <span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: keep a single `[config: ...]` on `--port`</span></div>
 
+## Checking a schema
+
+A [schema](typed-results.md) is a second description of the same command line, and the two can
+disagree. Binding raises `DocoptLanguageError` for such a disagreement, and for some of them only on
+the argv that reaches it: a field that is not optional binds until the day its option is left out.
+
+`check(doc, schema=Args)` finds every disagreement before any argv exists:
+
+```python
+import dataclasses
+from docopt2 import check
+
+@dataclasses.dataclass
+class Args:
+    out: str
+    level: int
+    verbose: str
+
+doc = "Usage: prog [--out=<f>] [--level=<n>]... [--verbose]"
+for finding in check(doc, schema=Args):
+    print(finding.render())
+```
+
+<div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: usage element `--out` may be absent, but field `out` is not optional</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog [--out=&lt;f&gt;] [--level=&lt;n&gt;]... [--verbose]</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                 </span><span class="dt-caret">^^^^^^^^^</span><span class="dt-label"> may be absent</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: annotate it as `out: ... | None` or give it a default</span>
+<span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: field `level` does not fit usage element `--level`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog [--out=&lt;f&gt;] [--level=&lt;n&gt;]... [--verbose]</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                             </span><span class="dt-caret">^^^^^^^^^^^</span><span class="dt-label"> typed as int</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: a repeated usage element yields a list, but the schema type int is not a list; use list[...]</span>
+<span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: field `verbose` does not fit usage element `--verbose`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog [--out=&lt;f&gt;] [--level=&lt;n&gt;]... [--verbose]</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                                              </span><span class="dt-caret">^^^^^^^^^</span><span class="dt-label"> typed as str</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: the element yields `False`, which is no str</span></div>
+
+These findings are at `"error"` level, after the warnings about the usage itself. There are four kinds:
+
+| Finding | Fires when |
+| --- | --- |
+| no matching element | a field names no element of the usage |
+| two elements, one field | `--name` and `<name>` both map to the field `name` |
+| may be absent | an element can be left out, and its field is neither `T \| None` nor given a default |
+| does not fit | the type cannot hold what the element yields: a list for an element that is not repeated, a `bool` for an option that takes a value, a `str` for a flag |
+
+Two more are about the schema as a whole: annotations that do not resolve, and a plain class with no
+constructor to take its fields.
+
+A flag yields `True`, and `False` unless the usage always requires it. A type that takes neither is
+reported, and so is one that is handed a value of another type. A type that takes one of the two is a
+limit the author set, and is not reported.
+
+A counted flag typed with a closed set, `Literal[0, 1, 2]` on `[-v]...`, is judged by its shape alone. The
+set is the author's limit on the count: a fourth `-v` is refused at run time, as a value of the user's.
+Which counts a usage can reach is not worked out, so `Literal[1]` on `-v -v` is not found.
+
+Fields are held against elements, and no more than that. A default is not held against its own
+annotation, which is a type checker's to judge. The schema is not constructed, so what its own `__init__`
+or `__post_init__` takes or refuses is not looked at. To judge a type the check calls the same coercion
+that binding uses, so an `Enum` of the schema is called with the values that are tried.
+
+The schema is held against the whole usage, as `docopt(doc, schema=...)` binds it. A handler of a
+[`Dispatch`](dispatch.md) table binds its schema only on the lines of its own command, so for such a
+schema an element that those lines always give can be reported as one that may be absent.
+
+The check covers a dataclass, a `TypedDict` and a `Cli` subclass. A pydantic model binds by rules of its
+own, so it gets a single `"warning"` that says it was not checked. So does a schema whose usage message
+does not parse.
+
 ## From the command line
 
 `docopt2 check <source>` runs the same lint over a usage message read from `<source>`, which is one of:

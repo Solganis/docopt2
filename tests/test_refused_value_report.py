@@ -1,10 +1,12 @@
 import dataclasses
+import enum
 from typing import Annotated, Literal
 
 import pytest
 from assertpy2 import assert_that
 
-from docopt2 import Dispatch, DocoptExit, docopt
+from docopt2 import Dispatch, DocoptExit, _core, docopt
+from docopt2._parser import MatchBudget, _MatchBudgetExceededError
 from docopt2._typed import _CoercionError, bind_schema
 
 _DOC = """Usage: app [-v] [--level=<n>]... [-p <port>] [<name>]
@@ -23,12 +25,26 @@ class _Args:
     name: str | None
 
 
+def _refused(call):
+    """The lines of the refusal ``call`` ends in. One line that says so where it returns, or where something
+    other than a refusal comes out of it."""
+    try:
+        call()
+    except DocoptExit as refused:
+        return str(refused).splitlines()
+    except Exception as leaked:  # a leak is what the caller's assertion must show
+        return [f"leaked {type(leaked).__name__}"]
+    return ["accepted"]
+
+
+def _refusal(doc, argv, schema, **settings):
+    return _refused(lambda: docopt(doc, argv, schema=schema, complete=False, help=False, **settings))
+
+
 def _shown(doc, argv, schema, intro, **settings):
     """The snippet of a refusal that ``intro`` opens: its line, where its caret starts, the text under the caret
     and the caret's label. None where the refusal has no such snippet."""
-    with pytest.raises(DocoptExit) as refused:
-        docopt(doc, argv, schema=schema, complete=False, help=False, **settings)
-    lines = str(refused.value).splitlines()
+    lines = _refusal(doc, argv, schema, **settings)
     at = next((index for index, line in enumerate(lines) if line.strip("| ") == intro), None)
     if at is None:
         return None
@@ -38,9 +54,7 @@ def _shown(doc, argv, schema, intro, **settings):
 
 
 def _summary(doc, argv, schema, **settings):
-    with pytest.raises(DocoptExit) as refused:
-        docopt(doc, argv, schema=schema, complete=False, help=False, **settings)
-    return str(refused.value).splitlines()[0]
+    return _refusal(doc, argv, schema, **settings)[0]
 
 
 @pytest.mark.parametrize(
@@ -179,12 +193,24 @@ def test_a_handler_table_reads_the_line_for_its_places_with_the_settings_it_was_
     assert_that(lines).contains("   |  in the arguments:", f"   |{expected}")
 
 
-def test_where_the_search_for_a_whole_reading_runs_out_the_greedy_one_gives_the_place():
+def test_where_the_search_for_a_whole_reading_runs_out_the_greedy_one_gives_the_place(monkeypatch):
     flags = " ".join(f"[-{letter}]" for letter in "abcdefghijklmopqrs")
     doc = f"Usage: app <n> [{flags}]"
-    assert_that(_shown(doc, ["x", "surplus"], _Number, "in the arguments:", allow_extra=True)).is_equal_to(
-        ("x surplus", 0, "x", "expected int")
-    )
+    ran_out = []
+    budget_exit = MatchBudget.__exit__
+
+    def watched_exit(self, kind, error, trace):
+        ran_out.append(kind is _MatchBudgetExceededError)
+        return budget_exit(self, kind, error, trace)
+
+    monkeypatch.setattr(MatchBudget, "__exit__", watched_exit)
+    try:
+        shown = _shown(doc, ["x", "surplus"], _Number, "in the arguments:", allow_extra=True)
+    except _MatchBudgetExceededError:
+        shown = "the search ran out and nothing caught it"
+    assert_that(shown).is_equal_to(("x surplus", 0, "x", "expected int"))
+    # both searches ran out: the one docopt() bound from, and the one that read the line again for its places
+    assert_that(ran_out).is_equal_to([True, True])
 
 
 @pytest.mark.parametrize(
@@ -199,7 +225,17 @@ def test_where_the_search_for_a_whole_reading_runs_out_the_greedy_one_gives_the_
     ],
 )
 def test_a_value_with_no_place_to_show_gets_no_snippet_of_the_arguments(doc, argv, schema):
-    assert_that(_shown(doc, argv, schema, "in the arguments:")).is_none()
+    values = list(argv)
+    key, value = ("<n>", "x") if schema is _Number else ("--port", values[-1])
+    once = argv if isinstance(argv, list) else iter(values)  # the parameter was just read to its end
+    with pytest.raises(DocoptExit) as refused:
+        docopt(doc, once, schema=schema, complete=False, help=False)
+    lines = str(refused.value).splitlines()
+    assert_that(lines[0]).is_equal_to(f"error: invalid value for `{key}`")
+    assert_that(lines).does_not_contain("   |  in the arguments:").contains("   |  in the usage:")
+    assert_that(next(line for line in lines if "= note:" in line)).starts_with(
+        f"   = note: `{value}` is not a valid int"
+    )
 
 
 @pytest.mark.parametrize(
@@ -276,10 +312,93 @@ class _Defaulted:
         (["--port", "5", "--level", "5"], "<mode>", ("[default: 0x]", 10, "0x", "expected int")),
     ],
 )
-def test_a_refused_default_is_shown_as_the_usage_message_writes_it(argv, key, expected):
+def test_a_refused_default_is_shown_as_a_default_is_written(argv, key, expected):
     assert_that(_summary(_DEFAULTED, argv, _Defaulted)).is_equal_to(f"error: invalid value for `{key}`")
     assert_that(_shown(_DEFAULTED, argv, _Defaulted, "as the default:")).is_equal_to(expected)
     assert_that(_shown(_DEFAULTED, argv, _Defaulted, "in the arguments:")).is_none()
+
+
+def test_a_default_of_several_values_is_rebuilt_with_one_space_between_them():
+    doc = _DEFAULTED.replace("[default: 1 two 3]", "[default:   1    two \t 3 ]")
+    assert_that(_shown(doc, ["--port", "5", "7"], _Defaulted, "as the default:")).is_equal_to(
+        ("[default: 1 two 3]", 12, "two", "expected int")
+    )
+
+
+_COUNTED = """Usage: app [-v]... [-q]
+
+Options:
+  -v  Verbose [env: REFUSED_V] [config: log.verbose].
+  -q  Quiet [env: REFUSED_Q] [config: log.quiet].
+"""
+
+
+@dataclasses.dataclass
+class _Counted:
+    v: Literal[0, 1, 2]
+    q: Literal[False]
+
+
+@pytest.mark.parametrize(
+    ("variables", "config", "intro", "expected"),
+    [
+        # the text that was written, not the count or the bool a flag reads it as
+        ({"REFUSED_V": "03"}, None, "in the environment:", ("REFUSED_V=03", 10, "03", "expected one of `0`, `1`, `2`")),
+        ({"REFUSED_Q": "yes"}, None, "in the environment:", ("REFUSED_Q=yes", 10, "yes", "expected one of `False`")),
+        ({}, {"log": {"verbose": 3}}, "in the config:", ("log.verbose = 3", 14, "3", "expected one of `0`, `1`, `2`")),
+        ({}, {"log": {"quiet": True}}, "in the config:", ("log.quiet = true", 12, "true", "expected one of `False`")),
+    ],
+)
+def test_a_refused_flag_or_count_from_elsewhere_is_shown_as_the_text_written_there(
+    variables, config, intro, expected, monkeypatch
+):
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+    assert_that(_shown(_COUNTED, [], _Counted, intro, config=config)).is_equal_to(expected)
+
+
+@pytest.mark.parametrize("later", ["2", None])
+def test_the_text_shown_is_the_one_the_value_was_resolved_from_whatever_the_environment_holds_later(later, monkeypatch):
+    monkeypatch.setenv("REFUSED_V", "03")
+    bind = _core.bind_schema
+
+    def bind_after_a_change(parsed, schema):
+        if later is None:
+            monkeypatch.delenv("REFUSED_V")
+        else:
+            monkeypatch.setenv("REFUSED_V", later)
+        return bind(parsed, schema)
+
+    monkeypatch.setattr(_core, "bind_schema", bind_after_a_change)
+    assert_that(_shown(_COUNTED, [], _Counted, "in the environment:")).is_equal_to(
+        ("REFUSED_V=03", 10, "03", "expected one of `0`, `1`, `2`")
+    )
+
+
+@dataclasses.dataclass
+class _Loud:
+    v: Literal[0, 1, 2]
+    q: Literal[True]
+
+
+@pytest.mark.parametrize(
+    ("argv", "schema", "key", "note"),
+    [
+        # three tokens made the count: there is no one place of it
+        (["-vvv"], _Counted, "-v", "   = note: `3` is not one of `0`, `1`, `2`"),
+        (["-v", "-q"], _Counted, "-q", "   = note: `True` is not one of `False`"),
+        # a flag that was not given, refused: no default is written for a flag
+        ([], _Loud, "-q", "   = note: `False` is not one of `True`"),
+    ],
+)
+def test_a_refused_flag_or_count_of_the_argv_is_shown_by_its_usage_element_alone(argv, schema, key, note):
+    with pytest.raises(DocoptExit) as refused:
+        docopt(_COUNTED, argv, schema=schema, complete=False, help=False)
+    lines = str(refused.value).splitlines()
+    assert_that(lines[0]).is_equal_to(f"error: invalid value for `{key}`")
+    intros = [line.strip("| ") for line in lines if line.endswith(":") and line.startswith("   |  ")]
+    assert_that(intros).is_equal_to(["in the usage:"])
+    assert_that(lines).contains(note)
 
 
 def test_an_empty_default_has_no_text_to_show():
@@ -289,6 +408,13 @@ def test_an_empty_default_has_no_text_to_show():
     assert_that(_shown(doc, [], _Port, "in the usage:")).is_equal_to(
         ("Usage: app [--port=<p>]", 12, "--port=<p>", "typed as int | None")
     )
+
+
+def test_a_handler_table_shows_a_value_of_its_config():
+    app = Dispatch(_DOC)
+    app.on(schema=_Args)(lambda args: args)
+    lines = _refused(lambda: app.run([], complete=False, help=False, config={"server": {"port": "http"}}))
+    assert_that(lines).contains("   |  in the config:", "   |    server.port = http")
 
 
 def test_a_handler_table_names_the_environment_too(monkeypatch):
@@ -337,6 +463,47 @@ def test_a_refused_value_of_a_closed_set_still_gets_its_hint_among_several():
 @dataclasses.dataclass
 class _Port:
     port: int | None
+
+
+@dataclasses.dataclass
+class _EitherList:
+    x: list[bool] | list[int]
+
+
+def test_of_a_union_of_lists_the_member_that_refused_names_the_value():
+    # `list[bool]` cannot hold a text at all, so `list[int]` is the member that speaks: it took `1` and refused `x`
+    assert_that(_shown("Usage: app <x>...", ["1", "x"], _EitherList, "in the arguments:")).is_equal_to(
+        ("1 x", 2, "x", "expected int")
+    )
+    with pytest.raises(_CoercionError) as refused:
+        bind_schema({"<x>": ["1", "x"]}, _EitherList)
+    assert_that((refused.value.raw, refused.value.index, refused.value.expected)).is_equal_to(("x", 1, "int"))
+
+
+class _Moody(enum.Enum):
+    A = "A"
+
+    @classmethod
+    def _missing_(cls, value):
+        _ASKED.append(value)
+        return cls.A if value == "a" and _ASKED.count("a") > 1 else None
+
+
+_ASKED: list[object] = []
+
+
+@dataclasses.dataclass
+class _Moods:
+    x: list[_Moody]
+
+
+def test_the_value_named_is_the_one_coercion_refused_and_nothing_is_coerced_again_to_find_it():
+    # asked a second time this Enum would take `a`, and the report would then name `b`
+    _ASKED.clear()
+    with pytest.raises(_CoercionError) as refused:
+        bind_schema({"<x>": ["a", "b"]}, _Moods)
+    assert_that((refused.value.raw, refused.value.index)).is_equal_to(("a", 0))
+    assert_that(_ASKED).is_equal_to(["a"])
 
 
 @dataclasses.dataclass

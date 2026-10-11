@@ -15,21 +15,21 @@ from docopt2._parser import (
 from docopt2._typed import _key_to_field
 
 if TYPE_CHECKING:
-    from docopt2._parser import LeafValue
+    from docopt2._parser import LeafValue, Span
 
 StubStyle = Literal["dataclass", "typeddict", "cli"]
 
 
-def _annotation(value: LeafValue, *, required: bool, defaulted: bool) -> str:
+def _annotation(value: LeafValue, *, given: bool) -> str:
     """The Python type a schema field needs, read from the fixed leaf value the matcher uses.
 
     ``fix_repeating_arguments`` has already stamped the multiplicity into the value: ``False`` is a
     non-repeating flag/command, ``0`` a repeating one (a count), ``[]`` a repeating value element, a
     string a value with a ``[default: ...]``. ``None`` is a non-repeating value element with no
-    default, optional unless the usage always requires it (or a positional default fills it in).
+    default, optional unless it is always ``given``: the usage requires it, or a positional default fills it in.
     """
     if value is None:
-        return "str" if required or defaulted else "str | None"
+        return "str" if given else "str | None"
     if type(value) is bool:  # before int: a bool IS an int, and a flag is not a count
         return "bool"
     if type(value) is int:
@@ -39,22 +39,30 @@ def _annotation(value: LeafValue, *, required: bool, defaulted: bool) -> str:
     return "str"
 
 
-def _key_annotations(doc: str) -> dict[str, str]:
-    """Map every result key ``docopt()`` would return to its inferred annotation, in usage order."""
+def _key_shapes(doc: str) -> dict[str, tuple[LeafValue, bool, Span]]:
+    """Every result key ``docopt()`` would return, in usage order: the fixed value of its leaf, whether the usage
+    or a positional default always gives it a value, and where the usage first writes it."""
     usage = single_usage_section(doc)
     options = parse_defaults(doc)
     pattern = parse_pattern(formal_tokens(usage), options)
+    written: dict[str | None, Span] = {}
+    for leaf in pattern.flat():  # before fix(), which makes equal leaves one object with the span of the last
+        written.setdefault(leaf.name, leaf.span)
     expand_options_shortcut(pattern, options)  # so keys reachable only via `[options]` are included
     fixed = pattern.fix()
-    required = set(always_required_names(fixed))
-    defaults = parse_argument_defaults(doc)
-    key_types: dict[str, str] = {}
+    given = {*always_required_names(fixed), *parse_argument_defaults(doc)}
+    shapes: dict[str, tuple[LeafValue, bool, Span]] = {}
     for leaf in fixed.flat():
         key = leaf.name
-        if key is None or key in key_types:  # a leaf on several usage lines is one result key
+        if key is None or key in shapes:  # a leaf on several usage lines is one result key
             continue
-        key_types[key] = _annotation(leaf.value, required=key in required, defaulted=key in defaults)
-    return key_types
+        shapes[key] = (leaf.value, key in given, written.get(key))
+    return shapes
+
+
+def _key_annotations(doc: str) -> dict[str, str]:
+    """Map every result key ``docopt()`` would return to its inferred annotation, in usage order."""
+    return {key: _annotation(value, given=given) for key, (value, given, _written) in _key_shapes(doc).items()}
 
 
 def _doc_literal(doc: str) -> str:
