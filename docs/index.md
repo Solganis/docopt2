@@ -129,7 +129,8 @@ Diagnostics come with it. Everything else is opt-in: typed results, linting, stu
     ---
 
     `docopt2 check` (or `check`) lints the usage grammar itself: dead defaults, unusable options, ambiguous
-    variadics. It catches them before they ship.
+    variadics. It catches them before they ship. Given a schema, `check` also reports where the schema
+    disagrees with the usage.
 
     [:octicons-arrow-right-24: Usage linting](guides/check.md)
 

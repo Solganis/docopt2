@@ -15,6 +15,9 @@ So you can wire it into a test or a CI step, and fail the build on a grammar mis
 `check(doc)` takes the help string and returns a `list[Diagnostic]`, every entry at `"warning"`
 level. An empty list means the grammar is clean.
 
+With a schema, `check(doc, schema=Args)`, the list also holds `"error"` entries for the ways the schema
+disagrees with the usage. See [Checking a schema](#checking-a-schema).
+
 ```python
 from docopt2 import check
 

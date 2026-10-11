@@ -235,8 +235,8 @@ app.run()   # parse argv, call the matched command's handler
   <a href="https://www.nushell.sh/"><img src="https://img.shields.io/badge/nushell-4E9A06?logo=nushell&logoColor=white" alt="nushell"></a>
 </p>
 
-Generate the completion script for your shell. Tab then narrows to exactly what is valid at the cursor -<br>
-commands and options, never positional values - straight from the usage:
+Generate the completion script for your shell. Tab then narrows to exactly what is valid at the cursor,<br>
+straight from the usage:
 
 ```console
 $ naval <TAB>
@@ -246,6 +246,8 @@ $ naval ship <TAB>
 $ naval ship titanic move 1 2 <TAB>
 --speed
 ```
+
+With a schema, Tab also [completes the values](https://solganis.github.io/docopt2/guides/completion/#completing-values) of a `Literal` or an `Enum` field.
 
 <a name="schema-codegen"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/stub/">Generate the schema from the usage</a></h2>
@@ -344,6 +346,8 @@ catching defects the parser would otherwise accept in silence:
 
 It flags dead `[default: ...]` values, options declared but never usable,<br>
 ambiguous variadic positionals, and redundant alternatives.
+
+With `check(doc, schema=Args)` it also reports where the [schema disagrees with the usage](https://solganis.github.io/docopt2/guides/check/#checking-a-schema).
 
 <a name="usage-formatter"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/fmt/">Format the usage</a></h2>

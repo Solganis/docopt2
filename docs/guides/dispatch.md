@@ -221,6 +221,75 @@ coerced to the declared field type.
 See [Typed results](typed-results.md) for the full key-to-field mapping, and the four schema shapes a handler
 can receive.
 
+### Completing values
+
+A table answers a shell's completion request itself, and the schemas of its handlers say which values there
+are. Take two commands that share an option:
+
+```python
+from dataclasses import dataclass
+from typing import Literal
+
+from docopt2 import Dispatch
+
+deploy_doc = """Usage:
+  app deploy <env> [--format=<f>]
+  app status [--format=<f>]
+
+Options:
+  --format=<f>  Output format.
+"""
+tool = Dispatch(deploy_doc)
+
+
+@dataclass
+class DeployArgs:
+    env: Literal["dev", "prod"]
+    format: Literal["json", "yaml"] | None
+
+
+@dataclass
+class StatusArgs:
+    format: Literal["yaml", "table"] | None
+
+
+@tool.on("deploy", schema=DeployArgs)
+def deploy(args: DeployArgs): ...
+
+
+@tool.on("status", schema=StatusArgs)
+def status(args: StatusArgs): ...
+```
+
+```console
+$ app deploy <TAB>
+--format  --format=yaml  dev  prod
+$ app deploy dev --format <TAB>
+yaml
+```
+
+A value is offered only where every handler that declares the field takes it. `json` is the `deploy`
+handler's alone and `table` the `status` handler's alone, so `--format` completes `yaml` for both commands.
+
+A table does not judge the words already typed either, since which handler binds the line is not known
+before the line is whole. See [Completing values](completion.md#completing-values).
+
+### Checking a handler's schema
+
+[`check(doc, schema=...)`](check.md#checking-a-schema) holds a schema against the whole usage, as
+`docopt(doc, schema=...)` binds it. A handler binds its schema only on the lines of its own command, so an
+element that those lines always give can be reported as one that may be absent:
+
+```python
+from docopt2 import check
+
+[found.summary for found in check(deploy_doc, schema=DeployArgs)]
+# ['usage element `<env>` may be absent, but field `env` is not optional']
+```
+
+`<env>` is absent only on the `status` line, where `DeployArgs` is never bound. For a handler's schema
+that finding can be ignored. The other kinds of finding hold as they are.
+
 ## Forwarding options
 
 Extra keyword arguments to `run(...)` pass straight through to [`docopt`](../reference/docopt.md), so
