@@ -132,9 +132,14 @@ def _produced() -> dict[str, str]:
         "check: empty [options]": _checked("Usage: prog [options] <f>"),
         "check: the CLI": "$ docopt2 check cli.py\n" + "\n".join(w.render() for w in check(_CLI_PY)),
         # docs/guides/diagnostics.md
-        "diag: unknown option, suggested": _fails(_GIT_PUSH, "push --forcce origin", suggest=True),
+        "diag: unknown option, suggested": _fails(_GIT_PUSH, "push --forcce origin"),
+        "diag: unknown command, suggested": _fails(
+            "Usage:\n  git commit [--amend]\n  git push [--force] <remote>", "comit --amend"
+        ),
         "diag: unknown option, unsuggested": _fails(
-            "Usage:\n  git push [--force] <remote>\n\nOptions:\n  --force  Force.\n", "push --forcce origin"
+            "Usage:\n  git push [--force] <remote>\n\nOptions:\n  --force  Force.\n",
+            "push --forcce origin",
+            suggest=False,
         ),
         "diag: mutually exclusive": _fails(
             "Usage: prog (--fast | --slow)\n\nOptions:\n  --fast  Fast.\n  --slow  Slow.", "--fast --slow"

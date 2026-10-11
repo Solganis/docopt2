@@ -186,7 +186,7 @@ Usage:
   git push [--force] <remote>
 ```
 
-**docopt2** [points at it](https://solganis.github.io/docopt2/guides/diagnostics/#a-mismatch-at-parse-time) - in the argv *and* the usage that rejected it. The "did you mean" hint is opt-in: pass `suggest=True`.
+**docopt2** [points at it](https://solganis.github.io/docopt2/guides/diagnostics/#a-mismatch-at-parse-time) - in the argv *and* the usage that rejected it. A mistyped option or command also gets a "did you mean" hint.
 
 <p align="center">
   <img src="docs/assets/diagnostic.png" width="620" alt="A docopt2 error: 'unknown option --forcce' with a caret under the token in the argument vector and a second caret under --force in the usage, plus a 'did you mean --force?' hint">

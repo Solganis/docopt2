@@ -21,6 +21,7 @@ from docopt2._parser import (
     Pattern,
     Tokens,
     _MatchBudgetExceededError,
+    closest_usage_line,
     expand_options_shortcut,
     formal_tokens,
     formal_usage,
@@ -32,7 +33,7 @@ from docopt2._parser import (
     required_leaf_names,
     single_usage_section,
 )
-from docopt2._spellcheck import _closest, suggest_option
+from docopt2._spellcheck import _closest, _near, suggest_option
 from docopt2._typed import _CoercionError, bind_schema
 
 SchemaT = TypeVar("SchemaT")
@@ -128,6 +129,47 @@ def _caret_under(leaf: Pattern, leaves: list[Pattern], placed_leaves: list[Patte
     at = next(index for index, held in enumerate(leaves) if held is leaf)
     span = placed_leaves[at].span if at < len(placed_leaves) else None  # an argv that can be read only once
     return [Caret(*span, label)] if span is not None else []
+
+
+def _mistyped_command(pattern: Pattern, leaves: list[Pattern]) -> tuple[int, list[Pattern]] | None:
+    """Where the first positional that reads as a mistyped command stands, and the argv with the command meant there.
+
+    It is close to a command of the usage, and docopt() takes the argv once that command stands in its place:
+    the proof is the search docopt() itself makes, within a budget no larger than the one a parse has.
+    """
+    commands = sorted({str(leaf.name) for leaf in pattern.flat(Command)})
+    try:
+        with MatchBudget():  # one matcher budget for every attempt of the search
+            for index, leaf in enumerate(leaves):
+                if type(leaf) is not Argument or leaf.value in commands:
+                    continue
+                for meant in _near(str(leaf.value), commands):
+                    corrected = [*leaves[:index], Argument(None, meant), *leaves[index + 1 :]]
+                    outcomes = itertools.islice(pattern.matches(corrected, []), MATCH_LIMIT + 1)
+                    if any(left == [] for left, _ in outcomes):
+                        return index, corrected
+    except (_MatchBudgetExceededError, RecursionError):  # the corrected argv can go deeper than the refused one did
+        pass
+    return None
+
+
+def _command_written_at(written: Pattern, corrected: list[Pattern], at: int) -> tuple[int, int]:
+    """The usage span of the command at ``corrected[at]``: the line closest to that argv, the occurrence by order."""
+    meant = corrected[at].value
+    earlier = sum(type(leaf) is Argument and leaf.value == meant for leaf in corrected[:at])
+    in_line = [leaf.span for leaf in closest_usage_line(written, corrected).flat(Command) if leaf.name == meant]
+    spans = [span for span in in_line or [leaf.span for leaf in written.flat(Command) if leaf.name == meant] if span]
+    return spans[min(earlier, len(spans) - 1)]
+
+
+def _mistyped(
+    kind: str, typed: str, meant: str, in_argv: Snippet, usage: str, declared_at: tuple[int, int] | None
+) -> Diagnostic:
+    """An unknown option or command that reads as a typo of a known one, with where that one is declared."""
+    snippets = [in_argv]
+    if declared_at is not None:  # the one meant is written in the usage: cross-reference it
+        snippets.append(Snippet(usage, "in the usage:", [Caret(*declared_at, f"`{meant}` is defined here")]))
+    return Diagnostic(summary=f"unknown {kind} `{typed}`", snippets=snippets, help=f"did you mean `{meant}`?")
 
 
 def _argv_leaves(
@@ -380,7 +422,7 @@ def docopt(
     options_first: bool = False,
     *,
     default_help: bool | None = None,
-    suggest: bool = False,
+    suggest: bool = True,
     negative_numbers: bool = False,
     allow_abbrev: bool = True,
     allow_extra: bool = False,
@@ -401,8 +443,10 @@ def docopt(
         version: If truthy, printed when ``--version`` appears in ``argv``.
         options_first: Set to True to require options to precede positional arguments.
         default_help: Alias for ``help``. When not None it takes precedence.
-        suggest: On a failed parse, if a mistyped long option resembles a known one,
-            include a "did you mean ..." hint in the ``DocoptExit`` message.
+        suggest: On a failed parse, add a "did you mean ..." hint to the ``DocoptExit`` message
+            for a mistyped long option that resembles a known one, and for a mistyped command where
+            the argv is accepted once the command meant stands in its place. False leaves these two
+            hints out. A value a schema refuses keeps its own "did you mean" either way.
         negative_numbers: Treat tokens like ``-3`` or ``-6.28`` as positional arguments
             instead of short-option clusters.
         allow_abbrev: When False, a long option in ``argv`` must be written in full. An
@@ -539,6 +583,10 @@ def docopt(
     # by where a leaf stands, not by its text: the same text can stand earlier in the line, in a token the usage took
     placed = _placed_tokens(argv, usage, exit_code)
     placed_leaves = _argv_leaves(placed, pattern, options, options_first, negative_numbers, allow_abbrev)
+    # the usage as written: fix() makes equal leaves one object, whose span is that of the last one written
+    written = parse_pattern(formal_tokens(usage), parse_defaults(doc))
+    # an option is cross-referenced in the line the argv came closest to, and failing that where it is first written
+    declared_options = [*closest_usage_line(written, argv_patterns).flat(Option), *written.flat(Option)]
     if suggest:
         # the options as the parser read them: a token it took as a value or as a positional is no mistyped option
         typed = [leaf for leaf in argv_patterns if isinstance(leaf, Option) and leaf.long is not None]
@@ -547,14 +595,18 @@ def docopt(
             unknown, suggestion = hint
             mistyped = next(leaf for leaf in typed if leaf.long == unknown)
             carets = _caret_under(mistyped, argv_patterns, placed_leaves, "not a known option")
-            snippets = [Snippet(placed.text, "in the arguments:", carets)]
-            declared_at = _span_of(pattern.flat(Option), suggestion)
-            if declared_at is not None:  # the suggested option is written in the usage: cross-reference it
-                where = Snippet(usage, "in the usage:", [Caret(*declared_at, f"`{suggestion}` is defined here")])
-                snippets.append(where)
-            diagnostic = Diagnostic(
-                summary=f"unknown option `{unknown}`", snippets=snippets, help=f"did you mean `{suggestion}`?"
-            )
+            in_argv = Snippet(placed.text, "in the arguments:", carets)
+            declared_at = _span_of(declared_options, suggestion)
+            diagnostic = _mistyped("option", unknown, suggestion, in_argv, usage, declared_at)
+            raise _exit(diagnostic, collected=collected, left=left)
+        command = _mistyped_command(pattern, argv_patterns)
+        if command is not None:
+            at, corrected = command
+            typo, meant = argv_patterns[at], str(corrected[at].value)
+            carets = _caret_under(typo, argv_patterns, placed_leaves, "not a known command")
+            in_argv = Snippet(placed.text, "in the arguments:", carets)
+            declared_at = _command_written_at(written, corrected, at)
+            diagnostic = _mistyped("command", str(typo.value), meant, in_argv, usage, declared_at)
             raise _exit(diagnostic, collected=collected, left=left)
     if left and greedy is not None:
         # A prefix matched, so left[0] is the first token with no place in the usage. Caret it in the
@@ -564,7 +616,7 @@ def docopt(
         shown = str(offending.name) if isinstance(offending, Option) else str(offending.value)
         carets = _caret_under(offending, argv_patterns, placed_leaves, "not allowed here")
         snippets = [Snippet(placed.text, "in the arguments:", carets)]
-        usage_span = _span_of(pattern.flat(Option), shown)
+        usage_span = _span_of(declared_options, shown)
         advice: str | None
         if usage_span is not None:
             snippets.append(Snippet(usage, "in the usage:", [Caret(*usage_span, "declared here")]))
@@ -573,9 +625,7 @@ def docopt(
             advice = None
         summary = f"unexpected argument `{shown}`"
         raise _exit(Diagnostic(summary=summary, snippets=snippets, help=advice), collected=collected, left=left)
-    # Score against a freshly-parsed (unfixed) pattern: fix() dedups identical leaves across lines onto
-    # one shared span, which would caret the wrong line when a name repeats (e.g. `<y>` in several lines).
-    near_miss = nearest_usage_line(parse_pattern(formal_tokens(usage), parse_defaults(doc)), argv_patterns)
+    near_miss = nearest_usage_line(written, argv_patterns)
     if near_miss is not None:
         name, span, total = near_miss
         snippet = Snippet(usage, "in the usage:", [Caret(*span, "required here")])
@@ -628,7 +678,7 @@ class Cli:
         help: bool = True,  # noqa: A002 - mirrors docopt()'s public parameter name
         version: object = None,
         options_first: bool = False,
-        suggest: bool = False,
+        suggest: bool = True,
         negative_numbers: bool = False,
         allow_abbrev: bool = True,
         allow_extra: bool = False,

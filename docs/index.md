@@ -66,7 +66,7 @@ Diagnostics come with it. Everything else is opt-in: typed results, linting, stu
     ---
 
     A mismatch carets the offending token in your argv and cross-references the usage that rejected it.
-    `suggest=True` adds a spell-checked "did you mean".
+    A mistyped option or command gets a spell-checked "did you mean".
 
     [:octicons-arrow-right-24: Diagnostics](guides/diagnostics.md)
 

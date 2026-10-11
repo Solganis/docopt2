@@ -868,6 +868,30 @@ def _line_partial_score(line: Pattern, argv_leaves: list[Pattern]) -> tuple[int,
     return score, evidence, unmet
 
 
+def _line_score(line: Pattern, argv_leaves: list[Pattern]) -> tuple[int, int, tuple[str, Span] | None]:
+    """``_line_partial_score``, with a line too wide or too ambiguous to score put below every line that was scored."""
+    try:
+        return _line_partial_score(line, argv_leaves)
+    except (_MatchBudgetExceededError, RecursionError):
+        return 0, -1, None
+
+
+def _closest_line(lines: list[Pattern], argv_leaves: list[Pattern]) -> tuple[int, int, int, tuple[str, Span] | None]:
+    """The best line's evidence, score, negated index and first unmet element. Ties break to the earliest line."""
+    ranked: list[tuple[int, int, int, tuple[str, Span] | None]] = []
+    with MatchBudget():  # one matcher budget for the whole ranking
+        for index, line in enumerate(lines):
+            score, evidence, unmet = _line_score(line, argv_leaves)
+            ranked.append((evidence, score, -index, unmet))
+    return max(ranked, key=lambda entry: entry[:3])
+
+
+def closest_usage_line(pattern: Pattern, argv_leaves: list[Pattern]) -> Pattern:
+    """The usage line the argv supplied the most of, the earliest one on a tie."""
+    lines = _usage_lines(pattern)
+    return lines[-_closest_line(lines, argv_leaves)[2]]
+
+
 def nearest_usage_line(pattern: Pattern, argv_leaves: list[Pattern]) -> tuple[str, tuple[int, int], int] | None:
     """The unmet required element of the usage line the argv came closest to, with the line count.
 
@@ -881,12 +905,7 @@ def nearest_usage_line(pattern: Pattern, argv_leaves: list[Pattern]) -> tuple[st
     ranking is what needs alternatives, not the caret.
     """
     lines = _usage_lines(pattern)
-    ranked: list[tuple[int, int, int, tuple[str, Span] | None]] = []
-    for index, line in enumerate(lines):
-        score, evidence, unmet = _line_partial_score(line, argv_leaves)
-        ranked.append((evidence, score, -index, unmet))  # ties break to the earliest line
-    ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True)
-    best_evidence, _score, _index, unmet = ranked[0]
+    best_evidence, _score, _index, unmet = _closest_line(lines, argv_leaves)
     if best_evidence == 0 or unmet is None:
         return None
     name, span = unmet

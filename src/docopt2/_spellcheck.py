@@ -38,12 +38,15 @@ def _levenshtein(source: str, target: str) -> int:
     return matrix[len(source)][len(target)]
 
 
+def _near(name: str, known: Iterable[str]) -> list[str]:
+    """The known names within the threshold of ``name``, the closest first."""
+    ranked = sorted((_levenshtein(name, candidate) / max(len(name), len(candidate)), candidate) for candidate in known)
+    return [candidate for distance, candidate in ranked if distance < _SIMILARITY_THRESHOLD]
+
+
 def _closest(name: str, known: Iterable[str]) -> str | None:
     """Return the known option most similar to ``name``, if within the threshold."""
-    ranked = sorted((_levenshtein(name, candidate) / max(len(name), len(candidate)), candidate) for candidate in known)
-    if ranked and ranked[0][0] < _SIMILARITY_THRESHOLD:
-        return ranked[0][1]
-    return None
+    return next(iter(_near(name, known)), None)
 
 
 def suggest_option(tokens: Sequence[str], options: list[Option], allow_abbrev: bool = True) -> tuple[str, str] | None:

@@ -172,19 +172,41 @@ def test_the_budget_stops_an_exponential_match_instead_of_running_it_to_exhausti
     # clock: wall-clock is neither deterministic nor portable here (coverage tracing alone slows the same
     # match ~15x, and it swings 20x run to run). Trip at a small count so the test is instant even under
     # coverage; docopt() must catch the exceeded budget and reject.
-    charges = 0
+    flags = " ".join(f"[-{chr(97 + index)}]" for index in range(24))
+    stopped_at, later, unbudgeted = _descents_of_a_refusal(f"usage: prog {flags} <END>", 24)
+    assert_that(stopped_at).described_as("descents before the budget stopped the match").is_equal_to(5001)
+    assert_that(later).described_as("descents of what ran under a budget after it").is_less_than(10)
+    assert_that(unbudgeted).described_as("descents made under no budget").is_equal_to(0)
+
+
+def test_scoring_the_usage_lines_of_a_refusal_runs_under_a_budget_too():
+    # The same optionals inside ONE group: the match trips its budget as above, and then the lines are scored
+    # to word the refusal. Scoring that group used to run under no budget, 2**n descents for n optionals.
+    flags = " ".join(f"[-{chr(97 + index)}]" for index in range(18))
+    stopped_at, later, unbudgeted = _descents_of_a_refusal(f"usage: prog ({flags} <END>)", 18)
+    assert_that((stopped_at, unbudgeted)).is_equal_to((5001, 0))
+    assert_that(later).is_less_than(10)
+
+
+def _descents_of_a_refusal(doc: str, flags: int) -> tuple[int, int, int]:
+    """Refuse an argv of ``flags`` short options with the budget tripping past 5000 descents.
+
+    Returns the descents charged up to the first trip, the ones charged under a budget after it, and the ones
+    made under no budget at all.
+    """
+    charges, trips, unbudgeted = 0, [], 0
 
     def counting_spend() -> None:
-        nonlocal charges
+        nonlocal charges, unbudgeted
         if docopt2._parser._match_budget.get() is None:
-            return  # unbudgeted (near-miss scoring after the match): do not count or trip
+            unbudgeted += 1
+            return
         charges += 1
         if charges > 5000:
+            trips.append(charges)
             raise docopt2._parser._MatchBudgetExceededError
 
-    flags = " ".join(f"[-{chr(97 + index)}]" for index in range(24))
-    doc = f"usage: prog {flags} <END>"
-    argv = [f"-{chr(97 + index)}" for index in range(24)]
+    argv = [f"-{chr(97 + index)}" for index in range(flags)]
     original = docopt2._parser._spend_budget
     docopt2._parser._spend_budget = counting_spend
     try:
@@ -192,7 +214,7 @@ def test_the_budget_stops_an_exponential_match_instead_of_running_it_to_exhausti
             docopt2.docopt(doc, argv, help=False)
     finally:
         docopt2._parser._spend_budget = original
-    assert_that(charges).described_as("descents before the budget stopped the match").is_equal_to(5001)
+    return trips[0], charges - trips[0], unbudgeted
 
 
 def test_docopt_installs_one_fixed_match_ceiling_whatever_the_argv_length():

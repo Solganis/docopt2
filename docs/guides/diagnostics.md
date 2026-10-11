@@ -31,7 +31,7 @@ Options:
   --force  Force the push.
 """
 
-docopt(doc, "push --forcce origin", suggest=True)   # raises the diagnostic above
+docopt(doc, "push --forcce origin")   # raises the diagnostic above
 ```
 
 Read the two snippets top to bottom:
@@ -42,8 +42,8 @@ Read the two snippets top to bottom:
   `--force`. This is the cross-reference: it ties the mistake in argv to the exact spot in the spec that
   rejected it, so you are not left scanning the whole usage yourself.
 
-The `help:` line carries the "did you mean" hint. It appears only with `suggest=True`. See
-[Opting into hints](#opting-into-hints) below.
+The `help:` line carries the "did you mean" hint. See [Hints for a typo](#hints-for-a-typo) below for when it
+fires and how to turn it off.
 
 ## One shape for every error
 
@@ -223,13 +223,46 @@ A closing bracket with nothing open is caught the same way, with the summary `un
     diagnostics ahead of time, as warnings, so a malformed spec is reported in a test rather than on a
     user's first bad command.
 
-## Opting into hints
+## Hints for a typo
 
-The "did you mean" hint is opt-in. Without it, the same typo is reported by the generic mismatch path:
+A mistyped long option or a mistyped command gets a "did you mean" hint. The option case is the diagnostic
+at the top of this page. A command reads the same way:
+
+```python
+doc = "Usage:\n  git commit [--amend]\n  git push [--force] <remote>"
+docopt(doc, "comit --amend")
+```
+
+<div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: unknown command `comit`</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the arguments:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    comit --amend</span>
+<span class="dt-fg">   |</span><span class="dt-fg">    </span><span class="dt-caret">^^^^^</span><span class="dt-label"> not a known command</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
+<span class="dt-fg">   |</span><span class="dt-fg">      git commit [--amend]</span>
+<span class="dt-fg">   |</span><span class="dt-fg">          </span><span class="dt-caret">^^^^^^</span><span class="dt-label"> `commit` is defined here</span>
+<span class="dt-fg">   |</span>
+<span class="dt-fg">   = </span><span class="dt-help">help</span><span class="dt-fg">: did you mean `commit`?</span></div>
+
+The two hints fire on different evidence.
+
+- An option is hinted when it resembles a known long option within an edit-distance threshold. `--for` is
+  an unambiguous prefix, so with `allow_abbrev=True` (the default) it de-abbreviates to `--force` and is
+  accepted, never flagged. `--forcce` is a prefix of nothing, and that is what marks it as a typo.
+- A command is hinted only when the correction is proven. The token must resemble a command of the usage,
+  and the argv must be accepted once that command stands in its place. So `push comit extra` gets no
+  command hint. With `commit` there it would still not parse, and `comit` may well be the name of a remote.
+
+Short flags get no hint. They fall through to the standard `unexpected argument` diagnostic.
+
+### Turning hints off
+
+Pass `suggest=False` and the same typo is reported by the generic mismatch path:
 
 ```python
 doc = "Usage:\n  git push [--force] <remote>\n\nOptions:\n  --force  Force.\n"
-docopt(doc, "push --forcce origin")   # suggest defaults to False
+docopt(doc, "push --forcce origin", suggest=False)
 ```
 
 <div class="docopt2-term"><span class="dt-err dt-b">error</span><span class="dt-fg dt-b">: unexpected argument `--forcce`</span>
@@ -238,20 +271,6 @@ docopt(doc, "push --forcce origin")   # suggest defaults to False
 <span class="dt-fg">   |</span><span class="dt-fg">    push --forcce origin</span>
 <span class="dt-fg">   |</span><span class="dt-fg">         </span><span class="dt-caret">^^^^^^^^</span><span class="dt-label"> not allowed here</span>
 <span class="dt-fg">   |</span></div>
-
-Pass `suggest=True` and docopt2 upgrades the message to the `unknown option` form shown at the top of this
-page: the "did you mean `--force`?" help line, plus the usage cross-reference. That fires when a mistyped
-long option resembles a known one within an edit-distance threshold.
-
-The hint fires only on a genuine typo:
-
-- `--for` is an unambiguous prefix, so with `allow_abbrev=True` (the default) it already de-abbreviates to
-  `--force`. It is accepted, never flagged.
-- `--forcce` is a prefix of nothing. That is what marks it as a typo worth a suggestion.
-
-!!! note
-    `suggest` only affects long options (`--name`). Short flags and positional arguments fall through to
-    the standard `unexpected argument` and `missing or mismatched arguments` diagnostics.
 
 ## See also
 

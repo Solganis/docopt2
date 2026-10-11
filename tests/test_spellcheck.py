@@ -42,10 +42,13 @@ def test_suggest_hints_when_the_option_is_only_in_the_options_section():
     assert_that(message).contains("did you mean `--verbose`").contains("--verbse")
 
 
-def test_suggest_off_by_default_gives_no_hint():
-    with raises(DocoptExit) as exc_info:
+def test_the_hint_is_given_by_default_and_not_with_suggest_off():
+    with raises(DocoptExit) as hinted:
         docopt(DOC, "--verbso x")
-    assert_that(str(exc_info.value)).does_not_contain("did you mean")
+    assert_that(str(hinted.value)).contains("did you mean `--verbose`?")
+    with raises(DocoptExit) as plain:
+        docopt(DOC, "--verbso x", suggest=False)
+    assert_that(str(plain.value)).does_not_contain("did you mean").contains("unexpected argument `--verbso`")
 
 
 def test_suggest_gives_no_hint_when_nothing_is_close():

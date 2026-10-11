@@ -6,7 +6,7 @@ from hypothesis import event, given
 from hypothesis import strategies as st
 
 from _strategies import argv_strategy, doc_strategy
-from docopt2 import Argument, DocoptExit, DocoptLanguageError, Option, Tokens, docopt
+from docopt2 import Argument, DocoptExit, DocoptLanguageError, Option, Tokens, docopt, generate_examples
 from docopt2._core import _argv_leaves, _placed_tokens
 from docopt2._parser import (
     MatchBudget,
@@ -17,9 +17,11 @@ from docopt2._parser import (
     single_usage_section,
 )
 
-_NAMED = re.compile(r"error: (?:unexpected argument|unknown option) `(.*)`")
-_MISTYPED = st.lists(st.sampled_from(["--fooo", "--bat", "--optt=1"]), max_size=2)
-_argv_with_typos = st.tuples(argv_strategy, _MISTYPED).flatmap(lambda drawn: st.permutations(drawn[0] + drawn[1]))
+_NAMED = re.compile(r"error: (?:unexpected argument|unknown option|unknown command) `(.*)`")
+_MISTYPED = st.lists(st.sampled_from(["--fooo", "--bat", "--optt=1", "ad", "cmdd"]), max_size=2)
+_MISSPELLED = {"cmd": "cmdd", "add": "ad"}
+_some_argv = argv_strategy.filter(len)
+_argv_with_typos = st.tuples(_some_argv, _MISTYPED).flatmap(lambda drawn: st.permutations(drawn[0] + drawn[1]))
 
 
 def _shape(leaves):
@@ -55,7 +57,7 @@ def _strangers(outcomes, given_leaves):
     return found
 
 
-@given(doc_strategy, argv_strategy, st.booleans(), st.booleans(), st.booleans())
+@given(doc_strategy, _some_argv, st.booleans(), st.booleans(), st.booleans())
 def test_a_placed_read_gives_the_leaves_of_a_plain_read_each_at_the_place_of_its_own_text(
     doc, argv, options_first, negative_numbers, allow_abbrev
 ):
@@ -81,7 +83,7 @@ def test_a_placed_read_gives_the_leaves_of_a_plain_read_each_at_the_place_of_its
     assert_that(starts).is_equal_to(sorted(set(starts)))
 
 
-@given(doc_strategy, argv_strategy)
+@given(doc_strategy, _some_argv)
 def test_what_the_matcher_leaves_over_is_made_of_the_leaf_objects_it_was_given(doc, argv):
     try:
         usage = single_usage_section(doc)
@@ -132,3 +134,29 @@ def test_a_refusal_that_names_a_token_carets_text_that_token_can_be_typed_as(doc
     under = shown[marks.index("^") : marks.index("^") + marks.count("^")] if "^" in marks else None
     typed_as = [name, name[1:]] if re.fullmatch(r"-[^-]", name) else [name]
     assert_that(typed_as).contains(under)
+
+
+@given(st.sampled_from(sorted(_MISSPELLED)), doc_strategy, st.integers(0, 1000), st.data())
+def test_a_usage_led_by_a_command_refuses_that_command_misspelled_and_hints_back_to_it(command, doc, seed, data):
+    led = doc.replace("usage: prog ", f"usage: prog {command} (", 1) + ")"
+    try:
+        accepted = generate_examples(led, count=6, seed=seed)
+    except DocoptLanguageError:
+        return
+    argv = data.draw(st.sampled_from(accepted))
+    at = argv.index(command)
+    misspelled = [*argv[:at], _MISSPELLED[command], *argv[at + 1 :]]
+    try:
+        said = [f"accepted: {docopt(led, misspelled, complete=False)}"]
+    except DocoptExit as refusal:
+        said = str(refusal).splitlines()
+    hint = [line for line in said if line.startswith("   = help: did you mean `")]
+    column = said[said.index("   |  in the arguments:") + 2][8:].index("^") if hint else None
+    event(f"the command stands at token {min(at, 2)} of {min(len(argv), 3)}")
+    assert_that((said[0], hint, column)).is_equal_to(
+        (
+            f"error: unknown command `{misspelled[at]}`",
+            [f"   = help: did you mean `{command}`?"],
+            len(" ".join(misspelled[:at])) + bool(at),
+        )
+    )
