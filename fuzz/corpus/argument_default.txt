@@ -1,0 +1,4 @@
+Usage: prog [-a] [-b <x>]
+
+Arguments:
+  <x>  X [default: 1].

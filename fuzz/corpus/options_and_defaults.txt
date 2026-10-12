@@ -1,0 +1,5 @@
+Usage: prog [options] <x>
+
+Options:
+  -v, --verbose  Loud.
+  --port=<n>     Port [default: 80].

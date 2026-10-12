@@ -1,0 +1,6 @@
+Usage:
+  app deploy <env> [--format=<f>]
+  app status
+
+Options:
+  --format=<f>  Format [env: FMT] [config: out.format].

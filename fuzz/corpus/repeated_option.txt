@@ -1,0 +1,4 @@
+Usage: prog [--count=<n>]...
+
+Options:
+  --count=<n>  N [default: 1 2].

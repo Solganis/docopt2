@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # the corpus of the last run is an artifact of it
 
 concurrency:
   group: ${{ github.workflow }}
@@ -25,7 +26,7 @@ concurrency:
 jobs:
   fuzz:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,12 +37,39 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Fuzz the public API for ten minutes
+      # An artifact and not a cache: a cache is evicted after seven days unread, and this job comes back on the eighth.
+      - name: Start from the corpus of the last run
+        continue-on-error: true # the first run has none
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p fuzz-findings
+          last=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow fuzz.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          gh run download "$last" --repo "$GITHUB_REPOSITORY" --name fuzz-corpus --dir corpus
+
+      # shell: bash turns pipefail on, so a finding fails the step through the tee.
+      - name: Fuzz the public API for ten minutes
+        shell: bash
+        run: |
+          mkdir -p fuzz-findings corpus
+          cp fuzz/corpus/* corpus/
           uv run --locked --no-dev --python 3.12 --with atheris \
-            python fuzz/fuzz_docopt.py \
-            -max_total_time=600 -timeout=30 -rss_limit_mb=4096 -artifact_prefix=fuzz-findings/
+            python fuzz/fuzz_docopt.py corpus -dict=fuzz/docopt.dict -max_len=512 \
+            -max_total_time=600 -timeout=30 -rss_limit_mb=4096 -artifact_prefix=fuzz-findings/ \
+            2>&1 | tee fuzz.log
+
+      # Run with no dictionary, this job covered 76 edges a week and was green: no input ever spelled "usage:".
+      - name: Hold the run to a coverage floor
+        run: |
+          covered=$(grep -oE 'DONE +cov: [0-9]+' fuzz.log | grep -oE '[0-9]+$')
+          echo "edges covered: ${covered:-none}"
+          test "${covered:-0}" -ge 1000
+
+      # Whole: libFuzzer writes an input only where it covers something new, and its -merge does not run under atheris.
+      - name: Upload the corpus for the next run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-corpus
+          path: corpus/
 
       - name: Upload any crash or timeout reproducer
         if: failure()

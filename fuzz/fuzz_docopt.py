@@ -28,6 +28,7 @@ with atheris.instrument_imports():
         generate_stub,
         parse_tree,
     )
+    from docopt2._parser import parse_defaults
 
 # DocoptExit (a SystemExit subclass, and the --help path) and DocoptLanguageError are the only errors the
 # public API may raise. Anything else escaping is the finding. Mirrors _OWN_ERRORS in test_robustness.py so
@@ -52,6 +53,47 @@ _ENTRY_POINTS = (
 )
 
 
+def _refusal(doc: str) -> str | None:
+    """The error ``docopt()`` raises for ``doc`` as a usage, as it prints. None where the doc parses."""
+    try:
+        docopt(doc, [], help=False, complete=False)
+    except DocoptLanguageError as refused:
+        return str(refused)
+    except SystemExit:
+        return None
+    return None
+
+
+_TOO_DEEP = "error: the usage pattern nests too deeply to parse"
+
+
+def _options(doc: str) -> list[tuple[object, ...]]:
+    """Every option ``doc`` declares, with all the parser reads of it."""
+    return [(o.short, o.long, o.argcount, o.value, o.env, o.config_key) for o in parse_defaults(doc)]
+
+
+def _hold_the_laws(doc: str) -> None:
+    """Raise where ``check()`` and ``docopt()`` disagree on a usage, or ``format_usage()`` changes what one means.
+
+    Mirrors _broken_law in tests/test_robustness.py.
+    """
+    refusal = _refusal(doc)
+    errors = [found.render() for found in check(doc) if found.level == "error"]
+    if _TOO_DEEP in (refusal, *errors):
+        return  # how deep is too deep depends on the stack the parser was called from: no law at that edge
+    if errors != ([] if refusal is None else [refusal]):
+        raise AssertionError(f"check() says {errors!r} of a usage of which docopt() says {refusal!r}")
+    if refusal is not None:
+        return
+    formatted = format_usage(doc)
+    if (broken := _refusal(formatted)) is not None:
+        raise AssertionError(f"format_usage() made a usage that parses into one that does not: {broken}")
+    if _options(formatted) != _options(doc):
+        raise AssertionError(f"format_usage() changed the options: {_options(doc)!r} to {_options(formatted)!r}")
+    if format_usage(formatted) != formatted:
+        raise AssertionError(f"format_usage() is not idempotent: {formatted!r} to {format_usage(formatted)!r}")
+
+
 def test_one_input(data: bytes) -> None:
     """Split the bytes on NUL into a usage message and argv tokens, then drive every entry point.
 
@@ -69,6 +111,7 @@ def test_one_input(data: bytes) -> None:
     for entry in _ENTRY_POINTS:
         with contextlib.suppress(*_OWN_ERRORS):
             entry(doc, argv)
+    _hold_the_laws(doc)
 
 
 def main() -> None:

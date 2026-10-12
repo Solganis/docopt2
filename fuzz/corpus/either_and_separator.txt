@@ -1,0 +1,2 @@
+usage: prog (a | b) [--] [<f>...]
+       prog -

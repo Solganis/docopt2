@@ -1,0 +1,6 @@
+Usage: prog ship <name> move <x> <y> [--speed=<kn>]
+       prog -h | --help
+
+Options:
+  -h --help
+  --speed=<kn>  Speed [default: 10].
