@@ -4,6 +4,8 @@ import keyword
 from typing import TYPE_CHECKING, Literal
 
 from docopt2._parser import (
+    Either,
+    _usage_lines,
     always_required_names,
     expand_options_shortcut,
     formal_tokens,
@@ -15,6 +17,8 @@ from docopt2._parser import (
 from docopt2._typed import _key_to_field
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from docopt2._parser import LeafValue, Span
 
 StubStyle = Literal["dataclass", "typeddict", "cli"]
@@ -39,18 +43,23 @@ def _annotation(value: LeafValue, *, given: bool) -> str:
     return "str"
 
 
-def _key_shapes(doc: str) -> dict[str, tuple[LeafValue, bool, Span]]:
+def _key_shapes(doc: str, lines: Sequence[int] | None = None) -> dict[str, tuple[LeafValue, bool, Span]]:
     """Every result key ``docopt()`` would return, in usage order: the fixed value of its leaf, whether the usage
-    or a positional default always gives it a value, and where the usage first writes it."""
+    or a positional default always gives it a value, and where the usage first writes it.
+
+    With ``lines``, the usage lines at those places are the ones asked whether they always give a value, and
+    the first to be looked through for where a key is written. The keys and their values are of the whole usage.
+    """
     usage = single_usage_section(doc)
     options = parse_defaults(doc)
     pattern = parse_pattern(formal_tokens(usage), options)
+    held = Either(*(_usage_lines(pattern)[at] for at in lines)) if lines is not None else pattern
     written: dict[str | None, Span] = {}
-    for leaf in pattern.flat():  # before fix(), which makes equal leaves one object with the span of the last
+    for leaf in (*held.flat(), *pattern.flat()):  # before fix(), which gives equal leaves the span of the last
         written.setdefault(leaf.name, leaf.span)
     expand_options_shortcut(pattern, options)  # so keys reachable only via `[options]` are included
     fixed = pattern.fix()
-    given = {*always_required_names(fixed), *parse_argument_defaults(doc)}
+    given = {*always_required_names(held), *parse_argument_defaults(doc)}
     shapes: dict[str, tuple[LeafValue, bool, Span]] = {}
     for leaf in fixed.flat():
         key = leaf.name

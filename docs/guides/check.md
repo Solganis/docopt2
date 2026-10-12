@@ -261,8 +261,8 @@ or `__post_init__` takes or refuses is not looked at. To judge a type the check 
 that binding uses, so an `Enum` of the schema is called with the values that are tried.
 
 The schema is held against the whole usage, as `docopt(doc, schema=...)` binds it. A handler of a
-[`Dispatch`](dispatch.md) table binds its schema only on the lines of its own command, so for such a
-schema an element that those lines always give can be reported as one that may be absent.
+[`Dispatch`](dispatch.md) table binds its schema only on the lines it is run for, and
+[`Dispatch.check()`](dispatch.md#checking-the-table) holds each schema of a table against those lines.
 
 The check covers a dataclass, a `TypedDict` and a `Cli` subclass. A pydantic model binds by rules of its
 own, so it gets a single `"warning"` that says it was not checked. So does a schema whose usage message

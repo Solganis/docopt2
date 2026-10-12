@@ -26,6 +26,7 @@ from docopt2._parser import (
     expand_options_shortcut,
     formal_tokens,
     formal_usage,
+    most_specific,
     nearest_usage_line,
     parse_argument_defaults,
     parse_argv,
@@ -828,8 +829,7 @@ class Dispatch:
             # answered here: docopt() below is given no schema, and the handlers' ones are what complete values
             from docopt2._completion import reply_to_completion_request  # deferred, as in docopt()
 
-            schemas = [schema for *_, schema in self._handlers if schema is not None]
-            print(reply_to_completion_request(self.doc, schemas, per_command=True))
+            print(reply_to_completion_request(self.doc, table=self._table()))
             sys.exit()
         arguments = cast("Arguments", docopt(self.doc, argv, **options))
         # Thread the usage and the caller's exit_code onto any exit raised HERE, as docopt()'s own _exit
@@ -856,11 +856,28 @@ class Dispatch:
             raise DocoptExit(diagnostic=diagnostic, usage=usage, exit_code=exit_code) from exc
         return handler(bound)
 
+    def check(self) -> list[Diagnostic]:
+        """Statically lint the usage message and the table, before any argv is parsed.
+
+        Returns what [`check`][docopt2.check] returns for the usage message, and for every handler registered
+        with a schema what ``check(doc, schema=...)`` returns, with one difference: the schema is held against
+        the usage lines its handler can be run for, and not against the whole usage. So an element that only
+        the lines of another command leave out is not reported as one that may be absent. Each such finding
+        names its handler. A line is held whole: where one line serves two commands, ``(add <name> | list)``,
+        ``<name>`` may be absent on it for the handler of ``add`` too.
+
+        A handler that no argv can reach is reported too: an ``"error"`` where its command path names what the
+        usage does not have, a ``"warning"`` where another handler is the one run for every argv that gives
+        its commands. A fallback, registered with no command path, is never reported.
+        """
+        from docopt2._lint import check_table  # deferred: the linter is no part of a run
+
+        return check_table(self.doc, self._table())
+
+    def _table(self) -> list[tuple[tuple[str, ...], type[Any] | None]]:
+        return [(command_path, schema) for command_path, _handler, schema in self._handlers]
+
     def _resolve(self, arguments: Arguments) -> tuple[_DispatchHandler, type[Any] | None] | None:
-        best_length = -1
-        best: tuple[_DispatchHandler, type[Any] | None] | None = None
-        for command_path, handler, schema in self._handlers:
-            if len(command_path) > best_length and all(arguments.get(name) for name in command_path):
-                best_length = len(command_path)
-                best = (handler, schema)
-        return best
+        paths = [command_path for command_path, _handler, _schema in self._handlers]
+        run = most_specific(paths, [name for path in paths for name in path if arguments.get(name)])
+        return None if run is None else self._handlers[run][1:]

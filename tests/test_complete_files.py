@@ -33,11 +33,11 @@ class _Filer:
     name: str | None
 
 
-def _reply(monkeypatch, words, doc=_DOC, schemas=(_Filer,), per_command=False, ask="2"):
+def _reply(monkeypatch, words, doc=_DOC, schemas=(_Filer,), table=None, ask="2"):
     """The names a completion request for ``words`` is answered with, and whether the reply opens with the mark."""
     monkeypatch.setenv("_DOCOPT2_COMPLETE", ask)
     monkeypatch.setenv("_DOCOPT2_WORDS", "\n".join(words))
-    reply = reply_to_completion_request(doc, schemas, per_command=per_command)
+    reply = reply_to_completion_request(doc, schemas, table=table)
     lines = reply.split("\n") if reply else []
     marked = lines[:1] == [_MARK]
     return [line.split("\t")[0] for line in lines[marked:]], marked
@@ -250,12 +250,21 @@ class _Label:
     out: pathlib.Path | None
 
 
-def test_handlers_ask_for_a_file_name_where_every_schema_that_declares_the_field_types_it_as_a_path(monkeypatch):
-    both = (_Read, _Label)
-    # `file` is a path for one handler and a text for the other, `out` a path for both
-    assert_that(_reply(monkeypatch, ["read"], _TABLE_DOC, both, per_command=True)).is_equal_to((["--out"], False))
-    assert_that(_reply(monkeypatch, ["read", "x", "--out"], _TABLE_DOC, both, per_command=True)[1]).is_true()
-    assert_that(_reply(monkeypatch, ["read"], _TABLE_DOC, (_Read,), per_command=True)[1]).is_true()
+def test_a_handler_asks_for_a_file_name_where_its_own_schema_types_the_field_as_a_path(monkeypatch):
+    table = [(("read",), _Read), (("label",), _Label)]
+    # `file` is a path for the handler of `read` and a text for the handler of `label`, `out` a path for both
+    assert_that(_reply(monkeypatch, ["read"], _TABLE_DOC, table=table)).is_equal_to((["--out"], True))
+    assert_that(_reply(monkeypatch, ["label"], _TABLE_DOC, table=table)).is_equal_to((["--out"], False))
+    assert_that(_reply(monkeypatch, ["label", "x", "--out"], _TABLE_DOC, table=table)[1]).is_true()
+
+
+def test_handlers_that_share_a_line_ask_for_a_file_name_where_the_one_run_types_the_field_as_a_path(monkeypatch):
+    shared = "Usage: tool (read | label) <file> [--out=<path>]"
+    table = [(("read",), _Read), (("label",), _Label)]
+    # the line is finished to see which handler is run for it: `file` is a path for the handler of `read` alone
+    assert_that(_reply(monkeypatch, ["read"], shared, table=table)).is_equal_to((["--out"], True))
+    assert_that(_reply(monkeypatch, ["label"], shared, table=table)).is_equal_to((["--out"], False))
+    assert_that(_reply(monkeypatch, ["read", "x", "--out"], shared, table=table)[1]).is_true()
 
 
 def test_docopt_prints_the_mark_and_leaves_as_it_leaves_any_request(monkeypatch, capsys):

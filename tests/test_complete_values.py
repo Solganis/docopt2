@@ -424,16 +424,24 @@ def _table():
     return app
 
 
-def test_a_handler_table_offers_a_value_only_where_every_handler_that_declares_the_field_takes_it(monkeypatch, capsys):
+def test_a_handler_table_offers_for_each_command_the_values_its_own_handler_takes(monkeypatch, capsys):
     app = _table()
     names = [("--level", "Level, repeatable"), ("--note", "A note"), ("-c", "Color")]
-    whole = [("--format", "Output format"), ("--format=yaml", "Output format"), *names, ("dev", ""), ("prod", "")]
-    assert_that(_reply(monkeypatch, capsys, ["deploy"], app.run)).is_equal_to(whole)
-    # `json` is the deploy handler's alone and `table` the status handler's alone: neither is offered for either
-    assert_that(_reply(monkeypatch, capsys, ["deploy", "dev", "--format"], app.run)).is_equal_to([("yaml", "")])
-    assert_that(_reply(monkeypatch, capsys, ["status", "--format"], app.run)).is_equal_to([("yaml", "")])
+    formats = [("--format", "Output format"), ("--format=json", "Output format"), ("--format=yaml", "Output format")]
+    assert_that(_reply(monkeypatch, capsys, ["deploy"], app.run)).is_equal_to(
+        [*formats, *names, ("dev", ""), ("prod", "")]
+    )
+    # `json` is the deploy handler's alone and `table` the status handler's alone: each is offered for its command
+    assert_that(_reply(monkeypatch, capsys, ["deploy", "dev", "--format"], app.run)).is_equal_to(
+        [("json", ""), ("yaml", "")]
+    )
+    assert_that(_reply(monkeypatch, capsys, ["status", "--format"], app.run)).is_equal_to([("table", ""), ("yaml", "")])
     assert_that(_reply(monkeypatch, capsys, ["status"], app.run)).is_equal_to(
-        [("--format", "Output format"), ("--format=yaml", "Output format")]
+        [("--format", "Output format"), ("--format=table", "Output format"), ("--format=yaml", "Output format")]
+    )
+    # before a command is typed either handler may yet be run: `yaml` is the one format both take
+    assert_that([name for name, _ in _reply(monkeypatch, capsys, [], app.run) if "=" in name]).is_equal_to(
+        ["--format=yaml"]
     )
 
 
@@ -441,10 +449,18 @@ def test_a_handler_table_offers_a_value_only_where_every_handler_that_declares_t
     ("prefix", "then"),
     [
         # for each value the table offers there: what is typed after it, and the field it must end up in
-        (["deploy"], {"dev": ([], "env"), "prod": ([], "env"), "--format=yaml": (["dev"], "format")}),
-        (["deploy", "dev", "--format"], {"yaml": ([], "format")}),
-        (["status", "--format"], {"yaml": ([], "format")}),
-        (["status"], {"--format=yaml": ([], "format")}),
+        (
+            ["deploy"],
+            {
+                "dev": ([], "env"),
+                "prod": ([], "env"),
+                "--format=json": (["dev"], "format"),
+                "--format=yaml": (["dev"], "format"),
+            },
+        ),
+        (["deploy", "dev", "--format"], {"json": ([], "format"), "yaml": ([], "format")}),
+        (["status", "--format"], {"table": ([], "format"), "yaml": ([], "format")}),
+        (["status"], {"--format=table": ([], "format"), "--format=yaml": ([], "format")}),
     ],
 )
 def test_every_value_a_handler_table_offers_is_bound_by_the_handler_the_line_runs(prefix, then, monkeypatch, capsys):
@@ -466,26 +482,39 @@ def test_a_schema_judges_a_typed_word_as_binding_it_would():
 
 
 @pytest.mark.parametrize(
-    "typed",
+    ("typed", "follows"),
     [
-        # `json` is a format the deploy handler takes and the status handler refuses
-        ["deploy", "dev", "--format", "json"],
-        ["deploy", "dev", "--format=json", "--level", "1"],
-        # nor is a word no handler takes judged: which of them binds is not known before the line is whole
-        ["deploy", "nowhere"],
-        ["deploy", "dev", "--format", "xml"],
+        (["deploy", "dev", "--format", "json"], True),
+        (["deploy", "dev", "--format=json", "--level", "1"], True),
+        # the handler of `deploy` is the one run for every argv of its line, so its schema reads the typed words
+        (["deploy", "nowhere"], False),
+        (["deploy", "dev", "--format", "xml"], False),
+        (["deploy", "dev", "--format", "table"], False),
     ],
 )
-def test_a_handler_table_takes_no_name_away_after_a_typed_word(typed, monkeypatch, capsys):
+def test_a_handler_that_alone_is_run_for_a_line_reads_the_typed_words_as_its_schema_binds_them(
+    typed, follows, monkeypatch, capsys
+):
     offered = [line[0] for line in _reply(monkeypatch, capsys, typed, _table().run)]
-    alone = complete(_DOC, [*typed, ""])
-    assert_that(alone).is_not_empty()
-    assert_that([name for name in alone if name not in offered]).is_empty()
+    by_grammar = complete(_DOC, [*typed, ""])
+    assert_that(by_grammar).is_not_empty()
+    assert_that(offered).is_equal_to(by_grammar if follows else [""])  # an empty reply is one empty line
 
 
-def test_a_handler_table_completes_a_waiting_option_after_a_word_no_handler_takes(monkeypatch, capsys):
-    assert_that(_reply(monkeypatch, capsys, ["deploy", "nowhere", "--format"], _table().run)).is_equal_to(
-        [("yaml", "")]
+def _shared():
+    app = Dispatch("Usage: app (deploy | status) <env> [--format=<f>]")
+    app.on("deploy", schema=_Deploy)(lambda args: args)
+    app.on("status", schema=_Status)(lambda args: args)
+    return app
+
+
+def test_handlers_that_share_a_line_offer_what_each_of_them_takes_and_judge_no_typed_word(monkeypatch, capsys):
+    # which of the two is run is not known before the line is whole: `status` may still come where `deploy` came
+    app = _shared()
+    assert_that(_reply(monkeypatch, capsys, ["deploy", "dev", "--format"], app.run)).is_equal_to([("yaml", "")])
+    assert_that(_reply(monkeypatch, capsys, ["deploy", "nowhere", "--format"], app.run)).is_equal_to([("yaml", "")])
+    assert_that([name for name, *_ in _reply(monkeypatch, capsys, ["deploy", "nowhere"], app.run)]).is_equal_to(
+        ["--format", "--format=yaml"]
     )
 
 

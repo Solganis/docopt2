@@ -11,7 +11,7 @@ from docopt2._diagnostics import Caret, Diagnostic, Snippet
 from docopt2._errors import DocoptExit, DocoptLanguageError, language_error
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Collection, Iterator, Sequence
 
 LeafValue: TypeAlias = str | int | bool | list[str] | None
 Span: TypeAlias = tuple[int, int] | None
@@ -825,6 +825,74 @@ def always_required_names(pattern: Pattern) -> list[str]:
     if isinstance(pattern, Either):
         return [name for name in of_each[0] if all(name in names for names in of_each)] if of_each else []
     return list(dict.fromkeys(name for names in of_each for name in names))
+
+
+GIVEN_LIMIT = 256  # sets of commands one usage line may give before it is read as giving any: 8 free commands
+
+
+def given_together(pattern: Pattern, names: Collection[str]) -> list[frozenset[str]] | None:
+    """Every set of ``names`` that one argv the pattern takes can give together.
+
+    None where there are more than ``GIVEN_LIMIT`` of them: the pattern is then read as giving any set.
+    """
+    if not isinstance(pattern, BranchPattern):
+        name = pattern.name
+        return [frozenset[str](() if name is None or name not in names else (name,))]
+    of_each = []
+    for child in pattern.children:
+        sets = given_together(child, names)
+        if sets is None:
+            return None
+        of_each.append(sets)
+    if isinstance(pattern, Either):
+        of_each = [list(dict.fromkeys(one for sets in of_each for one in sets))]
+    together = [frozenset[str]()]
+    for sets in of_each:
+        if len(together) > GIVEN_LIMIT:
+            break  # what is over the limit is not multiplied on: a line of twenty optionals has a million sets
+        choices = [frozenset[str](), *sets] if isinstance(pattern, Optional) else sets
+        together = list(dict.fromkeys(one | other for one in together for other in choices))
+    while isinstance(pattern, OneOrMore) and len(together) <= GIVEN_LIMIT:
+        grown = list(dict.fromkeys(one | other for one in together for other in together))
+        if len(grown) == len(together):  # each round of a repetition may take another branch of what it repeats
+            break
+        together = grown
+    return together if len(together) <= GIVEN_LIMIT else None
+
+
+def most_specific(paths: Sequence[tuple[str, ...]], given: Collection[str]) -> int | None:
+    """Which of ``paths`` a handler table runs for an argv that gives ``given``: the longest one all of whose
+    names are given, the earliest of equals. None where no path is given whole."""
+    best, length = None, -1
+    for index, path in enumerate(paths):
+        if len(path) > length and all(name in given for name in path):
+            best, length = index, len(path)
+    return best
+
+
+def line_binders(pattern: Pattern, paths: Sequence[tuple[str, ...]]) -> list[set[int | None]]:
+    """For each usage line of ``pattern``, the paths a handler table of ``paths`` can run for an argv of the line.
+
+    None stands for an argv of the line that no path takes. A path that names what is no command of the usage
+    is not worked out: where every name is an element of the usage it may run for any line, since an option
+    may be given on any, and where one is not it runs for none. A line read as giving any set of commands may
+    be run for by every path of commands, and by none.
+    """
+    commands = {leaf.name for leaf in pattern.flat(Command)}
+    elements = {leaf.name for leaf in pattern.flat()}
+    exact = [index for index, path in enumerate(paths) if commands.issuperset(path)]
+    loose = {index for index, path in enumerate(paths) if index not in exact and elements.issuperset(path)}
+    worked = [paths[index] for index in exact]
+    names = {name for path in worked for name in path}
+    binders: list[set[int | None]] = []
+    for line in _usage_lines(pattern):
+        together = given_together(line, names)
+        if together is None:
+            binders.append({None, *loose, *exact})
+            continue
+        run = (most_specific(worked, given) for given in together)
+        binders.append({*loose, *(None if at is None else exact[at] for at in run)})
+    return binders
 
 
 def _unmet_target(node: Pattern) -> tuple[str, Span] | None:

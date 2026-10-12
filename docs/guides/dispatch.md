@@ -263,22 +263,29 @@ def status(args: StatusArgs): ...
 
 ```console
 $ app deploy <TAB>
---format  --format=yaml  dev  prod
+--format  --format=json  --format=yaml  dev  prod
 $ app deploy dev --format <TAB>
-yaml
+json  yaml
+$ app status --format <TAB>
+table  yaml
 ```
 
-A value is offered only where every handler that declares the field takes it. `json` is the `deploy`
-handler's alone and `table` the `status` handler's alone, so `--format` completes `yaml` for both commands.
+The typed words leave some handlers in reach: those that can still be the one run once the line is whole.
+After `deploy` that is the `deploy` handler alone, so its schema completes the line. `json` is its format
+and `table` the `status` handler's, and `--format` completes each for its own command. Its schema reads the
+words already typed too: after `app deploy nowhere` nothing is offered.
 
-A table does not judge the words already typed either, since which handler binds the line is not known
-before the line is whole. See [Completing values](completion.md#completing-values).
+While several handlers are in reach, the value of an option is offered only where each of them that
+declares the field takes it: before any command, `app --format <TAB>` offers `yaml`. A positional is
+completed by the handler that is run for the line as it would be finished. On a line that two commands
+share, `app (deploy | status) <env>`, each command is offered the environments of its own handler. See
+[Completing values](completion.md#completing-values).
 
-### Checking a handler's schema
+### Checking the table
 
 [`check(doc, schema=...)`](check.md#checking-a-schema) holds a schema against the whole usage, as
-`docopt(doc, schema=...)` binds it. A handler binds its schema only on the lines of its own command, so an
-element that those lines always give can be reported as one that may be absent:
+`docopt(doc, schema=...)` binds it. A handler binds its schema only on the lines it is run for, so held
+that way an element that those lines always give is reported as one that may be absent:
 
 ```python
 from docopt2 import check
@@ -287,8 +294,30 @@ from docopt2 import check
 # ['usage element `<env>` may be absent, but field `env` is not optional']
 ```
 
-`<env>` is absent only on the `status` line, where `DeployArgs` is never bound. For a handler's schema
-that finding can be ignored. The other kinds of finding hold as they are.
+`tool.check()` holds each schema against the lines of its own handler, and has nothing to report here:
+
+```python
+tool.check()
+# []
+```
+
+A usage line is held whole. Where one line serves two commands, `app (add <name> | list)`, `<name>` is
+reported as one that may be absent for the handler of `add` too: give such commands lines of their own.
+
+A finding names its handler. A handler that no argv can reach is reported as well, a mistyped command
+among them:
+
+```python
+typo = Dispatch(deploy_doc)
+
+
+@typo.on("staus")
+def mistyped(args): ...
+
+
+[found.summary for found in typo.check()]
+# ['handler `staus` can never run: the usage has no `staus`']
+```
 
 ## Forwarding options
 

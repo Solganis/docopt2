@@ -224,6 +224,8 @@ def commit(args):
 app.run()   # parse argv, call the matched command's handler
 ```
 
+[`app.check()`](https://solganis.github.io/docopt2/guides/dispatch/#checking-the-table) lints the table before any run.
+
 <a name="shell-completion"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/completion/">Shell completion</a></h2>
 

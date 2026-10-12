@@ -249,10 +249,14 @@ complete(doc, ["prod", "--format=y"], schema=Args)
 Such a field completes in three places: as the next positional, as the argument the last option is waiting
 for, and as `--option=value` beside the option's own name.
 
+The next positional is the one the parser would give the next word to. With `Usage: app [<name>] [<mode>]`
+a word typed first is a `<name>`, whatever it says. So the modes are offered once a name stands, and not
+before it.
+
 A program gets this with no extra call. `docopt(doc, schema=Args)`, a `Cli` subclass and a `Dispatch`
 table with a schema per handler all answer the script's request with these values in the reply. A table
-offers a value only where every handler that declares the field takes it, since any of them may be the
-one that binds the line.
+completes a line by the schema of the handler that the typed words leave to be run, as its guide
+[shows](dispatch.md#completing-values).
 
 Only a value that the field's own coercion accepts, and that is one plain word, is offered: letters,
 digits and `_ . / @ % + , -`, not led by a dash. That leaves out what a shell would expand or split,
@@ -262,10 +266,12 @@ an `int`, completes nothing. A `Path` completes [file names](#completing-file-na
 A dataclass, a `TypedDict` or a `Cli` subclass reads the words already typed too. After a positional or an
 option value that its field does not take, nothing is offered: no argv that starts that way can be bound.
 
-A pydantic model and a `Dispatch` table do not judge what is typed. A model binds by rules of its own,
-validators included, and which handler of a table binds the line is not known before the line is whole.
-For the same reason a model completes its closed sets of strings only: it refuses the text `1` for
-`Literal[1, 2]`.
+A pydantic model does not judge what is typed: it binds by rules of its own, validators included. For
+the same reason it completes its closed sets of strings only: it refuses the text `1` for `Literal[1, 2]`.
+
+A `Dispatch` table judges the typed words by the schema of the one handler they leave to be run. While
+they leave several, a positional is completed by the handler that is run for the line as it would be
+finished. Its guide [shows](dispatch.md#completing-values) both.
 
 ## Completing file names
 
@@ -303,7 +309,9 @@ In a directory that holds `notes.txt` and `other.log`:
   or as the element of a list.
 - Where a command or an option may come next too, names and file names are offered together. A command
   that is also the name of a directory stays a command: both are offered.
-- A `Dispatch` table asks for file names where every handler that declares the field types it as a `Path`.
+- A `Dispatch` table asks for file names where the handler that the typed words leave to be run types the
+  field as a `Path`. Where they leave several, a positional is a path where the handler run for the finished
+  line types it so, and the argument of an option where each of them that declares the field does.
 - In bash, zsh, fish and nushell a field of any other type gets no file names, and neither does a program
   with no schema.
 

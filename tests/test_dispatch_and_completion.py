@@ -22,7 +22,7 @@ from docopt2 import (
     docopt,
     generate_completion,
 )
-from docopt2._completion import _describe, _frontier, reply_to_completion_request
+from docopt2._completion import _describe, _frontier, _read, _typed, reply_to_completion_request
 
 _TREE_DOC = """Usage:
   tool user create <name>
@@ -294,32 +294,27 @@ def test_complete_offers_nothing_when_an_option_and_command_are_exclusive_and_th
     assert_that(complete("Usage: prog (cmd | -a)\n\nOptions:\n  -a\n", ["-a", ""])).is_equal_to([])
 
 
-def _exhaustively_walked(children, left, *, optional, block, in_repetition, steps):
+def _exhaustively_walked(children, left, *, optional, block, steps):
     """`_frontier_seq` with the skip-branch prune switched OFF: an optional child always forks in two.
 
     This is the reference the pruned walk must match. The prune drops a floated child's skip-branch, on
-    the reasoning that the take-branch is a superset at the same remaining - but that fails inside a
-    OneOrMore, where the skip-branch's empty frontier is what lets the repetition re-enter. The prune is
-    therefore gated on `not in_repetition`; this reference never prunes, so the comparison catches any
-    over-pruning. A hand-picked grammar list missed the `[-a <name>]...` case; the wide hypothesis
-    profile caught it. The list below now carries it, and the property test guards the rest.
+    the reasoning that the take-branch holds the same paths with the child's options on top: this reference
+    never prunes, so the comparison catches any over-pruning.
     """
     if not children:
         yield left, (), False
         return
     head, rest = children[0], children[1:]
-    for remaining, frontier, blocks in _frontier(head, left, block=block, in_repetition=in_repetition, steps=steps):
+    for remaining, frontier, blocks in _frontier(head, left, block=block, steps=steps):
         if blocks:
             yield remaining, frontier, True
         else:
             for tail_remaining, tail_frontier, tail_blocks in _exhaustively_walked(
-                rest, remaining, optional=optional, block=block, in_repetition=in_repetition, steps=steps
+                rest, remaining, optional=optional, block=block, steps=steps
             ):
                 yield tail_remaining, frontier + tail_frontier, tail_blocks
     if optional:
-        yield from _exhaustively_walked(
-            rest, left, optional=optional, block=block, in_repetition=in_repetition, steps=steps
-        )
+        yield from _exhaustively_walked(rest, left, optional=optional, block=block, steps=steps)
 
 
 _FRONTIER_GRAMMARS = [
@@ -330,8 +325,7 @@ _FRONTIER_GRAMMARS = [
     "usage: prog [-v]... <f>...\n\nOptions:\n  -v  Verbosity.\n",
     "usage: prog cmd [options] [--] <rest>...\n\nOptions:\n  --one  1.\n  --two  2.\n",
     "usage: prog [<a>] <b> [<c>]",
-    # A floating option INSIDE a repetition: skipping `-a` is what lets the repeat consume a second
-    # `<name>` and then offer `-a` again. The prune must NOT fire here. (Regression: wide hypothesis.)
+    # a floating option inside a repetition: a round that left `-a` for later is followed by another all the same
     "usage: prog [-a <name>] ...",
     "usage: prog ([--x] <p>)... <q>\n\nOptions:\n  --x  X.\n",
 ]
@@ -351,14 +345,72 @@ def test_the_pruned_frontier_walk_offers_what_the_exhaustive_one_did(doc, monkey
 
 
 def test_frontier_repetition_guard_terminates():
-    # OneOrMore's "made progress?" guard prevents an infinite loop on a non-consuming (frontier)
-    # match. Materializing the generator exercises both arcs directly, past the any() short-circuit
-    # that _is_prefix would otherwise take.
+    # a round that takes no word is not walked again: the repetition would never end
     no_input = list(_frontier(OneOrMore(Argument("<x>")), [], block=True))
-    assert_that(no_input).is_length(1)  # guard False (no progress): only the frontier path
-    assert_that(no_input[0][0]).is_equal_to([])  # remaining is empty (a valid prefix)
+    assert_that(no_input).is_equal_to([([], (Argument("<x>"),), True)])
     one_token = list(_frontier(OneOrMore(Argument("<x>")), [Argument(None, "a")], block=True))
-    assert_that([remaining for remaining, _frontier_set, _blocks in one_token]).contains([])  # consumed, may repeat
+    # the round that took the word, alone and with the round that may follow it
+    assert_that(one_token).is_equal_to([([], (), False), ([], (Argument("<x>"),), True)])
+
+
+def test_a_command_is_offered_where_it_comes_next_on_a_path_that_takes_the_typed_options():
+    doc = "Usage:\n  prog -f a b\n  prog [b]\n"
+    # `b` comes next on the second line, which has no `-f`, and behind `a` on the first
+    assert_that(complete(doc, ["-f", ""])).is_equal_to(["a"])
+    assert_that(complete(doc, [""])).is_equal_to(["-f", "a", "b"])
+
+
+def test_a_round_with_a_positional_of_a_schema_is_walked_twice_and_any_other_round_once():
+    _options, pattern = _read("Usage: prog ([<a>] [<b>])...")
+    assert_that([len(frontier) for _left, frontier, _blocks in _frontier(pattern, [], block=False)]).is_equal_to(
+        [2, 1, 1, 0]
+    )
+    of_a_schema = _typed(pattern, lambda _key, _text: True)
+    # a round of one positional or of two, each followed by a round of one or of two: no line differs otherwise
+    assert_that([len(frontier) for _left, frontier, _blocks in _frontier(of_a_schema, [], block=False)]).is_equal_to(
+        [2, 1, 1, 0, 4, 3, 3, 2]
+    )
+    # a walk that stops at what comes next has no second round to reach
+    assert_that([len(frontier) for _left, frontier, _blocks in _frontier(of_a_schema, [], block=True)]).is_equal_to(
+        [1, 1, 0]
+    )
+
+
+@pytest.mark.parametrize(
+    ("usage", "typed", "offered"),
+    [
+        # a round leaves its option for later, and another round follows all the same
+        ("(c -f)...", ["c"], ["-f", "c"]),
+        ("(c -f)...", ["c", "c"], ["-f", "c"]),
+        ("(c -f)...", ["c", "c", "-f"], ["-f", "c"]),
+        ("(-f c)...", ["c", "c"], ["-f", "c"]),
+        ("(<x> --o=<v>)...", ["one", "two"], ["--o"]),
+        ("(<x> -f | c)...", ["one", "two"], ["-f", "c"]),
+        # the option of a second round is typed before the positional of the first
+        ("(--o=<v> <x>)...", ["--o=1"], ["--o"]),
+        ("(--o=<v> <x>)...", ["--o=1", "--o=2"], ["--o"]),
+    ],
+)
+def test_a_round_of_a_repetition_follows_one_that_left_an_option_or_a_positional_unfilled(usage, typed, offered):
+    assert_that(complete(f"Usage: prog {usage}", [*typed, ""])).is_equal_to(offered)
+
+
+@pytest.mark.parametrize(
+    ("usage", "argv"),
+    [
+        ("(c -f)...", ["c", "c", "-f", "-f"]),
+        ("(-f c)...", ["c", "c", "-f", "-f"]),
+        ("(<x> --o=<v>)...", ["one", "two", "--o=1", "--o=2"]),
+        ("(--o=<v> <x>)...", ["--o=1", "--o=2", "one", "two"]),
+    ],
+)
+def test_the_parse_takes_the_rounds_of_a_repetition_with_their_options_typed_together(usage, argv):
+    doc = f"Usage: prog {usage}"
+    assert_that(docopt(doc, argv, help=False, complete=False).provided).is_not_empty()
+    for cut, token in enumerate(argv):
+        if token.startswith("-") or token == "c":
+            offered = complete(doc, [*argv[:cut], ""])
+            assert_that(offered).described_as(f"after {argv[:cut]}").contains(token.split("=")[0])
 
 
 # --- completion request protocol (env-driven, answered inside docopt) ---------------------------

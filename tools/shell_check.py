@@ -87,9 +87,34 @@ class _Filer:
     name: str | None
 
 
-_DOCS = {"naval": _NAVAL, "tool": _TOOL, "deployer": _DEPLOYER, "filer": _FILER}
+_TABLED = """Tabled.
+
+Usage:
+  tabled deploy <env> [--format=<f>]
+  tabled status [--format=<f>]
+
+Options:
+  --format=<f>  Output format.
+"""
+
+
+@dataclasses.dataclass
+class _Status:
+    format: Literal["yaml", "jsonl", "table"] | None
+
+
+_DOCS = {"naval": _NAVAL, "tool": _TOOL, "deployer": _DEPLOYER, "filer": _FILER, "tabled": _TABLED}
 # a program with a schema completes the values its closed sets hold, and file names for its `Path` fields
 _SCHEMAS = {"deployer": _Deploy, "filer": _Filer}
+# a handler table completes each command by the schema of its own handler
+_TABLES = {"tabled": [(("deploy",), _Deploy), (("status",), _Status)]}
+_TABLE_OFFERS = {
+    "deploy prod --format ": ["json", "jsonl", "yaml"],
+    "status --format ": ["jsonl", "table", "yaml"],
+    "status --format=": ["--format=jsonl", "--format=table", "--format=yaml"],
+    "deploy ": ["--format", "--format=json", "--format=jsonl", "--format=yaml", "dev", "prod", "staging"],
+    "--format=": ["--format=jsonl", "--format=yaml"],  # before a command: what both handlers take
+}
 
 _PROGRAM = '''#!{python}
 """{doc}"""
@@ -106,6 +131,19 @@ if len(sys.argv) >= 3 and sys.argv[1] == "--completion":
     sys.exit(0)
 print(sys.argv[1:], docopt(__doc__, schema={schema_name}))
 '''
+_TABLE_PROGRAM = '''#!{python}
+"""{doc}"""
+import dataclasses
+import sys
+from typing import Literal
+
+from docopt2 import Dispatch
+
+{schemas}
+app = Dispatch(__doc__)
+{handlers}
+print(sys.argv[1:], app.run())
+'''
 
 # `tool --opt=x` is a token bash shreds at a wordbreak, and the `$fpath` case below fires on zsh's FIRST
 # Tab. Both are known to fail against an unfixed script, so this check is proven to catch what it guards.
@@ -121,6 +159,11 @@ _CASES = [
     ("deployer", ["prod"], "--format="),
     ("deployer", ["prod"], "--format=j"),
     ("deployer", ["prod"], "--format=x"),
+    ("tabled", ["deploy", "prod", "--format"], ""),
+    ("tabled", ["status", "--format"], ""),
+    ("tabled", ["status"], "--format="),
+    ("tabled", ["deploy"], ""),
+    ("tabled", [], "--format="),
 ]
 
 # File names: the line, what the shell must paint, what it must not. A word that one file completes is painted as
@@ -183,6 +226,10 @@ def _install(bin_dir: Path, prog: str, doc: str) -> None:
         schema=inspect.getsource(schema) if schema else "",
         schema_name=schema.__name__ if schema else "None",
     )
+    if prog in _TABLES:
+        handlers = [f"app.on({path[0]!r}, schema={bound.__name__})(print)" for path, bound in _TABLES[prog]]
+        schemas = "\n\n".join(inspect.getsource(bound) for _path, bound in _TABLES[prog])
+        program = _TABLE_PROGRAM.format(python=sys.executable, doc=doc, schemas=schemas, handlers="\n".join(handlers))
     script.write_text(program, encoding="utf-8", newline="\n")
     if platform.system() == "Windows":
         (bin_dir / f"{prog}.cmd").write_text(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n', encoding="ascii")
@@ -337,16 +384,21 @@ def _offers(offered: str, name: str) -> bool:
 
 def _everything(prog: str) -> set[str]:
     """Every name a program can be offered at some point of some line: its commands, options and values."""
-    doc, schema = _DOCS[prog], _SCHEMAS.get(prog)
+    doc = _DOCS[prog]
+    schemas = (
+        [bound for _path, bound in _TABLES[prog]] if prog in _TABLES else [_SCHEMAS[prog]] if prog in _SCHEMAS else []
+    )
     options = parse_defaults(doc)
     pattern = parse_pattern(formal_usage(single_usage_section(doc)), options)
     names = {str(leaf.name) for leaf in pattern.flat(Command)}
     names |= {name for option in options for name in (option.long, option.short) if name}
-    values = field_choices([schema]) if schema else {}
-    names |= {value for texts in values.values() for value in texts}
-    return names | {
-        f"{option.long}={value}" for option in options if option.long for value in values.get(option.long[2:], [])
-    }
+    for schema in schemas:  # one at a time: read together, a value is kept only where each of them takes it
+        values = field_choices([schema])
+        names |= {value for texts in values.values() for value in texts}
+        names |= {
+            f"{option.long}={value}" for option in options if option.long for value in values.get(option.long[2:], [])
+        }
+    return names
 
 
 def _report(label: str, expected: list[str], raw: str, absent: set[str]) -> int:
@@ -433,7 +485,7 @@ def _odd_names(shell: str, work: Path) -> list[str]:
 _USAGE = """Usage: shell_check.py [--only=<prog>] [<shell>...]
 
 Options:
-  --only=<prog>  Drive the cases of one program alone: naval, tool, deployer or filer.
+  --only=<prog>  Drive the cases of one program alone: naval, tool, deployer, filer or tabled.
 """
 
 
@@ -471,6 +523,8 @@ def main() -> int:
             (work / name).write_text(generate_completion(doc, prog=prog, shell=shell), encoding="utf-8", newline="\n")
         for prog, typed, cursor in cases:
             expected = complete(_DOCS[prog], [*typed, cursor], schema=_SCHEMAS.get(prog))
+            if prog in _TABLES:  # written out, not asked of the package: the answer itself is what is checked
+                expected = _TABLE_OFFERS[" ".join([*typed, cursor])]
             if shell == "bash" and "=" in cursor:  # bash completes the word behind the `=` on its own
                 expected = [name.rpartition("=")[2] for name in expected]
             line = " ".join([prog, *typed, cursor])  # the cursor word is typed with no space after it

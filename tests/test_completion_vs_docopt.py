@@ -1,4 +1,5 @@
-from hypothesis import given
+from assertpy2 import assert_that
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from docopt2 import Command, Option, complete, docopt, parse_defaults, parse_pattern
@@ -77,3 +78,53 @@ def test_every_candidate_offered_can_actually_be_typed_next(data):
     for candidate in complete(doc, [*typed, ""]):
         extended = [*typed, candidate]
         assert _extendable(doc, extended), f"offered {candidate!r} after {typed}, but {extended} is a dead end"
+
+
+_PIECES = st.sampled_from(["a", "b", "<x>", "-f", "--o=<v>"])
+_USAGES = st.recursive(
+    _PIECES,
+    lambda inner: st.one_of(
+        st.tuples(inner, inner).map(" ".join),
+        inner.map("[{}]".format),
+        st.tuples(inner, inner).map(lambda pair: f"({pair[0]} | {pair[1]})"),
+        inner.map("({})...".format),
+    ),
+    max_leaves=4,
+)
+
+
+def _read_as_the_command(doc, full, cut):
+    """Whether the parse reads the word at ``cut`` as the command it names: with another word in its place the
+    argv is refused, or the command is given fewer times."""
+    try:
+        without = docopt(doc, [*full[:cut], "zz", *full[cut + 1 :]], help=False, complete=False)
+    except DocoptExit:
+        return True
+    return without[full[cut]] != docopt(doc, full, help=False, complete=False)[full[cut]]
+
+
+def test_a_word_that_may_be_a_command_or_the_value_of_a_positional_is_read_and_offered_as_the_command():
+    doc = "Usage: prog (a | <x>)"
+    assert_that(dict(docopt(doc, ["a"], help=False, complete=False))).is_equal_to({"a": True, "<x>": None})
+    assert_that(_read_as_the_command(doc, ["a"], 0)).is_true()
+    assert_that(complete(doc, [""])).is_equal_to(["a"])
+    # the second `a` is the value of `<x>`: another word in its place changes nothing else
+    assert_that([_read_as_the_command("Usage: prog a <x>", ["a", "a"], cut) for cut in (0, 1)]).is_equal_to(
+        [True, False]
+    )
+
+
+@settings(max_examples=200)  # 3 ms an example
+@given(lines=st.lists(_USAGES, min_size=1, max_size=2), data=st.data())
+def test_completion_offers_every_literal_an_argv_of_a_generated_usage_has_next(lines, data):
+    doc = "Usage:\n" + "".join(f"  prog {line}\n" for line in lines)
+    # an option is read wherever it stands: behind the positionals, a round of a repetition leaves its own for later
+    behind = data.draw(st.sampled_from([None, True, False]))
+    full = sorted(
+        data.draw(argv_strategy(doc)), key=lambda token: behind is not None and token.startswith("-") is behind
+    )
+    for cut, token in enumerate(full):
+        name = token.split("=")[0]
+        if name in ("-f", "--o") or (name in ("a", "b") and _read_as_the_command(doc, full, cut)):
+            offered = complete(doc, [*full[:cut], ""])
+            assert name in offered, f"{doc}after {full[:cut]} the argv {full} has {name!r}, and {offered} was offered"

@@ -346,33 +346,52 @@ def test_the_match_budget_raises_once_its_ceiling_is_spent():
         next(pattern.matches(argv, []), None)
 
 
-def _walk(doc, typed):
-    """The paths the completion walk yields for ``typed``, and the steps it spent of its budget."""
+def _walked(doc, typed):
+    """The paths the completion walk yields for ``typed``, and its budget as the walk left it."""
     options = parse_defaults(doc)
     pattern = parse_pattern(formal_usage(single_usage_section(doc)), options)
     expand_options_shortcut(pattern, options)
     steps = _Steps()
-    paths = list(_frontier(pattern, parse_argv(Tokens(list(typed)), list(options)), block=False, steps=steps))
+    return list(_frontier(pattern, parse_argv(Tokens(list(typed)), list(options)), block=False, steps=steps)), steps
+
+
+def _walk(doc, typed):
+    """The paths the completion walk yields for ``typed``, and the steps it spent of its budget."""
+    paths, steps = _walked(doc, typed)
     return paths, MATCH_LIMIT - steps.left
 
 
+_FLAGS = [f"-{letter}" for letter in "abcdefghijklmnopqrstuv"]
+
+
 def test_the_completion_walk_ends_where_it_yields_nothing_too():
-    # after a word nothing takes, `[-rrr]...` tried every subset of its flags: 9.8 s for 22 of them, and no path
-    doc = "usage: prog [-" + "r" * 22 + "]... expected"
-    paths, spent = _walk(doc, ["wrong"])
-    assert_that([remaining for remaining, _frontier_of_it, _blocks in paths if remaining == []]).is_empty()
+    # each flag typed is taken or passed by: every subset of 22 of them before a word nothing takes, and no path
+    doc = "usage: prog " + " ".join(f"[{flag}]" for flag in _FLAGS) + " expected"
+    paths, spent = _walk(doc, [*_FLAGS, "wrong"])
+    assert_that(paths).is_empty()
     # the budget is spent whole, and the walk winds up within a few steps of it
     assert_that(spent).is_between(MATCH_LIMIT, MATCH_LIMIT + 1000)
+    assert_that(docopt2.complete(doc, [*_FLAGS, "wrong", ""])).is_empty()
+    assert_that(docopt2.complete(doc, [""])).is_equal_to([*_FLAGS, "expected"])
+
+
+def test_flags_that_a_repetition_holds_are_not_walked_subset_by_subset():
+    # 9.8 s for 22 of them once: a round may leave its flags for later, so none of them forks the walk
+    doc = "usage: prog [-" + "r" * 22 + "]... expected"
+    assert_that(_walk(doc, ["wrong"])).is_equal_to(([], 49))
     assert_that(docopt2.complete(doc, ["wrong", ""])).is_empty()
     assert_that(docopt2.complete(doc, [""])).is_equal_to(["-r", "expected"])
 
 
 def test_a_path_handed_up_costs_the_walk_its_length():
-    # seventy stacked flags: 200,000 steps of visiting alone yielded paths that took a Tab 7 s to carry upward
-    paths, spent = _walk("usage: prog [-" + "r" * 70 + "]...", [])
+    # seventy words that may each be left out: 200,000 steps of visiting alone yielded paths of up to seventy leaves
+    words = sorted(f"w{at}" for at in range(70))
+    doc = "usage: prog " + " ".join(f"[{word}]" for word in words)
+    paths, spent = _walk(doc, [])
     assert_that(spent).is_between(MATCH_LIMIT, MATCH_LIMIT + 1000)
     assert_that(sum(len(frontier) for _remaining, frontier, _blocks in paths)).is_less_than(MATCH_LIMIT)
-    assert_that(docopt2.complete("usage: prog [-" + "r" * 70 + "]...", [""])).is_equal_to(["-r"])
+    # the walk was cut before a path that leaves `w10` out was seen: each word is offered all the same
+    assert_that(docopt2.complete(doc, [""])).is_equal_to(words)
 
 
 def test_a_real_usage_spends_a_thousandth_of_the_budget():
@@ -398,26 +417,44 @@ def test_a_walk_cut_at_the_budget_answers_as_one_given_ten_times_more(monkeypatc
     assert_that([docopt2.complete(doc, words) for words in prefixes]).is_equal_to(answers)
 
 
-_STACKED = "[-" + "r" * 17 + "]..."
+_FORKED = " ".join(f"[f{at:02}]" for at in range(18))  # each word is left out or not: 262,144 paths
+_FORKS = [f"f{at:02}" for at in range(18)]
 
 
 @pytest.mark.parametrize(
     "doc",
     [
-        f"Usage: prog ({_STACKED} | later)",
-        f"Usage: prog (later | {_STACKED})",
-        f"Usage:\n  prog {_STACKED}\n  prog later <x>",
-        f"Usage: prog {_STACKED} later",
+        f"Usage: prog ({_FORKED} | later)",
+        f"Usage: prog (later | {_FORKED})",
+        f"Usage:\n  prog {_FORKED}\n  prog later <x>",
+        f"Usage: prog {_FORKED} later",
     ],
 )
 def test_an_alternative_beside_one_that_spends_its_share_of_the_walk_is_still_offered(doc):
     # on a budget of its own the first alternative spent all of it, and `later` was never reached
-    assert_that(docopt2.complete(doc, [""])).is_equal_to(["-r", "later"])
+    assert_that(_walked(doc, [])[1].cut).is_true()
+    assert_that(docopt2.complete(doc, [""])).is_equal_to([*_FORKS, "later"])
+
+
+def test_a_cut_walk_has_its_commands_from_the_walk_that_stops_at_what_comes_next():
+    doc = f"usage: prog (go <x>)... {_FORKED}"
+    assert_that(_walked(doc, ["go"])[1].cut).is_true()
+    # a round that took `go` stops at its `<x>`: no command comes next
+    assert_that(docopt2.complete(doc, ["go", ""])).is_empty()
+    # after it they do. A second `go` is none the cut walk saw a path hold, so it is not vouched for
+    assert_that(docopt2.complete(doc, ["go", "one", ""])).is_equal_to(_FORKS)
+
+
+def test_a_cut_walk_keeps_no_command_of_a_line_that_cannot_take_a_typed_option():
+    doc = f"Usage:\n  prog --reload serve {_FORKED}\n  prog db {_FORKED}\n\nOptions:\n  --reload  Reload.\n"
+    assert_that(_walked(doc, ["--reload"])[1].cut).is_true()
+    assert_that(docopt2.complete(doc, ["--reload", ""])).is_equal_to(["serve"])
+    assert_that(docopt2.complete(doc, [""])).is_equal_to(["--reload", "db", "serve"])
 
 
 def test_a_walk_out_of_budget_winds_up_at_once_however_wide_the_usage():
     words = " ".join(f"[w{n}]" for n in range(60))
-    assert_that(_walk(f"Usage: prog {_STACKED} {words}", [])[1] - MATCH_LIMIT).is_between(0, 1)
+    assert_that(_walk(f"Usage: prog {_FORKED} {words}", [])[1] - MATCH_LIMIT).is_between(0, 1)
     # an alternative winds up on its own share: a few steps each, and never a budget each
-    alternatives = " | ".join(f"{_STACKED} c{n}" for n in range(40))
+    alternatives = " | ".join(f"{_FORKED} c{n}" for n in range(40))
     assert_that(_walk(f"Usage: prog ({alternatives})", [])[1] - MATCH_LIMIT).is_between(0, 40 * 20)

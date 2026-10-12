@@ -17,11 +17,14 @@ from docopt2._parser import (
     Option,
     OptionsShortcut,
     always_required_names,
+    expand_options_shortcut,
     formal_tokens,
+    line_binders,
     parse_defaults,
     parse_pattern,
     single_usage_section,
 )
+from docopt2._spellcheck import _closest
 from docopt2._stub import _key_shapes
 from docopt2._typed import (
     _asked,
@@ -38,7 +41,7 @@ from docopt2._typed import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     from docopt2._parser import LeafValue, Pattern, Span
 
@@ -177,9 +180,12 @@ def _unfit(summary: str, usage: str = "", at: Span = None, label: str = "", **li
     return Diagnostic(summary=summary, snippets=snippets, level="error", **lines)
 
 
-def _schema_findings(doc: str, schema: type[Any]) -> list[Diagnostic]:
+def _schema_findings(doc: str, schema: type[Any], lines: Sequence[int] | None = None) -> list[Diagnostic]:
     """Where ``schema`` disagrees with the usage, each a case in which binding some argv the usage accepts would
-    raise or hand a field a value of another type, whatever the user typed."""
+    raise or hand a field a value of another type, whatever the user typed.
+
+    With ``lines``, the argv are those of the usage lines at these places: the ones a handler binds it for.
+    """
     refused = unbindable(schema)
     if refused is not None:
         return [_unfit(refused)]
@@ -188,7 +194,7 @@ def _schema_findings(doc: str, schema: type[Any]) -> list[Diagnostic]:
         unchecked = f"schema `{name}` is a pydantic model, which binds by rules of its own: it was not checked"
         return [Diagnostic(summary=unchecked, level="warning")]
     try:
-        shapes = _key_shapes(doc)
+        shapes = _key_shapes(doc, lines)
     except (DocoptLanguageError, RecursionError):
         unread = f"the usage message does not parse: schema `{name}` was not checked"
         return [Diagnostic(summary=unread, level="warning")]
@@ -227,6 +233,53 @@ def _schema_findings(doc: str, schema: type[Any]) -> list[Diagnostic]:
     return found
 
 
+def _unreachable(command_path: tuple[str, ...], elements: set[str | None], given: bool) -> Diagnostic | None:
+    """Why no argv runs the handler of ``command_path``, which no usage line is bound by. None for a fallback."""
+    if not command_path:
+        return None
+    named = f"handler `{' '.join(command_path)}` can never run"
+    unknown = next((name for name in command_path if name not in elements), None)
+    if unknown is not None:
+        near = _closest(unknown, sorted(name for name in elements if name is not None))
+        advice = None if near is None else f"did you mean `{near}`?"
+        return Diagnostic(summary=f"{named}: the usage has no `{unknown}`", help=advice)
+    why = (
+        "another handler is run for every argv that gives its commands"
+        if given
+        else "no usage line gives its commands together"
+    )
+    return Diagnostic(summary=f"{named}: {why}", level="warning")
+
+
+def check_table(doc: str, table: Sequence[tuple[tuple[str, ...], type[Any] | None]]) -> list[Diagnostic]:
+    """What ``Dispatch.check`` returns: the findings of the usage, and of each handler of ``table``, a command
+    path and a schema, the findings of its schema on the usage lines the handler can be run for."""
+    found = _usage_findings(doc)
+    try:
+        options = parse_defaults(doc)
+        pattern = parse_pattern(formal_tokens(single_usage_section(doc)), options)
+    except DocoptLanguageError:
+        return found  # the one error of a usage that does not parse, which `found` holds
+    expand_options_shortcut(pattern, options)  # a path may name an option that only `[options]` holds
+    paths = [command_path for command_path, _schema in table]
+    binders = line_binders(pattern, paths)
+    elements = {leaf.name for leaf in pattern.flat()}
+    for at, (command_path, schema) in enumerate(table):
+        lines = [line for line, able in enumerate(binders) if at in able]
+        if not lines:
+            alone = line_binders(pattern, [command_path])
+            unreachable = _unreachable(command_path, elements, given=any(0 in able for able in alone))
+            found.extend([] if unreachable is None else [unreachable])
+            continue
+        if schema is None:
+            continue
+        named = f"handler `{' '.join(command_path)}`" if command_path else "the fallback handler"
+        for finding in _schema_findings(doc, schema, lines):
+            finding.summary = f"{named}: {finding.summary}"
+            found.append(finding)
+    return found
+
+
 def check(doc: str, schema: type[Any] | None = None) -> list[Diagnostic]:
     """Statically lint the usage grammar itself, before any argv is parsed.
 
@@ -251,7 +304,7 @@ def check(doc: str, schema: type[Any] | None = None) -> list[Diagnostic]:
     Fields are held against elements, and no more than that: a default is not held against its own annotation,
     and the schema is not constructed, so what its own ``__init__`` takes or refuses is not looked at. The
     schema is held against the whole usage. A handler of a ``Dispatch`` table binds its schema only on the
-    lines of its command, so an element those lines always give can be reported as one that may be absent.
+    lines it is run for: [`Dispatch.check`][docopt2.Dispatch.check] holds each schema against those.
     """
     found = _usage_findings(doc)
     return found if schema is None else [*found, *_schema_findings(doc, schema)]
