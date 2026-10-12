@@ -8,7 +8,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from docopt2 import Dispatch, DocoptExit, _completion, check, complete, docopt
-from docopt2._completion import _complete, _in_reach, _read, _Steps
+from docopt2._completion import _bound_lines, _complete, _in_reach, _leaves, _read, _Steps
 from docopt2._parser import (
     GIVEN_LIMIT,
     formal_usage,
@@ -280,6 +280,11 @@ def _offered(app, words):
     return _complete(app.doc, [*words, ""], [], app._table())[0]
 
 
+def _reach(doc, typed, table):
+    options, pattern = _read(doc)
+    return _in_reach(_leaves(options, typed), _bound_lines(pattern, table))
+
+
 def test_once_the_typed_words_leave_one_handler_its_schema_completes_the_line():
     app = _tool((("deploy",), _Deploy), (("status",), _Status), (("user", "add"), _Named), (("user",), None))
     assert_that(_offered(app, ["deploy"])).is_equal_to(["--format", "--format=json", "--format=yaml", "dev", "prod"])
@@ -293,13 +298,13 @@ def test_once_the_typed_words_leave_one_handler_its_schema_completes_the_line():
     assert_that(_offered(app, ["user"])).is_equal_to(["add", "rm"])
 
 
-def test_while_several_handlers_are_in_reach_a_value_is_offered_where_each_takes_it_and_no_word_is_judged():
+def test_while_several_handlers_are_in_reach_the_value_of_an_option_is_offered_where_each_takes_it():
     app = _tool((("deploy",), _Deploy), (("status",), _Status), (("user", "add"), _Named), (("user",), None))
     # before a command every handler is in reach: `yaml` is the one format both that declare it take
     assert_that(_offered(app, [])).is_equal_to(["--format", "--format=yaml", "deploy", "status", "user"])
     assert_that(_offered(app, ["--format"])).is_equal_to(["yaml"])
-    # nor is `json` judged, which the handler of `status` refuses: `status` is offered still
-    assert_that(_offered(app, ["--format=json"])).is_equal_to(["deploy", "status"])
+    # `status` would leave the one handler that refuses `json`
+    assert_that(_offered(app, ["--format=json"])).is_equal_to(["deploy"])
     assert_that(_offered(app, ["--format=json", "status"])).is_empty()
 
 
@@ -416,7 +421,7 @@ def test_a_line_may_take_the_typed_words_where_it_holds_their_options_and_reads_
     usage, typed, in_reach
 ):
     doc = f"Usage: p {usage}\n\nOptions:\n  -f  A flag.\n  --other=<v>  Another.\n"
-    assert_that(_in_reach(*_read(doc), typed, [(("c",), None)])).is_equal_to(in_reach)
+    assert_that(_reach(doc, typed, [(("c",), None)])).is_equal_to(in_reach)
 
 
 _ATOMS = st.sampled_from(["a", "b", "c", "<x>", "-f"])
@@ -461,7 +466,7 @@ def test_the_handler_run_for_a_whole_argv_is_one_that_every_prefix_of_it_left_in
     for at, command_path in enumerate(paths):
         app.on(*command_path)(lambda _arguments, at=at: at)
     try:
-        reach = _in_reach(*_read(doc), prefix, app._table())
+        reach = _reach(doc, prefix, app._table())
     except DocoptExit:
         return  # an option the usage does not have: nothing is completed after it
     for tail in _TAILS:

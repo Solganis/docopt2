@@ -271,7 +271,8 @@ the same reason it completes its closed sets of strings only: it refuses the tex
 
 A `Dispatch` table judges the typed words by the schema of the one handler they leave to be run. While
 they leave several, a positional is completed by the handler that is run for the line as it would be
-finished. Its guide [shows](dispatch.md#completing-values) both.
+finished, and a command or an option is left out where every handler it would leave refuses a value typed
+for an option. Its guide [shows](dispatch.md#completing-values) each.
 
 ## Completing file names
 

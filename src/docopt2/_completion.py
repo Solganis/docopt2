@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import itertools
 import os
 import re
@@ -485,8 +486,42 @@ def _behind(node: Pattern, words: Sequence[str], counts: set[int]) -> set[int]:
     return counts
 
 
-def _in_reach(options: list[Option], pattern: Pattern, typed: list[str], table: Table) -> set[int | None]:
-    """The handlers of ``table`` that may be the one run once the line is whole: those that can be run for a
+def _leaves(options: list[Option], typed: list[str]) -> list[Pattern]:
+    """The typed words as the parser reads them."""
+    try:
+        return parse_argv(Tokens(list(typed)), list(options))
+    except DocoptExit:
+        return parse_argv(Tokens([*typed, _A_VALUE]), list(options))  # the last option waits for its argument
+
+
+class _BoundLine:
+    """A usage line and the handlers of a table that can be run for it."""
+
+    def __init__(self, line: Pattern, able: set[int | None]) -> None:
+        self.able = able
+        self._line = line
+        self._options = {leaf.name for leaf in line.flat(Option)}
+        self._commands = {leaf.name for leaf in line.flat(Command)}
+        self._walked: dict[tuple[str, ...], bool] = {}
+
+    def may_take(self, given: set[str | None], words: list[str]) -> bool:
+        """Whether the line holds every option of ``given`` and some way through it has ``words`` in their order."""
+        if not given <= self._options:
+            return False
+        # a word naming no command of the line is any word to it: one walk for them all, 50 to 24 ms at 200 lines
+        read_as = tuple(word if word in self._commands else _A_VALUE for word in words)
+        if read_as not in self._walked:
+            self._walked[read_as] = len(words) in _behind(self._line, read_as, {0})
+        return self._walked[read_as]
+
+
+def _bound_lines(pattern: Pattern, table: Table) -> list[_BoundLine]:
+    binders = line_binders(pattern, [command_path for command_path, _schema in table])
+    return [_BoundLine(line, able) for line, able in zip(_usage_lines(pattern), binders, strict=True)]
+
+
+def _in_reach(leaves: list[Pattern], lines: list[_BoundLine]) -> set[int | None]:
+    """The handlers of a table that may be the one run once the line is whole: those that can be run for a
     usage line that may take the typed words. None among them stands for an argv that no handler takes.
 
     A line may take them where it holds every option typed and some way through it has the typed positionals
@@ -494,17 +529,12 @@ def _in_reach(options: list[Option], pattern: Pattern, typed: list[str], table: 
     handler too many in reach, and a line too few would let one schema judge what another handler is run for.
     Each line is asked alone, so a word that two lines read in two ways leaves the handlers of both.
     """
-    try:
-        leaves = parse_argv(Tokens(list(typed)), list(options))
-    except DocoptExit:
-        leaves = parse_argv(Tokens([*typed, _A_VALUE]), list(options))  # the last option waits for its argument
     words = [str(leaf.value) for leaf in leaves if type(leaf) is Argument and leaf.value != "--"]
     given = {leaf.name for leaf in leaves if isinstance(leaf, Option)}
-    binders = line_binders(pattern, [command_path for command_path, _schema in table])
     reach: set[int | None] = set()
-    for line, able in zip(_usage_lines(pattern), binders, strict=True):
-        if given <= {leaf.name for leaf in line.flat(Option)} and len(words) in _behind(line, words, {0}):
-            reach |= able
+    for line in lines:
+        if line.may_take(given, words):
+            reach |= line.able
     return reach
 
 
@@ -516,14 +546,45 @@ def _resolve_table(doc: str, typed: list[str], table: Table) -> tuple[list[str],
     the value of an option follows only where each schema that declares its field takes it, and the walk judges
     no typed word: which of them is run is not known before the line is whole. A line finished to see what
     reads the next word is whole, so its positional is offered the values of the handler run for that line.
+
+    A candidate is left out where every handler that it leaves in reach refuses a value typed for an option.
     """
     options, pattern = _read(doc)  # the options filled in: a path may name one that only `[options]` holds
-    reach = _in_reach(options, pattern, typed, table)
+    lines = _bound_lines(pattern, table)
+    leaves = _leaves(options, typed)
+    reach = _in_reach(leaves, lines)
     bound = [table[at][1] for at in sorted(at for at in reach if at is not None)]
     # told apart by `is`: a class need not hash
     schemas = [one for at, one in enumerate(bound) if one is not None and not any(one is seen for seen in bound[:at])]
     alone = len(reach) == 1 and len(schemas) == 1
-    return _resolve(options, pattern, typed, *_fields(schemas, alone=alone), _run_for(doc, pattern, table))
+    names, free = _resolve(options, pattern, typed, *_fields(schemas, alone=alone), _run_for(doc, pattern, table))
+    refusing = _refusing(leaves, table, reach)
+    if not refusing:
+        return names, free
+    left_by = (_in_reach(_leaves(options, [*typed, name]), lines) - {None} for name in names)
+    return [name for name, left in zip(names, left_by, strict=True) if not left or not left <= refusing], free
+
+
+def _refusing(leaves: list[Pattern], table: Table, reach: set[int | None]) -> set[int]:
+    """The handlers in ``reach`` whose schema refuses a value that was typed for an option.
+
+    An option is read by its name on every line, so what is typed for it is what a finished line gives its
+    field, alone or among the values of a repeated one. A line that such a handler is run for is one its schema
+    refuses, whatever else the line holds. A typed positional says no such thing: which element reads it
+    depends on the line. Nor does a flag, which may be given again and count.
+    """
+    valued = [
+        (str(leaf.name), leaf.value)
+        for leaf in leaves
+        if isinstance(leaf, Option) and isinstance(leaf.value, str) and leaf.value != _A_VALUE
+    ]
+    refusing: set[int] = set()
+    for at in (at for at in reach if at is not None and valued):
+        schema = table[at][1]
+        takes = _fields([] if schema is None else [schema], alone=True)[1]
+        if takes is not None and not all(takes(key, value) for key, value in valued):
+            refusing.add(at)
+    return refusing
 
 
 def _run_for(doc: str, pattern: Pattern, table: Table) -> Callable[[list[Pattern]], Fields | None]:
@@ -584,12 +645,13 @@ def _fields(schemas: Sequence[type[Any]], *, alone: bool) -> Fields:
         return (lambda _key: []), None, (lambda _key: False)
     from docopt2._typed import _key_to_field, field_choices, field_paths, field_takes  # deferred: a schema's alone
 
-    choices, paths = field_choices(schemas), field_paths(schemas)
+    # worked out when asked for, at 14 us a schema: a table asks each handler in reach only what it takes
+    choices, paths = functools.cache(lambda: field_choices(schemas)), functools.cache(lambda: field_paths(schemas))
     takes = field_takes(schemas[0]) if alone else (lambda _field, _text: True)
     return (
-        (lambda key: choices.get(_key_to_field(key), [])),
+        (lambda key: choices().get(_key_to_field(key), [])),
         (lambda key, text: takes(_key_to_field(key), text)),
-        (lambda key: _key_to_field(key) in paths),
+        (lambda key: _key_to_field(key) in paths()),
     )
 
 

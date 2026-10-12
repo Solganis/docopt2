@@ -278,7 +278,11 @@ words already typed too: after `app deploy nowhere` nothing is offered.
 While several handlers are in reach, the value of an option is offered only where each of them that
 declares the field takes it: before any command, `app --format <TAB>` offers `yaml`. A positional is
 completed by the handler that is run for the line as it would be finished. On a line that two commands
-share, `app (deploy | status) <env>`, each command is offered the environments of its own handler. See
+share, `app (deploy | status) <env>`, each command is offered the environments of its own handler.
+
+A value typed for an option narrows what comes next. A command or an option is left out where every
+handler it would leave in reach refuses that value: after `app --format json` the next word offered is
+`deploy` and not `status`, whose handler refuses `json`. See
 [Completing values](completion.md#completing-values).
 
 ### Checking the table
