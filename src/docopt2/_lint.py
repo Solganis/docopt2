@@ -18,6 +18,7 @@ from docopt2._parser import (
     OptionsShortcut,
     always_required_names,
     formal_tokens,
+    parse_defaults,
     parse_pattern,
     single_usage_section,
 )
@@ -249,8 +250,9 @@ def check(doc: str, schema: type[Any] | None = None) -> list[Diagnostic]:
     [`docopt`][docopt2.docopt] would otherwise accept silently: an option declared but never usable, a
     ``[default: ...]`` on an always-required element, an empty ``[options]`` shortcut.
 
-    The check is read-only and does not affect parsing or matching. A usage message too malformed to parse
-    returns no warnings, since that error surfaces at parse time instead.
+    The check is read-only and does not affect parsing or matching. A usage message that does not parse is
+    reported as a single ``"error"``, the one [`docopt`][docopt2.docopt] raises for it at every run, and
+    nothing else in it is looked at.
 
     With ``schema``, a dataclass, a ``TypedDict`` or a ``Cli`` subclass, the list also holds an ``"error"`` for
     every way the schema disagrees with the usage: a field with no element, two elements for one field, an
@@ -272,6 +274,17 @@ def check(doc: str, schema: type[Any] | None = None) -> list[Diagnostic]:
 
 
 def _usage_findings(doc: str) -> list[Diagnostic]:
+    try:
+        # As docopt() reads the doc before any argv, so what is raised here is raised at every run. formal_tokens,
+        # not formal_usage: the latter offsets every leaf span, and a rule below reads the source of a branch.
+        usage = single_usage_section(doc)
+        read = parse_defaults(doc)
+        describes_options = bool(read)  # asked now: the read below adds the options that only the usage names
+        pattern = parse_pattern(formal_tokens(usage), read)
+    except DocoptLanguageError as refused:
+        return [refused.diagnostic or Diagnostic(summary=str(refused))]
+    except RecursionError:
+        return [Diagnostic(summary="the usage pattern nests too deeply to parse")]
     warnings: list[Diagnostic] = []
     declared: list[tuple[Option, Span, Span]] = []
     described: list[tuple[Option, list[tuple[str, int]]]] = []
@@ -285,18 +298,11 @@ def _usage_findings(doc: str) -> list[Diagnostic]:
             try:
                 option = Option.parse(line)
             except DocoptLanguageError:
-                return []  # docopt rejects the whole message; that error is the one worth reading, not a lint
+                description = None  # the parser took this option with the lines under it: it has no line of its own
+                continue
             declared.append((option, _token_span(line, offset), _default_span(line, offset)))
             description = [(line, offset)]
             described.append((option, description))
-    options = [option for option, _name, _default in declared]
-    try:
-        # formal_tokens, not formal_usage: the latter builds the same tree but offsets every leaf span, and
-        # the redundant-alternative rule reads the source a branch was written from.
-        usage = single_usage_section(doc)
-        pattern = parse_pattern(formal_tokens(usage), list(options))
-    except (DocoptLanguageError, RecursionError):
-        return warnings
     for option, lines in described:
         for kind, annotation in _ANNOTATIONS.items():
             written = [(at + hit.start(), at + hit.end()) for line, at in lines for hit in annotation.finditer(line)]
@@ -373,7 +379,7 @@ def _usage_findings(doc: str) -> list[Diagnostic]:
                     )
                 )
             seen.add(_branch_key(branch, usage))
-    if has_shortcut and not options:
+    if has_shortcut and not describes_options:
         at = doc.lower().find("[options]")
         span = (at, at + len("[options]")) if at != -1 else None
         warnings.append(

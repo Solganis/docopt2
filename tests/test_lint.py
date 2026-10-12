@@ -1,11 +1,12 @@
 import ast
+import random
 from pathlib import Path
 
 from assertpy2 import assert_that
 from hypothesis import given
 
 from _strategies import doc_strategy
-from docopt2 import check
+from docopt2 import DocoptLanguageError, check, docopt
 
 
 @given(doc=doc_strategy)
@@ -16,11 +17,93 @@ def test_check_is_total_and_renderable_on_any_grammar(doc):
         warning.render()
 
 
-def test_check_returns_no_warnings_on_a_deeply_nested_usage():
-    # check() promises no warnings for an unparseable doc; a pathologically deep grammar raises
-    # RecursionError inside the parser, which must be swallowed like a DocoptLanguageError.
+_ARGVS = (["x"], ["--zz"], ["-a", "x", "y"], ["--port=1", "x"], ["deploy", "prod"], ["ship", "new", "a", "b"])
+
+
+def _refusal(doc, argv=()):
+    """The error ``docopt()`` raises for ``doc`` as a usage, as it prints. None where the doc parses, whether the
+    argv is then accepted or refused."""
+    try:
+        docopt(doc, list(argv), complete=False, help=False)
+    except DocoptLanguageError as refused:
+        return str(refused)
+    except SystemExit:
+        return None
+    return None
+
+
+def _found(doc):
+    try:
+        return [(found.level, found.render()) for found in check(doc)]
+    except DocoptLanguageError as leaked:  # the check is never to raise: say so in what is compared
+        return [("raised", str(leaked))]
+
+
+def _errors(doc):
+    return [found.render() for found in check(doc) if found.level == "error"]
+
+
+def test_a_usage_nested_too_deeply_to_parse_is_reported_as_docopt_reports_it():
+    # the parser runs out of stack there: the linter must hand that on, and not let a RecursionError out
     deep = "Usage: prog " + "( " * 2000 + "x " + ") " * 2000
-    assert_that(check(deep)).is_equal_to([])
+    assert_that(_errors(deep)).is_equal_to(["error: the usage pattern nests too deeply to parse"])
+    assert_that(_refusal(deep)).is_equal_to("error: the usage pattern nests too deeply to parse")
+
+
+_HELP_TEXTS = [
+    "Usage: prog [options] <x>\n\nOptions:\n  -v, --verbose  Loud.\n  --port=<n>  Port [default: 80].\n",
+    "Usage:\n  app deploy <env> [--format=<f>]\n  app status\n\nOptions:\n  --format=<f>  Output format [env: FMT].\n",
+    "Naval.\n\nUsage:\n  naval ship new <name>...\n  naval -h | --help\n\n"
+    "Options:\n  -h --help  Show.\n  --speed=<kn>  Speed.\n",
+    "Usage: prog [-a] [-b <x>]\n\nMore options:\n  -a  A.\n  -b <x>  B,\n      continued - here.\n\n"
+    "Arguments:\n  <x>  X [default: 1].\n",
+]
+
+
+def _damaged(count, seed):
+    """Help texts with one to four characters deleted, inserted or replaced: most still parse, many do not."""
+    draw = random.Random(seed)
+    for _ in range(count):
+        text = list(draw.choice(_HELP_TEXTS))
+        for _ in range(draw.randint(1, 4)):
+            at = draw.randrange(len(text))
+            action = draw.random()
+            if action < 0.4:
+                del text[at]
+            elif action < 0.8:
+                text.insert(at, draw.choice(" \n\t-<>[]()|=.:,abxO"))
+            else:
+                text[at] = draw.choice(" \n\t-<>[]()|=.:,abxO")
+        yield "".join(text)
+
+
+def test_the_check_reports_an_error_exactly_where_docopt_refuses_the_doc_and_in_its_words():
+    refusals = {doc: _refusal(doc) for doc in _damaged(3000, seed=20261011)}
+    # the damage must give both kinds in number, or the comparison below says little
+    assert_that(sum(refusal is not None for refusal in refusals.values())).is_between(300, 2700)
+    # of a doc that is refused the list is that one error and nothing beside it, of any other no error at all
+    told_apart = [
+        doc
+        for doc, refusal in refusals.items()
+        if (_found(doc) != [("error", refusal)] if refusal is not None else _errors(doc) != [])
+    ]
+    assert_that(told_apart).is_empty()
+    # and a doc is refused or not whatever the argv: the argv never decides whether the usage parses
+    by_argv = [doc for doc, refusal in refusals.items() if any(_refusal(doc, argv) != refusal for argv in _ARGVS)]
+    assert_that(by_argv).is_empty()
+
+
+def test_an_option_that_parses_only_with_the_lines_under_it_is_left_alone_and_nothing_is_raised():
+    # the parser reads `--foo a b` with the line under it, three flags for three words. Read alone the line
+    # has two words for one flag, which the linter once let out as an exception
+    doc = "Usage: prog [options]\n\nOptions:\n  --foo a b\n text --bar --baz\n"
+    assert_that(_refusal(doc)).is_none()
+    assert_that(_found(doc)).is_empty()
+    # nor is the line under it read as a description of the option above: `--ok` has one `[env:]`, not two
+    described = "  --ok=<v>  Fine [env: A].\n  --foo a b\n text --bar --baz  Three [env: B].\n"
+    doc = "Usage: prog [options]\n\nOptions:\n" + described
+    assert_that(_refusal(doc)).is_none()
+    assert_that(_found(doc)).is_empty()
 
 
 def test_check_flags_an_unused_option_declared_after_a_wrapped_description():
@@ -129,14 +212,25 @@ def test_clean_grammar_produces_no_warnings():
     assert_that(check(doc)).is_empty()
 
 
-def test_unparseable_usage_yields_no_warnings():
-    # A malformed usage surfaces its error at parse time; the linter stays quiet rather than crash.
-    assert_that(check("usage: prog (a]")).is_empty()
+def test_a_usage_that_does_not_parse_is_one_error_with_the_place_docopt_points_at():
+    found = check("usage: prog (a]")
+    assert_that([(one.level, one.summary) for one in found]).is_equal_to(
+        [("error", "mismatched delimiters: `(` is closed by `]`")]
+    )
+    carets = [
+        (snippet.source[caret.start : caret.end], caret.label)
+        for snippet in found[0].snippets
+        for caret in snippet.carets
+    ]
+    assert_that(carets).is_equal_to([("(", "`(` opens the group here"), ("]", "`]` cannot close it")])
 
 
-def test_malformed_option_line_is_skipped_not_crashed():
+def test_a_malformed_option_line_is_the_error_docopt_raises_for_it():
     doc = "Usage: prog <file>\n\nOptions:\n  -k some description here\n"
-    assert_that(check(doc)).is_empty()
+    assert_that([one.summary for one in check(doc)]).is_equal_to(
+        ["option `-k some description here` has more argument words than flags"]
+    )
+    assert_that(_errors(doc)).is_equal_to([_refusal(doc)])
 
 
 def test_multiline_option_description_continuation_is_ignored():
@@ -185,13 +279,10 @@ def test_distinct_usage_lines_are_not_redundant_alternatives():
     assert_that(check("Usage:\n  prog add\n  prog rm\n")).is_empty()
 
 
-def test_check_never_raises_on_a_doc_with_no_usage_section():
-    # `check` is documented never to raise: a usage too malformed to parse is the parser's error to report,
-    # not the linter's. `single_usage_section` throws when there is no `Usage:` at all, so it must sit
-    # inside the guard - a refactor that lifted it out slipped past the whole suite.
-    assert_that(check("No usage here at all.")).is_empty()
-    assert_that(check("")).is_empty()
-    assert_that(check("Options:\n  -v  Verbose.\n")).is_empty()
+def test_a_doc_with_no_usage_section_is_reported_and_nothing_is_raised():
+    # `single_usage_section` throws when there is no `Usage:` at all, so it must sit inside the guard
+    for doc in ("No usage here at all.", "", "Options:\n  -v  Verbose.\n"):
+        assert_that(_errors(doc)).is_equal_to(['error: "usage:" (case-insensitive) not found'])
 
 
 def test_the_canonical_naval_fate_example_is_warning_free():
@@ -207,12 +298,13 @@ def test_the_same_option_written_twice_is_still_redundant():
     assert_that(_summaries("Usage: prog (-h | -h)\n\nOptions:\n  -h --help  H.\n")[0]).contains("redundant")
 
 
-def test_a_malformed_option_line_silences_the_linter_rather_than_misleading_it():
-    # docopt rejects this whole message ("more argument words than flags"), and that error is the one worth
-    # reading. The linter used to skip the broken line, find no options left, and warn that `[options]`
-    # accepts nothing - which is false: an option IS described, it is just malformed.
+def test_a_malformed_option_line_gets_the_parsers_error_and_no_lint_beside_it():
+    # The linter once skipped the broken line, found no options left, and warned that `[options]` accepts
+    # nothing - which is false: an option IS described, it is just malformed.
     doc = "Usage: prog [options]\n\nOptions:\n  --foo bar baz qux\n"
-    assert_that(check(doc)).is_empty()
+    assert_that([(one.level, one.summary) for one in check(doc)]).is_equal_to(
+        [("error", "option `--foo bar baz qux` has more argument words than flags")]
+    )
 
 
 def test_a_prose_bullet_inside_an_option_description_is_not_read_as_an_option():

@@ -521,11 +521,15 @@ def test_what_was_not_checked_is_said_and_not_passed_over():
             )
         ]
     )
+    unchecked = ("warning", "the usage message does not parse: schema `_Name` was not checked", [], None, None)
     assert_that(_said(check("Usage: app (<name>", schema=_Name))).is_equal_to(
-        [("warning", "the usage message does not parse: schema `_Name` was not checked", [], None, None)]
+        [
+            ("error", "unclosed `(`", [("(", "opened here, but never closed")], None, "add `)` to close the group"),
+            unchecked,
+        ]
     )
     assert_that(_said(check("no usage here", schema=_Name))).is_equal_to(
-        [("warning", "the usage message does not parse: schema `_Name` was not checked", [], None, None)]
+        [("error", '"usage:" (case-insensitive) not found', [], None, None), unchecked]
     )
     assert_that(_said(check("Usage: app <name>", schema=_Unresolved))).is_equal_to(
         [

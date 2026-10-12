@@ -36,9 +36,8 @@ The list is purely informational. `check` does not mutate `doc`, and does not ch
 parses it.
 
 !!! note
-    A usage message too malformed to parse (an unbalanced group, say) returns no warnings - that error
-    is not a lint, it surfaces at parse time when you call `docopt()`. `check` only reports grammar that
-    parses but reads wrong.
+    A usage message that does not parse (an unbalanced group, say) is reported as a single `"error"`: the
+    one `docopt()` raises for it at every run, with its caret. Nothing else is looked at in such a message.
 
 ## What it flags
 
@@ -278,7 +277,8 @@ does not parse.
 - `-` for standard input.
 
 Warnings are written to standard error. The command exits `0` when the grammar is clean and `1` when
-any warning was reported, so it drops into a pre-commit hook or a CI job as a gate:
+anything was reported, a usage message that does not parse included, so it drops into a pre-commit hook or
+a CI job as a gate:
 
 <div class="docopt2-term"><span class="dt-fg">$ docopt2 check cli.py</span>
 <span class="dt-warn dt-b">warning</span><span class="dt-fg dt-b">: dead default on `--name`, which the usage always requires</span>

@@ -347,6 +347,8 @@ catching defects the parser would otherwise accept in silence:
 It flags dead `[default: ...]` values, options declared but never usable,<br>
 ambiguous variadic positionals, and redundant alternatives.
 
+A usage that does not parse is reported as the error `docopt()` would raise, and `docopt2 check` exits 1.
+
 With `check(doc, schema=Args)` it also reports where the [schema disagrees with the usage](https://solganis.github.io/docopt2/guides/check/#checking-a-schema).
 
 <a name="usage-formatter"></a>

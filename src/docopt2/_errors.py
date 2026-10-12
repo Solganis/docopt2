@@ -11,7 +11,19 @@ if TYPE_CHECKING:
 
 
 class DocoptLanguageError(Exception):
-    """Error in the construction of the usage message by the developer."""
+    """Error in the construction of the usage message by the developer.
+
+    ``diagnostic`` holds the error as an object where its message was rendered from one, else None.
+    """
+
+    diagnostic: Diagnostic | None = None
+
+
+def language_error(diagnostic: Diagnostic) -> DocoptLanguageError:
+    """The error of a usage message, its text rendered from ``diagnostic`` and the diagnostic kept on it."""
+    error = DocoptLanguageError(diagnostic.render())
+    error.diagnostic = diagnostic
+    return error
 
 
 class DocoptExit(SystemExit):

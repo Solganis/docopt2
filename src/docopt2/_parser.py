@@ -8,7 +8,7 @@ import re
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 from docopt2._diagnostics import Caret, Diagnostic, Snippet
-from docopt2._errors import DocoptExit, DocoptLanguageError
+from docopt2._errors import DocoptExit, DocoptLanguageError, language_error
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -392,7 +392,7 @@ class Option(LeafPattern):
                 snippets=snippets,
                 help="separate the option from its description with at least two spaces",
             )
-            raise DocoptLanguageError(diagnostic.render())
+            raise language_error(diagnostic)
         env_match = _ENV_PATTERN.search(description)
         env = env_match.group(1) if env_match else None
         config_match = _CONFIG_PATTERN.search(description)
@@ -586,7 +586,7 @@ def _check_brackets(source: str, spanned: list[tuple[str, int, int]]) -> None:
                     snippets=[stray],
                     help="remove it, or open a group before it",
                 )
-                raise DocoptLanguageError(diagnostic.render())
+                raise language_error(diagnostic)
             open_text, open_start, open_end = stack.pop()
             if open_text != openers[text]:  # wrong kind of closer: two carets, opener and closer
                 mismatch = Snippet(
@@ -602,7 +602,7 @@ def _check_brackets(source: str, spanned: list[tuple[str, int, int]]) -> None:
                     snippets=[mismatch],
                     help=f"close it with `{closers[open_text]}`, or open with `{openers[text]}`",
                 )
-                raise DocoptLanguageError(diagnostic.render())
+                raise language_error(diagnostic)
     if stack:  # an opener that was never closed: one caret, on the opener
         open_text, open_start, open_end = stack[-1]
         unclosed = Snippet(source, "in the usage:", [Caret(open_start, open_end, "opened here, but never closed")])
@@ -611,7 +611,7 @@ def _check_brackets(source: str, spanned: list[tuple[str, int, int]]) -> None:
             snippets=[unclosed],
             help=f"add `{closers[open_text]}` to close the group",
         )
-        raise DocoptLanguageError(diagnostic.render())
+        raise language_error(diagnostic)
 
 
 class Tokens(list[str]):
@@ -673,7 +673,7 @@ class Tokens(list[str]):
         diagnostic = Diagnostic(summary=message, snippets=snippets)
         if self.parsing_argv:
             return DocoptExit(diagnostic=diagnostic, usage=self.usage, exit_code=self.exit_code)
-        return self.error(diagnostic.render())
+        return language_error(diagnostic)
 
 
 def parse_long(tokens: Tokens, options: list[Option], allow_abbrev: bool = True) -> list[Pattern]:
@@ -1129,9 +1129,9 @@ def single_usage_section(doc: str) -> str:
     """Return the one ``usage:`` section, raising if the doc has none or more than one."""
     sections = parse_section("usage:", doc)
     if len(sections) == 0:
-        raise DocoptLanguageError(Diagnostic(summary='"usage:" (case-insensitive) not found').render())
+        raise language_error(Diagnostic(summary='"usage:" (case-insensitive) not found'))
     if len(sections) > 1:
-        raise DocoptLanguageError(Diagnostic(summary='more than one "usage:" section (case-insensitive)').render())
+        raise language_error(Diagnostic(summary='more than one "usage:" section (case-insensitive)'))
     return sections[0]
 
 
@@ -1140,7 +1140,7 @@ def formal_usage(section: str) -> str:
     _, _, body = section.partition(":")
     words = body.split()
     if not words:
-        raise DocoptLanguageError(Diagnostic(summary="the usage section names no program").render())
+        raise language_error(Diagnostic(summary="the usage section names no program"))
     program = words[0]
     return "( " + " ".join(") | (" if word == program else word for word in words[1:]) + " )"
 
@@ -1154,7 +1154,7 @@ def formal_tokens(section: str) -> Tokens:
         for match in _PATTERN_TOKEN.finditer(section[body_start:])
     ]
     if not spanned:
-        raise DocoptLanguageError(Diagnostic(summary="the usage section names no program").render())
+        raise language_error(Diagnostic(summary="the usage section names no program"))
     _check_brackets(section, spanned)
     program = spanned[0][0]
     texts: list[str] = ["("]

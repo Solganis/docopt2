@@ -106,6 +106,14 @@ def test_check_is_silent_and_zero_on_a_clean_usage(tmp_path, capsys):
     assert_that(captured.err).is_empty()
 
 
+def test_check_fails_on_a_usage_that_does_not_parse_with_the_error_docopt_raises(tmp_path, capsys):
+    source = _write(tmp_path, "usage.txt", "Usage: prog (<file>\n")
+    exit_code = main(["check", source])
+    captured = capsys.readouterr()
+    assert_that(exit_code).is_equal_to(1)
+    assert_that(captured.err.splitlines()[0]).is_equal_to("error: unclosed `(`")
+
+
 def test_check_reports_warnings_and_exits_nonzero(tmp_path, capsys):
     source = _write(tmp_path, "usage.txt", "Usage: prog <file>\n\nOptions:\n  --verbose  Be verbose.\n")
     exit_code = main(["check", source])

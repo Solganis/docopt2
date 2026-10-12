@@ -81,10 +81,12 @@ def test_a_description_does_not_run_on_into_the_next_options_section():
     assert_that(sources).is_equal_to({"--port": "PORT", "--host": "HOST"})
 
 
-def test_a_usage_too_malformed_to_parse_gets_no_warning_at_all():
+def test_a_usage_too_malformed_to_parse_gets_the_parsers_error_and_no_warning():
     repeated = "\n\nOptions:\n  --port=<n>  Port [env: A] [env: B]."
-    assert_that(check("Usage: prog [--port=<n>]" + repeated)).is_length(1)
-    assert_that(check("Usage: prog [--port=<n>" + repeated)).is_empty()
+    assert_that([found.level for found in check("Usage: prog [--port=<n>]" + repeated)]).is_equal_to(["warning"])
+    assert_that([(found.level, found.summary) for found in check("Usage: prog [--port=<n>" + repeated)]).is_equal_to(
+        [("error", "unclosed `[`")]
+    )
 
 
 def test_the_lint_says_what_the_parser_does_only_the_first_source_is_read(monkeypatch):

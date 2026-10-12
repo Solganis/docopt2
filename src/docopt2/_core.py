@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, ClassVar, TypeVar, cast, overload
 
 from docopt2._diagnostics import Caret, Diagnostic, Snippet, use_color
-from docopt2._errors import DocoptExit, DocoptLanguageError
+from docopt2._errors import DocoptExit, language_error
 from docopt2._parser import (
     MATCH_LIMIT,
     Argument,
@@ -564,7 +564,7 @@ def docopt(
         ``port`` is an ``int``.
     """
     if doc is None:
-        raise DocoptLanguageError(Diagnostic(summary="doc (the usage message) must not be None").render())
+        raise language_error(Diagnostic(summary="doc (the usage message) must not be None"))
     if complete and COMPLETION_REQUEST_ENV in os.environ:
         # On by default (opt out with complete=False): answer a shell completion request and exit.
         from docopt2._completion import reply_to_completion_request  # deferred: 0.3 of the 9.1 ms import
@@ -587,7 +587,7 @@ def docopt(
     try:
         pattern = parse_pattern(formal_tokens(usage), options)
     except RecursionError:
-        raise DocoptLanguageError(Diagnostic(summary="the usage pattern nests too deeply to parse").render()) from None
+        raise language_error(Diagnostic(summary="the usage pattern nests too deeply to parse")) from None
     # the same five arguments at each of the three reads, spelled out: as one tuple they cost 220 ns more per parse
     try:
         tokens = Tokens(argv, usage=usage, exit_code=exit_code)
