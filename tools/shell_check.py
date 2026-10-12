@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import inspect
 import os
 import platform
@@ -13,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from docopt2 import Command, complete, generate_completion
+from docopt2 import Command, complete, docopt, generate_completion
 from docopt2._parser import formal_usage, parse_defaults, parse_pattern, single_usage_section
 from docopt2._typed import field_choices
 
@@ -65,12 +66,35 @@ class _Deploy:
     format: Literal["json", "jsonl", "yaml"] | None
 
 
-_DOCS = {"naval": _NAVAL, "tool": _TOOL, "deployer": _DEPLOYER}
-_SCHEMAS = {"deployer": _Deploy}  # a program with a schema completes the values its closed sets hold
+_FILER = """Filer.
+
+Usage:
+  filer [go] <file> [--out=<path>] [--mode=<m>] [--name=<n>]
+
+Options:
+  --out=<path>  Where to write.
+  --mode=<m>    Mode.
+  --name=<n>    A label.
+"""
+
+
+@dataclasses.dataclass
+class _Filer:
+    go: bool
+    file: Path
+    out: Path | None
+    mode: Literal["json", "yaml"] | None
+    name: str | None
+
+
+_DOCS = {"naval": _NAVAL, "tool": _TOOL, "deployer": _DEPLOYER, "filer": _FILER}
+# a program with a schema completes the values its closed sets hold, and file names for its `Path` fields
+_SCHEMAS = {"deployer": _Deploy, "filer": _Filer}
 
 _PROGRAM = '''#!{python}
 """{doc}"""
 import dataclasses
+from pathlib import Path
 import sys
 from typing import Literal
 
@@ -80,7 +104,7 @@ from docopt2 import docopt, generate_completion
 if len(sys.argv) >= 3 and sys.argv[1] == "--completion":
     print(generate_completion(__doc__, prog="{prog}", shell=sys.argv[2]))
     sys.exit(0)
-print(docopt(__doc__, schema={schema_name}))
+print(sys.argv[1:], docopt(__doc__, schema={schema_name}))
 '''
 
 # `tool --opt=x` is a token bash shreds at a wordbreak, and the `$fpath` case below fires on zsh's FIRST
@@ -99,6 +123,45 @@ _CASES = [
     ("deployer", ["prod"], "--format=x"),
 ]
 
+# File names: the line, what the shell must paint, what it must not. A word that one file completes is painted as
+# the rest of that name. No line names a file of the directory, so none is on the screen unless it was offered.
+_FILE_NAMES = ("notes.txt", "other.log", "zeta.md")
+_FILE_CASES = [
+    ("filer no", ["tes.txt"], ["other.log", "zeta.md"]),
+    ("filer ", [*_FILE_NAMES], []),
+    ("filer zzz --out ot", ["her.log"], ["notes.txt", "zeta.md"]),
+    ("filer zzz --mode ", ["json", "yaml"], [*_FILE_NAMES]),
+    ("filer zzz --name ", [], [*_FILE_NAMES]),
+    ("filer zzz extra ", [], [*_FILE_NAMES, "json"]),
+]
+# PowerShell completes file names by itself wherever a completer returns nothing, so the last two are not its
+_OWN_FALLBACK = {"powershell": {"filer zzz --name ", "filer zzz extra "}}
+# A word that one odd file completes, and that file. The completed line is run: the program must be handed the name.
+# `x.txt` is there for `[x].txt` to be mistaken for, as a pattern.
+_ODD_NAMES = ("[x].txt", "x.txt", "with space.txt", "back`tick.txt")
+_EXACT = [
+    ("filer [", "[x].txt"),
+    ("filer wi", "with space.txt"),
+    ("filer ba", "back`tick.txt"),
+    ("filer with\\ s", "with space.txt"),
+]
+_NOT_EXACT = {name: {"filer with\\ s"} for name in ("powershell", "nushell")}  # a backslash escapes nothing there
+# bash and fish are told of this name in two lines. Both start alike, so offered as files they complete `tw` to `twin`
+_BROKEN_NAME = "twin\ntwins.txt"
+_AS_TYPED = {"zsh": {"filer [": "filer \\["}}  # an unquoted `[` opens a pattern to zsh, whose own completion answers
+_DIRECTORY = "go"  # a directory named as the command of `filer`: the command must stay a command
+# how a user loads the script the program prints for `_DOCOPT2_COMPLETE=<shell>`. nushell reads a module when it
+# parses a line, so one nushell saves the script and the next one `use`s it.
+_ASKED_FROM_THE_PROGRAM = {
+    "bash": 'eval "$(_DOCOPT2_COMPLETE=bash filer)"',
+    "zsh": 'eval "$(_DOCOPT2_COMPLETE=zsh filer)"',
+    "fish": "_DOCOPT2_COMPLETE=fish filer | source",
+    "powershell": "$env:_DOCOPT2_COMPLETE = 'powershell'; filer | Out-String | Invoke-Expression; "
+    "Remove-Item Env:_DOCOPT2_COMPLETE",
+    "nushell": "_DOCOPT2_COMPLETE=nushell filer | save -f {module}",
+}
+
+_FILES = "files"  # the directory every shell is driven in, holding `_FILE_NAMES`, `_ODD_NAMES` and `_DIRECTORY`
 _READY = "DOCOPT2-READY"
 # The split that matters is not SGR-vs-rest but WIDTH. A sequence that moves the cursor or erases really
 # does separate two regions of the screen, so it must become a space - otherwise a redrawn prompt glues
@@ -158,8 +221,9 @@ def _clean(raw: str) -> str:
     return _ZERO.sub("", _MOVE.sub(" ", raw))
 
 
-def _tab(shell: list[str], setup: str, line: str, tabs: int = 2) -> str:
-    """Type `line` at a real prompt, press Tab, and return only what the shell painted in reply."""
+def _tab(shell: list[str], setup: str, line: str, tabs: int = 2, run: bool = False) -> str:
+    """Type `line` at a real prompt, press Tab, and return only what the shell painted in reply. With ``run``,
+    press Enter after that and return what the completed line printed too."""
     import fcntl
     import pty
     import struct
@@ -184,8 +248,9 @@ def _tab(shell: list[str], setup: str, line: str, tabs: int = 2) -> str:
     os.close(slave)
     try:
         # Wait for the shell to finish coming up BEFORE typing anything: fish queries the terminal and sits
-        # silent for two seconds, and input sent while it is doing that is simply lost.
-        _read_until(master, None, idle=3.5, cap=25.0)
+        # silent for two seconds, and input sent while it is doing that is simply lost. bash and zsh keep what
+        # is typed early, and the marker below is waited for: three seconds less for each of their sessions.
+        _read_until(master, None, idle=3.5 if shell[0] == "fish" else 0.5, cap=25.0)
         os.write(master, f"{setup}\necho {_READY}\n".encode())
         _read_until(master, _READY, idle=1.0, cap=20.0)  # the script is loaded and the shell is at a prompt
         os.write(master, line.encode())
@@ -196,6 +261,9 @@ def _tab(shell: list[str], setup: str, line: str, tabs: int = 2) -> str:
         for _ in range(tabs):
             os.write(master, b"\t")
             offered += _read_until(master, None, idle=0.6, cap=15.0)
+        if run:
+            os.write(master, b"\n")
+            offered += _read_until(master, None, idle=1.5, cap=20.0)
         return offered
     finally:
         process.kill()
@@ -217,22 +285,25 @@ def _zsh_autoloaded(work: Path, prog: str, typed: list[str]) -> str:
     return _tab(["zsh", "-f", "-i"], setup, " ".join([prog, *typed, ""]), tabs=1)
 
 
-def _posix(shell: str, work: Path, prog: str, line: str) -> str:
-    script = work / f"{prog}.{shell}"
+def _posix(
+    shell: str, work: Path, prog: str, line: str, load: str | None = None, tabs: int = 2, run: bool = False
+) -> str:
+    load = f"cd {work / _FILES}\n" + (load or f"source {work / f'{prog}.{shell}'}")
     setup = {
         # show-all-if-ambiguous: readline otherwise only inserts the common prefix on the first Tab and
         # lists on the second, which hides the candidates whenever they share one (`--drifting`/`--moored`).
-        "bash": f"PS1='> '\nbind 'set show-all-if-ambiguous on'\nsource {script}",
-        "zsh": f"PS1='> '\nautoload -Uz compinit && compinit -u\nsource {script}",
-        "fish": f"function fish_prompt; printf '> '; end\nsource {script}",
+        "bash": f"PS1='> '\nbind 'set show-all-if-ambiguous on'\n{load}",
+        "zsh": f"PS1='> '\nautoload -Uz compinit && compinit -u\n{load}",
+        "fish": f"function fish_prompt; printf '> '; end\n{load}",
     }[shell]
     binary = {"bash": ["bash", "--norc", "-i"], "zsh": ["zsh", "-f", "-i"], "fish": ["fish", "-i"]}[shell]
-    return _tab(binary, setup, line)
+    return _tab(binary, setup, line, tabs, run)
 
 
-def _powershell(work: Path, prog: str, line: str) -> str:
+def _powershell(work: Path, prog: str, line: str, load: str | None = None) -> str:
+    load = load or f". '{work / f'{prog}.ps1'}'"
     driver = (
-        f". '{work / f'{prog}.ps1'}'; "
+        f"Set-Location '{work / _FILES}'; {load}; "
         f"[System.Management.Automation.CommandCompletion]::CompleteInput('{line}', {len(line)}, $null)"
         ".CompletionMatches | ForEach-Object { $_.CompletionText }"
     )
@@ -240,12 +311,17 @@ def _powershell(work: Path, prog: str, line: str) -> str:
     return subprocess.run(["pwsh", "-NoProfile", "-Command", driver], capture_output=True, text=True, check=True).stdout
 
 
-def _nushell(work: Path, prog: str, line: str) -> str:
+def _nushell(work: Path, prog: str, line: str, load: str | None = None) -> str:
     """nushell exposes its completion engine to code, so no pty: feed the line to `commandline complete`
     (nushell 0.114+). The module is `use`d by the file name the check writes it under."""
     script = work / f"{prog}-completions.nu"
+    if load is not None:
+        script = work / f"{prog}-asked.nu"
+        subprocess.run(["nu", "-n", "-c", load.format(module=script)], check=True)
     driver = f'use {script} *; "{line}" | commandline complete | str join (char newline)'
-    return subprocess.run(["nu", "-n", "-c", driver], capture_output=True, text=True, check=True).stdout
+    # cwd, not `cd`: nushell's own file completion reads the directory the process started in
+    ran = subprocess.run(["nu", "-n", "-c", driver], capture_output=True, text=True, check=True, cwd=work / _FILES)
+    return ran.stdout
 
 
 _EXECUTABLE = {"bash": "bash", "zsh": "zsh", "fish": "fish", "powershell": "pwsh", "nushell": "nu"}
@@ -288,7 +364,81 @@ def _report(label: str, expected: list[str], raw: str, absent: set[str]) -> int:
     return bool(missing)
 
 
+def _report_files(label: str, painted: list[str], never: list[str], raw: str) -> int:
+    """Hold what the shell painted against names written by hand: each of ``painted`` is there, none of ``never``."""
+    screen = _clean(raw)
+    wrong = [f"no {name}" for name in painted if name not in screen] + [
+        f"{name} is there" for name in never if name in screen
+    ]
+    print(f"{'ok  ' if not wrong else 'FAIL'} {label} <TAB>", flush=True)
+    if wrong:
+        print(f"       wrong  : {wrong}", flush=True)
+        print(f"       painted: {' '.join(screen.split())[-300:]!r}", flush=True)
+    return bool(wrong)
+
+
+def _run(shell: str, work: Path, line: str) -> str:
+    """What the program prints when ``line`` is run by ``shell`` in the directory of the files."""
+    command = {"nushell": ["nu", "-n", "-c", line], "powershell": ["pwsh", "-NoProfile", "-Command", line]}[shell]
+    ran = subprocess.run(command, capture_output=True, text=True, check=False, cwd=work / _FILES)
+    return ran.stdout + ran.stderr
+
+
+def _completed_and_run(shell: str, work: Path, line: str) -> str:
+    """Complete ``line`` with one Tab and run what came of it: what the shell painted and the program printed."""
+    if shell not in ("nushell", "powershell"):
+        return _clean(_posix(shell, work, "filer", line, tabs=1, run=True))
+    candidates = {"nushell": _nushell, "powershell": _powershell}[shell](work, "filer", line).splitlines()
+    # the candidates are shown in a form `_handed` cannot take for what the program printed
+    offered = "offered: " + " ; ".join(candidates) + "\n"
+    return offered + "".join(_run(shell, work, f"filer {candidate}") for candidate in candidates)
+
+
+def _handed(printed: str, name: str) -> bool:
+    """Whether a run printed ``name`` as the one argument the program was given. PowerShell writes `.\name`."""
+    return any(f"[{given!r}]" in printed for given in (name, f".\\{name}"))
+
+
+def _odd_names(shell: str, work: Path) -> list[str]:
+    """What is wrong with the odd file names in ``shell``, as lines to print."""
+    wrong = []
+    for line, name in _EXACT:
+        if line in _NOT_EXACT.get(shell, ()):
+            continue
+        printed = _completed_and_run(shell, work, _AS_TYPED.get(shell, {}).get(line, line))
+        if not _handed(printed, name):
+            wrong.append(f"{line!r} did not hand the program {name!r}: {' '.join(printed.split())[-200:]!r}")
+    # the command `go` beside the directory `go`: completed and run, the line must not have become the directory
+    if shell in ("nushell", "powershell"):
+        offered = {"nushell": _nushell, "powershell": _powershell}[shell](work, "filer", "filer g").splitlines()
+        if _DIRECTORY not in offered:
+            wrong.append(f"the command `go` is not offered as itself beside the directory: {offered}")
+    else:
+        if not _handed(printed := _completed_and_run(shell, work, "filer g"), _DIRECTORY):
+            wrong.append(f"`filer g` did not stay the command `go`: {' '.join(printed.split())[-200:]!r}")
+        printed = _completed_and_run(shell, work, "filer tw")
+        wrong += [
+            f"`filer tw` became {half!r}, half of a name" for half in _BROKEN_NAME.split() if _handed(printed, half)
+        ]
+    if shell == "nushell":  # where names are offered too, the script lists the files itself: each must come back exact
+        listed = [word for word in _nushell(work, "filer", "filer ").splitlines() if not word.startswith(("-", "go"))]
+        handed = "".join(_run(shell, work, f"filer {candidate}") for candidate in listed)
+        names = (*_FILE_NAMES, *_ODD_NAMES)
+        wrong += [
+            f"listed beside names, {name!r} is not handed over exact" for name in names if not _handed(handed, name)
+        ]
+    return wrong
+
+
+_USAGE = """Usage: shell_check.py [--only=<prog>] [<shell>...]
+
+Options:
+  --only=<prog>  Drive the cases of one program alone: naval, tool, deployer or filer.
+"""
+
+
 def main() -> int:
+    asked = docopt(_USAGE)
     work = Path(tempfile.mkdtemp(prefix="docopt2-shells-"))
     bin_dir = work / "bin"
     bin_dir.mkdir()
@@ -299,12 +449,19 @@ def main() -> int:
     # Git Bash on Windows is not a target: the program lands there as a `.cmd` shim a POSIX script cannot
     # invoke. bash/zsh/fish are driven on Linux, PowerShell on Windows.
     wanted = ["powershell"] if platform.system() == "Windows" else ["bash", "zsh", "fish", "nushell"]
-    shells = [name for name in wanted if shutil.which(_EXECUTABLE[name])]
+    shells = [name for name in wanted if shutil.which(_EXECUTABLE[name]) and name in (asked["<shell>"] or wanted)]
+    cases = [case for case in _CASES if asked["--only"] in (None, case[0])]
     if not shells:
         print("no shell available to drive - the check would pass vacuously", file=sys.stderr)
         return 1
 
-    failures = 0
+    (work / _FILES).mkdir()
+    for name in (*_FILE_NAMES, *_ODD_NAMES):
+        (work / _FILES / name).write_text("", encoding="utf-8")
+    (work / _FILES / _DIRECTORY).mkdir()
+    if platform.system() != "Windows":  # which has no such file name
+        (work / _FILES / _BROKEN_NAME).write_text("", encoding="utf-8")
+    failures = counted = 0
     for shell in shells:
         for prog, doc in _DOCS.items():
             # nushell's module file must not be named `<prog>.nu` (a module cannot export an extern of its
@@ -312,7 +469,7 @@ def main() -> int:
             suffix = "ps1" if shell == "powershell" else shell
             name = f"{prog}-completions.nu" if shell == "nushell" else f"{prog}.{suffix}"
             (work / name).write_text(generate_completion(doc, prog=prog, shell=shell), encoding="utf-8", newline="\n")
-        for prog, typed, cursor in _CASES:
+        for prog, typed, cursor in cases:
             expected = complete(_DOCS[prog], [*typed, cursor], schema=_SCHEMAS.get(prog))
             if shell == "bash" and "=" in cursor:  # bash completes the word behind the `=` on its own
                 expected = [name.rpartition("=")[2] for name in expected]
@@ -328,14 +485,34 @@ def main() -> int:
             absent -= {name.rpartition("=")[2] for name in expected}
             absent -= {name for name in absent if cursor and name.startswith(cursor)}
             failures += _report(f"{shell:11} {line}", expected, raw, absent)
-        if shell == "zsh":  # the documented $fpath install, on the FIRST Tab
+        if shell == "zsh" and asked["--only"] in (None, "naval"):  # the documented $fpath install, on the FIRST Tab
             failures += _report(
                 "zsh         naval mine (autoloaded from $fpath)",
                 complete(_NAVAL, ["mine", ""]),
                 _zsh_autoloaded(work, "naval", ["mine"]),
                 _everything("naval") - set(complete(_NAVAL, ["mine", ""])) - {"naval", "mine"},
             )
-    total = len(shells) * len(_CASES) + ("zsh" in shells)
+        if asked["--only"] not in (None, "filer"):
+            continue
+        drive = {"powershell": _powershell, "nushell": _nushell}.get(shell) or functools.partial(_posix, shell)
+        for line, painted, never in _FILE_CASES:
+            if line in _OWN_FALLBACK.get(shell, ()):
+                continue
+            failures += _report_files(f"{shell:11} {line}", painted, never, drive(work, "filer", line))
+            counted += 1
+        wrong = _odd_names(shell, work)
+        print(
+            f"{'ok  ' if not wrong else 'FAIL'} {shell:11} odd file names, and a command named as a directory",
+            flush=True,
+        )
+        for line in wrong:
+            print(f"       {line}", flush=True)
+        failures += bool(wrong)
+        raw = drive(work, "filer", "filer zzz --mode ", _ASKED_FROM_THE_PROGRAM[shell])
+        label = f"{shell:11} the script asked from the program"
+        failures += _report_files(label, ["json", "yaml"], [*_FILE_NAMES], raw)
+        counted += 2
+    total = len(shells) * len(cases) + ("zsh" in shells and asked["--only"] in (None, "naval")) + counted
     print(f"\n{total - failures} passed, {failures} failed, over {', '.join(shells)}")
     return 1 if failures else 0
 

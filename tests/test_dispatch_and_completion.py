@@ -477,7 +477,7 @@ def test_completion_reply_name_column_is_never_corrupted(first, wrapped):
 def test_bash_script_is_a_callback_that_re_invokes_the_program():
     script = generate_completion(_GIT_DOC, "git-tool", "bash")
     assert_that(script).contains("_git_tool_completion()").contains("complete -F _git_tool_completion git-tool")
-    assert_that(script).contains("_DOCOPT2_COMPLETE=1").contains("COMP_WORDS")
+    assert_that(script).contains("_DOCOPT2_COMPLETE=2").contains("COMP_WORDS")
 
 
 _COMPLETION_GUIDE = (Path(__file__).parent.parent / "docs" / "guides" / "completion.md").read_text(encoding="utf-8")

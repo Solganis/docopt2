@@ -247,7 +247,9 @@ $ naval ship titanic move 1 2 <TAB>
 --speed
 ```
 
-With a schema, Tab also [completes the values](https://solganis.github.io/docopt2/guides/completion/#completing-values) of a `Literal` or an `Enum` field.
+With a schema, Tab also [completes the values](https://solganis.github.io/docopt2/guides/completion/#completing-values) of a `Literal` or an `Enum` field and the [file names](https://solganis.github.io/docopt2/guides/completion/#completing-file-names) of a `Path` field.
+
+A program [prints its own script](https://solganis.github.io/docopt2/guides/completion/#installing-it): `eval "$(_DOCOPT2_COMPLETE=bash naval)"`.
 
 <a name="schema-codegen"></a>
 <h2 align="center"><a href="https://solganis.github.io/docopt2/guides/stub/">Generate the schema from the usage</a></h2>

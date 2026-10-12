@@ -118,9 +118,12 @@ class _Typed(Argument):
     """A positional read by its schema field. A token the field does not take is none it can be given, so a path
     that would hand it one is dead, as a path that hands a command another word is."""
 
-    def __init__(self, name: str | None, offered: list[str], takes: Callable[[str, object], bool]) -> None:
+    def __init__(
+        self, name: str | None, offered: list[str], takes: Callable[[str, object], bool], is_path: bool
+    ) -> None:
         super().__init__(name)
         self.offered = offered
+        self.is_path = is_path
         self._takes = takes
 
     def single_match(self, left: list[Pattern]) -> SingleMatch:
@@ -129,14 +132,20 @@ class _Typed(Argument):
         return found if given is not None and self._takes(str(self.name), given.value) else (None, None)
 
 
-def _type(node: Pattern, values_for: Callable[[str], list[str]], takes: Callable[[str, object], bool]) -> None:
+def _type(
+    node: Pattern,
+    values_for: Callable[[str], list[str]],
+    takes: Callable[[str, object], bool],
+    is_path: Callable[[str], bool],
+) -> None:
     """Put a ``_Typed`` in the place of every positional of the tree."""
     if not isinstance(node, BranchPattern):
         return
     for index, child in enumerate(node.children):
         if type(child) is Argument:
-            node.children[index] = _Typed(child.name, values_for(str(child.name)), takes)
-        _type(child, values_for, takes)
+            name = str(child.name)
+            node.children[index] = _Typed(child.name, values_for(name), takes, is_path(name))
+        _type(child, values_for, takes, is_path)
 
 
 def _bindable(leaves: list[Pattern], takes: Callable[[str, object], bool]) -> bool:
@@ -156,18 +165,25 @@ def _taking_all(pattern: Pattern, leaves: list[Pattern]) -> Iterator[tuple[Patte
 
 
 def _resolve(
-    doc: str, typed: list[str], values_for: Callable[[str], list[str]], takes: Callable[[str, object], bool] | None
-) -> list[str]:
+    doc: str,
+    typed: list[str],
+    values_for: Callable[[str], list[str]],
+    takes: Callable[[str, object], bool] | None,
+    is_path: Callable[[str], bool],
+) -> tuple[list[str], bool]:
     """What may legally follow the already-typed ``typed`` tokens: commands, options, and the values of an element.
 
     With ``takes``, the fields of a schema read the tokens too: a prefix that holds a value its field does not
     take has nothing to follow it, since no argv that starts that way can be bound.
+
+    The second item says whether a file name may come next: the argument of an option that waits for one, or
+    the next positional, where its field is typed as a ``Path``.
     """
     options = parse_defaults(doc)
     pattern = parse_pattern(formal_usage(single_usage_section(doc)), options)
     expand_options_shortcut(pattern, options)
     if takes is not None:
-        _type(pattern, values_for, takes)
+        _type(pattern, values_for, takes, is_path)
     try:
         base = parse_argv(Tokens(list(typed)), list(options))
     except DocoptExit:
@@ -175,9 +191,10 @@ def _resolve(
         given = parse_argv(Tokens([*typed, _A_VALUE]), list(options))
         fits = any(True for _frontier_of_a_path in _taking_all(pattern, given))  # the usage takes it there too
         fits = fits and (takes is None or _bindable(given[:-1], takes))
-        return sorted(values_for(str(given[-1].name))) if fits else []
+        values = sorted(values_for(str(given[-1].name))) if fits else []
+        return values, fits and is_path(str(given[-1].name))
     if takes is not None and not _bindable(base, takes):
-        return []
+        return [], False
     after_separator = "--" in typed and not any(leaf.name == "--" for leaf in pattern.flat(Command))
     # Command pass: the typed positionals only (options and `--` stripped), positionals blocking so
     # only the next command in order is offered. Bounded, so an exponential-skip pattern cannot hang.
@@ -185,7 +202,7 @@ def _resolve(
     command_paths = itertools.islice(_frontier(pattern, positionals, block=True), MATCH_LIMIT)
     command_frontiers = [frontier for remaining, frontier, _b in command_paths if remaining == []]
     if not command_frontiers:
-        return []  # the typed positionals cannot be consumed - not a valid prefix, nothing to complete
+        return [], False  # the typed positionals cannot be consumed - not a valid prefix, nothing to complete
     # Option pass: over the full prefix, positionals do NOT block, so the walk floats past unfilled
     # positionals to every reachable unconsumed option (repeats return via `...`); dead branches prune. Its
     # remaining==[] frontiers also decide command viability: a command whose line cannot consume a typed
@@ -205,14 +222,15 @@ def _resolve(
     for leaf in filled_next:
         if isinstance(leaf, _Typed):
             names.update(leaf.offered)
+    free = any(isinstance(leaf, _Typed) and leaf.is_path for leaf in filled_next)
     if after_separator:
-        return sorted(names)  # options are not parsed after a POSIX `--` separator
+        return sorted(names), free  # options are not parsed after a POSIX `--` separator
     for leaf in reachable:
         if isinstance(leaf, Option):
             names.add(str(leaf.long or leaf.short))
             if leaf.long is not None and leaf.argcount:
                 names.update(f"{leaf.long}={value}" for value in values_for(leaf.long))
-    return sorted(names)
+    return sorted(names), free
 
 
 def complete(doc: str, words: Sequence[str], schema: type[Any] | None = None) -> list[str]:
@@ -230,20 +248,22 @@ def complete(doc: str, words: Sequence[str], schema: type[Any] | None = None) ->
     A schema other than a pydantic model reads the typed words too: after a value that its field does
     not take there are no candidates, since no argv that starts that way can be bound.
     """
-    return _complete(doc, words, [] if schema is None else [schema], per_command=False)
+    return _complete(doc, words, [] if schema is None else [schema], per_command=False)[0]
 
 
-def _complete(doc: str, words: Sequence[str], schemas: Sequence[type[Any]], *, per_command: bool) -> list[str]:
+def _complete(
+    doc: str, words: Sequence[str], schemas: Sequence[type[Any]], *, per_command: bool
+) -> tuple[list[str], bool]:
     tokens = list(words)
     incomplete = tokens[-1] if tokens else ""
     typed = tokens[:-1]
     try:
-        candidates = _resolve(doc, typed, *_fields(schemas, per_command))
+        candidates, free = _resolve(doc, typed, *_fields(schemas, per_command))
     except (DocoptLanguageError, DocoptExit, RecursionError):
         # a malformed doc, a prefix ending mid-option-argument, or a pathologically deep pattern:
         # complete nothing rather than raising into the shell
-        return []
-    return [name for name in candidates if name.startswith(incomplete)]
+        return [], False
+    return [name for name in candidates if name.startswith(incomplete)], free
 
 
 def _describe(doc: str) -> dict[str, str]:
@@ -269,19 +289,28 @@ def _describe(doc: str) -> dict[str, str]:
 
 def _fields(
     schemas: Sequence[type[Any]], per_command: bool
-) -> tuple[Callable[[str], list[str]], Callable[[str, object], bool] | None]:
-    """By the key of a usage element: the values to offer for it, and whether a text is one its field takes.
+) -> tuple[Callable[[str], list[str]], Callable[[str, object], bool] | None, Callable[[str], bool]]:
+    """By the key of a usage element: the values to offer for it, whether a text is one its field takes, and
+    whether its field is typed as a ``Path``.
 
     With no schema there is nothing to offer and nothing to ask, so the second is None. Schemas that each bind
     the lines of one command take any text: which of them binds a line is not known before the line is whole.
     """
     if not schemas:
-        return (lambda _key: []), None
-    from docopt2._typed import _key_to_field, field_choices, field_takes  # deferred: only a schema asks for them
+        return (lambda _key: []), None, (lambda _key: False)
+    from docopt2._typed import _key_to_field, field_choices, field_paths, field_takes  # deferred: a schema's alone
 
-    choices = field_choices(schemas)
+    choices, paths = field_choices(schemas), field_paths(schemas)
     takes = (lambda _field, _text: True) if per_command else field_takes(schemas[0])
-    return (lambda key: choices.get(_key_to_field(key), [])), (lambda key, text: takes(_key_to_field(key), text))
+    return (
+        (lambda key: choices.get(_key_to_field(key), [])),
+        (lambda key, text: takes(_key_to_field(key), text)),
+        (lambda key: _key_to_field(key) in paths),
+    )
+
+
+_MARKED_REQUEST = "2"  # what a script sets the trigger to when it reads the mark below; an older one sets "1"
+_FILES_MARK = "\tfiles"  # the first line of a reply where a file name may come next: no name opens with a tab
 
 
 def reply_to_completion_request(
@@ -292,24 +321,37 @@ def reply_to_completion_request(
     ``per_command`` says that each of ``schemas`` binds the lines of one command, as in a handler table, and
     not every line of the usage.
 
-    Each reply line is ``name\\tdescription`` (the description may be empty). The request var holds the
-    completed tokens before the cursor. Only a [`generate_completion`][docopt2.generate_completion] script
-    sets it, so a normal run returns None.
+    A request that names a shell, ``_DOCOPT2_COMPLETE=bash``, asks for the completion script of that shell,
+    written for the program the usage names, by the base name of its first word. Where that is no plain
+    command name, ``generate_completion`` refuses it.
+
+    Any other value asks for the candidates after the completed tokens that the second variable holds. Each
+    reply line is ``name\tdescription`` (the description may be empty). To the value ``2`` the reply opens
+    with one more line, a tab and ``files``, where a file name may come next: the value of a field that a
+    schema types as a ``Path``. A script from before that mark asks with ``1`` and never gets it.
+
+    Only a [`generate_completion`][docopt2.generate_completion] script, or a user who asks for one, sets the
+    variable, so a normal run returns None.
 
     Shells that show descriptions (zsh, fish, PowerShell, nushell) render the second
     column, while bash keeps the name only.
     """
-    if os.environ.get(_TRIGGER_ENV) is None:
+    asked = os.environ.get(_TRIGGER_ENV)
+    if asked is None:
         return None
+    if asked in _RENDERERS:
+        named = single_usage_section(doc).partition(":")[2].split()[:1]  # empty where the usage names no program
+        return generate_completion(doc, os.path.basename("".join(named)), asked)
     raw = os.environ.get(_WORDS_ENV, "")
     words = raw.split("\n") if raw else []
     try:
         descriptions = _describe(doc)
     except DocoptLanguageError:
         descriptions = {}  # a malformed Options section must not raise into the shell on Tab
-    candidates = _complete(doc, [*words, ""], schemas, per_command=per_command)
+    candidates, free = _complete(doc, [*words, ""], schemas, per_command=per_command)
     # `--option=value` is described as its option is, and a value alone has no description
-    return "\n".join(f"{name}\t{descriptions.get(name.partition('=')[0], '')}" for name in candidates)
+    lines = [f"{name}\t{descriptions.get(name.partition('=')[0], '')}" for name in candidates]
+    return "\n".join([_FILES_MARK, *lines] if free and asked == _MARKED_REQUEST else lines)
 
 
 # --- shell scripts: thin callbacks that ask the program at completion time ----------------------
@@ -346,8 +388,27 @@ def _render_bash(prog: str, function: str) -> str:
         "    fi\n"
         "    local IFS=$'\\n'\n"
         '    local words="${typed[*]}"\n'  # completed tokens, glued back, without the program name
-        '    local reply; reply="$(__TRIGGER__=1 __WORDS__="$words" "${COMP_WORDS[0]}" 2>/dev/null | cut -f1)"\n'
-        '    COMPREPLY=( $(compgen -W "$reply" -- "$current") )\n'
+        '    local reply; reply="$(__TRIGGER__=__ASK__ __WORDS__="$words" "${COMP_WORDS[0]}" 2>/dev/null)"\n'
+        '    COMPREPLY=( $(compgen -W "$(cut -f1 <<< "$reply")" -- "$current") )\n'
+        # a reply that opens with a tab asks for file names. By line: unquoted, $(compgen -f) globs `[x].txt` away
+        "    if [[ $reply == $'\\t'* ]]; then\n"
+        "        local -a files=()\n"
+        "        local file\n"
+        # a line that is no file is a piece of a name that holds a newline: compgen prints one name to a line
+        "        while IFS= read -r file; do\n"
+        '            [[ -e ${file/#\\~\\//$HOME/} || -L $file ]] && files+=("$file")\n'
+        '        done <<< "$(compgen -f -- "$current")"\n'
+        # `-o filenames` would slash a command named as a directory: beside names each file is quoted and slashed here
+        "        if [[ ${#COMPREPLY[@]} -eq 0 ]]; then\n"
+        "            type compopt &>/dev/null && compopt -o filenames\n"
+        '            COMPREPLY=( "${files[@]}" )\n'
+        "        else\n"
+        '            for file in "${files[@]}"; do\n'
+        "                [[ -d $file ]] && file+=/\n"
+        '                COMPREPLY+=( "$(printf \'%q\' "$file")" )\n'
+        "            done\n"
+        "        fi\n"
+        "    fi\n"
         "}\n"
         "complete -F __FUNC__ __PROG__\n"
     )
@@ -356,6 +417,7 @@ def _render_bash(prog: str, function: str) -> str:
         .replace("__FUNC__", function)
         .replace("__TRIGGER__", _TRIGGER_ENV)
         .replace("__WORDS__", _WORDS_ENV)
+        .replace("__ASK__", _MARKED_REQUEST)
     )
 
 
@@ -368,9 +430,13 @@ def _render_zsh(prog: str, function: str) -> str:
         "__FUNC__() {\n"
         '    local joined="${(pj:\\n:)words[2,CURRENT-1]}"\n'  # completed tokens, not the current word
         "    local -a lines described bare\n"
-        '    lines=("${(@f)$(__TRIGGER__=1 __WORDS__=$joined ${words[1]})}")\n'
-        "    local line desc\n"
+        '    lines=("${(@f)$(__TRIGGER__=__ASK__ __WORDS__=$joined ${words[1]})}")\n'
+        "    local line desc files=0\n"
         "    for line in $lines; do\n"
+        "        if [[ $line == $'\\t'* ]]; then\n"  # the mark: file names may come next
+        "            files=1\n"
+        "            continue\n"
+        "        fi\n"
         "        desc=\"${line#*$'\\t'}\"\n"
         "        if [[ -n $desc ]]; then\n"
         "            described+=(\"${line%%$'\\t'*}:$desc\")\n"
@@ -383,6 +449,9 @@ def _render_zsh(prog: str, function: str) -> str:
         "    fi\n"
         "    if (( $#bare )); then\n"
         "        compadd -a bare\n"
+        "    fi\n"
+        "    if (( files )); then\n"
+        "        _files\n"
         "    fi\n"
         "}\n"
         # Autoloaded from `$fpath`, zsh runs this file's body AS the completion function, so a body that
@@ -399,6 +468,7 @@ def _render_zsh(prog: str, function: str) -> str:
         .replace("__FUNC__", function)
         .replace("__TRIGGER__", _TRIGGER_ENV)
         .replace("__WORDS__", _WORDS_ENV)
+        .replace("__ASK__", _MARKED_REQUEST)
     )
 
 
@@ -411,7 +481,19 @@ def _render_fish(prog: str, function: str) -> str:
         # fish documents that a command substitution splits its output on newlines. A completion function
         # happens not to re-split today, but that is undocumented; `string collect` states the intent rather
         # than depending on the accident.
-        f"    env {_TRIGGER_ENV}=1 {_WORDS_ENV}=(string join \\n -- $tokens[2..-1] | string collect) $tokens[1]\n"
+        f"    set -l reply (env {_TRIGGER_ENV}={_MARKED_REQUEST} "
+        f"{_WORDS_ENV}=(string join \\n -- $tokens[2..-1] | string collect) $tokens[1])\n"
+        # a line that opens with a tab is the mark: `-f` below keeps fish's own file names out, so they are added here
+        f"    string match -v -- \\t'*' $reply\n"
+        f"    if string match -q -- \\t'*' $reply\n"
+        f"        for file in (__fish_complete_path (commandline -ct))\n"
+        f"            set -l name (string split -m1 \\t -- $file)[1]\n"
+        # a line that is no file is a piece of a name that holds a newline: fish prints one name to a line
+        f"            if string match -q -- '~*' $name; or test -e $name; or test -L $name\n"
+        f"                echo $file\n"
+        f"            end\n"
+        f"        end\n"
+        f"    end\n"
         f"end\n"
         f"complete -c {prog} -f -a '({function})'\n"
     )
@@ -431,17 +513,30 @@ def _render_powershell(prog: str, _function: str) -> str:
         " { $_.Value } else { $_.ToString() }\n"
         "    })\n"
         "    if ($wordToComplete -ne '' -and $words.Count -gt 0) { $words = @($words | Select-Object -SkipLast 1) }\n"
-        "    $env:__TRIGGER__ = '1'\n"
+        "    $env:__TRIGGER__ = '__ASK__'\n"
         '    $env:__WORDS__ = ($words -join "`n")\n'
+        "    $files = $false\n"
         "    try {\n"
         "        & $commandAst.CommandElements[0].ToString() 2>$null | ForEach-Object {\n"
         '            $parts = $_ -split "`t", 2\n'  # reply line is name`tdescription
         "            $name = $parts[0]\n"
         # StartsWith, not -like: a `*` or `[` in the partial word is a literal prefix, not a wildcard.
-        "            if ($name.StartsWith($wordToComplete, [System.StringComparison]::Ordinal)) {\n"
+        '            if ($_.StartsWith("`t")) {\n'  # the mark: file names may come next
+        "                $files = $true\n"
+        "            } elseif ($name.StartsWith($wordToComplete, [System.StringComparison]::Ordinal)) {\n"
         "                $tip = if ($parts.Count -ge 2 -and $parts[1]) { $parts[1] } else { $name }\n"
         "                [System.Management.Automation.CompletionResult]::new($name, $name, 'ParameterValue', $tip)\n"
         "            }\n"
+        "        }\n"
+        # names and file names together: left to itself PowerShell offers files only where nothing was returned
+        "        if ($files) {\n"
+        "            [System.Management.Automation.CompletionCompleters]::CompleteFilename($wordToComplete) |\n"
+        "                ForEach-Object {\n"
+        # a native program is handed the text as it stands: the escapes PowerShell adds for its own providers go
+        "                    $text = $_.CompletionText -replace '`([`\\[\\]])', '$1'\n"
+        "                    [System.Management.Automation.CompletionResult]::new("
+        "$text, $_.ListItemText, $_.ResultType, $_.ToolTip)\n"
+        "                }\n"
         "        }\n"
         "    } finally {\n"
         "        Remove-Item Env:__TRIGGER__ -ErrorAction SilentlyContinue\n"
@@ -449,7 +544,12 @@ def _render_powershell(prog: str, _function: str) -> str:
         "    }\n"
         "}\n"
     )
-    return template.replace("__PROG__", prog).replace("__TRIGGER__", _TRIGGER_ENV).replace("__WORDS__", _WORDS_ENV)
+    return (
+        template.replace("__PROG__", prog)
+        .replace("__TRIGGER__", _TRIGGER_ENV)
+        .replace("__WORDS__", _WORDS_ENV)
+        .replace("__ASK__", _MARKED_REQUEST)
+    )
 
 
 def _render_nushell(prog: str, function: str) -> str:
@@ -464,12 +564,20 @@ def _render_nushell(prog: str, function: str) -> str:
         "    let words = ($spans | skip 1)\n"
         "    let typed = ($words | drop 1)\n"
         "    let partial = ($words | last)\n"
-        '    let reply = (with-env {__TRIGGER__: "1", __WORDS__: ($typed | str join (char newline))} '
-        "{ ^__PROG__ | complete | get stdout })\n"
-        "    $reply | lines | where {|line| ($line | str length) > 0} | each {|line|\n"
+        '    let reply = (with-env {__TRIGGER__: "__ASK__", __WORDS__: ($typed | str join (char newline))} '
+        "{ ^__PROG__ | complete | get stdout } | lines)\n"
+        "    let marks = ($reply | where {|line| $line | str starts-with (char tab)})\n"  # file names may come next
+        "    let names = ($reply | where {|line| ($line | str length) > 0 and $line not-in $marks} | each {|line|\n"
         "        let parts = ($line | split row (char tab))\n"  # reply line is name<TAB>description
         '        {value: ($parts | get 0), description: ($parts | get 1? | default "")}\n'
-        "    } | where {|candidate| $candidate.value | str starts-with $partial}\n"
+        "    } | where {|candidate| $candidate.value | str starts-with $partial})\n"
+        "    if ($marks | is-empty) { return $names }\n"
+        # null hands the word to nushell's own file completion; beside names it gives none, so they are listed here
+        "    if ($names | is-empty) { return null }\n"
+        '    $names | append (try { ls ($partial + "*" | into glob) | each {|file|\n'
+        '        let name = (if $file.type == dir { $file.name + "/" } else { $file.name })\n'
+        '        {value: ($name | to nuon), description: ""}\n'  # quoted as nushell itself writes a string
+        "    } } catch { [] })\n"
         "}\n"
         '@complete "__FUNC__"\n'
         'export extern "__PROG__" [ ...rest: string ]\n'
@@ -479,6 +587,7 @@ def _render_nushell(prog: str, function: str) -> str:
         .replace("__FUNC__", function)
         .replace("__TRIGGER__", _TRIGGER_ENV)
         .replace("__WORDS__", _WORDS_ENV)
+        .replace("__ASK__", _MARKED_REQUEST)
     )
 
 
@@ -525,5 +634,5 @@ def generate_completion(doc: str, prog: str, shell: str = "bash") -> str:
     if not re.fullmatch(r"[A-Za-z0-9._-]+", prog):
         raise ValueError(f"prog {prog!r} must be a plain command name (letters, digits, . _ -)")
     # Validate the docstring up front so a malformed usage fails loudly here, not silently at Tab.
-    single_usage_section(doc)
+    parse_pattern(formal_usage(single_usage_section(doc)), parse_defaults(doc))  # as a Tab press reads it
     return _RENDERERS[shell](prog, _function_name(prog))

@@ -52,8 +52,24 @@ _naval_completion() {
     fi
     local IFS=$'\n'
     local words="${typed[*]}"
-    local reply; reply="$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" 2>/dev/null | cut -f1)"
-    COMPREPLY=( $(compgen -W "$reply" -- "$current") )
+    local reply; reply="$(_DOCOPT2_COMPLETE=2 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" 2>/dev/null)"
+    COMPREPLY=( $(compgen -W "$(cut -f1 <<< "$reply")" -- "$current") )
+    if [[ $reply == $'\t'* ]]; then
+        local -a files=()
+        local file
+        while IFS= read -r file; do
+            [[ -e ${file/#\~\//$HOME/} || -L $file ]] && files+=("$file")
+        done <<< "$(compgen -f -- "$current")"
+        if [[ ${#COMPREPLY[@]} -eq 0 ]]; then
+            type compopt &>/dev/null && compopt -o filenames
+            COMPREPLY=( "${files[@]}" )
+        else
+            for file in "${files[@]}"; do
+                [[ -d $file ]] && file+=/
+                COMPREPLY+=( "$(printf '%q' "$file")" )
+            done
+        fi
+    fi
 }
 complete -F _naval_completion naval
 ```
@@ -79,11 +95,34 @@ The lines after the loop are for a cursor that stands in the value of `--opt=`. 
 stands behind the `=` on its own, so the program is asked as if `--opt` were waiting for its argument,
 and the value alone is the word to complete.
 
+The last lines are for file names. A reply that opens with a tab asks for them, and the script adds what
+`compgen -f` finds. [Completing file names](#completing-file-names) says where that is.
+
+- The names are read a line at a time, since an unquoted `$(compgen -f)` would expand `[x].txt` as a
+  pattern. A line that is no file is dropped: it is a piece of a name that holds a newline.
+- Where files are all there is, `compopt -o filenames` lets bash quote them and mark directories. Beside
+  names the script does that itself: the option would put a slash after a command that is named as a
+  directory.
+
 ### Installing it
 
-`generate_completion` returns text, and how it reaches the shell is up to you.
+A program that calls `docopt()` prints its own script, with no line of code for it. Set
+`_DOCOPT2_COMPLETE` to the name of a shell and run the program:
 
-Write it to a file you ship, or have the program print it. Then load it with the shell's standard mechanism:
+| Shell | Load the script into the running shell |
+| --- | --- |
+| bash | `eval "$(_DOCOPT2_COMPLETE=bash naval)"` |
+| zsh | `eval "$(_DOCOPT2_COMPLETE=zsh naval)"` |
+| fish | `_DOCOPT2_COMPLETE=fish naval \| source` |
+| PowerShell | `$env:_DOCOPT2_COMPLETE = 'powershell'; naval \| Out-String \| Invoke-Expression; Remove-Item Env:_DOCOPT2_COMPLETE` |
+| nushell | `_DOCOPT2_COMPLETE=nushell naval \| save -f naval-completions.nu`, then `use naval-completions.nu *` |
+
+The script is written for the program the usage names: the first word after `Usage:`, without its
+directory. A program installed under another name calls `generate_completion(doc, prog=...)` itself.
+A `Dispatch` table answers the same request. `docopt(..., complete=False)` does not.
+
+To keep the script, save that output to a file, or call `generate_completion` and write the text where you
+ship it. Then load it with the shell's standard mechanism:
 
 | Shell | `shell=` | Install |
 | --- | --- | --- |
@@ -107,6 +146,11 @@ A docopt program answers the completion script's requests by default. When compl
 1. The script puts a trigger variable, and the newline-joined tokens before the cursor, in the environment.
 2. It re-invokes your program.
 3. Your `docopt()` call detects the trigger, prints the candidates, and exits before returning to your code.
+
+The trigger also says what the script can read. A script asks with the value `2`, and where a file name may
+come next the reply then opens with one more line: a tab and the word `files`. A script written by an older
+docopt2 asks with `1` and is never sent that line. A program on an older docopt2 never sends it either. So
+either half can be updated alone.
 
 A normal run costs a single environment lookup and is otherwise unaffected.
 
@@ -212,8 +256,8 @@ one that binds the line.
 
 Only a value that the field's own coercion accepts, and that is one plain word, is offered: letters,
 digits and `_ . / @ % + , -`, not led by a dash. That leaves out what a shell would expand or split,
-what bash breaks a word at, and what an argv reads as an option. A field of any other type, a `str`, an
-`int` or a `Path`, completes nothing.
+what bash breaks a word at, and what an argv reads as an option. A field of any other type, a `str` or
+an `int`, completes nothing. A `Path` completes [file names](#completing-file-names).
 
 A dataclass, a `TypedDict` or a `Cli` subclass reads the words already typed too. After a positional or an
 option value that its field does not take, nothing is offered: no argv that starts that way can be bound.
@@ -222,6 +266,59 @@ A pydantic model and a `Dispatch` table do not judge what is typed. A model bind
 validators included, and which handler of a table binds the line is not known before the line is whole.
 For the same reason a model completes its closed sets of strings only: it refuses the text `1` for
 `Literal[1, 2]`.
+
+## Completing file names
+
+Once a completion script is loaded, the shell stops offering file names for that program: every Tab is
+answered by the program, and the usage does not say which argument is a file. A schema does. A field typed
+as a `Path` gets the shell's own file names.
+
+```python
+import dataclasses
+import pathlib
+from typing import Literal
+
+@dataclasses.dataclass
+class Args:
+    go: bool
+    file: pathlib.Path
+    out: pathlib.Path | None
+    mode: Literal["json", "yaml"] | None
+    name: str | None
+
+doc = "Usage: filer [go] <file> [--out=<path>] [--mode=<m>] [--name=<n>]"
+```
+
+In a directory that holds `notes.txt` and `other.log`:
+
+| typed, then Tab | offered |
+| --- | --- |
+| `filer no` | `notes.txt` |
+| `filer ` | `go`, the options, `notes.txt`, `other.log` |
+| `filer notes.txt --out ot` | `other.log` |
+| `filer notes.txt --mode ` | `json`, `yaml` |
+| `filer notes.txt --name ` | nothing |
+
+- A field is a path where its annotation is `pathlib.Path`: alone, in `Annotated`, as a member of a union,
+  or as the element of a list.
+- Where a command or an option may come next too, names and file names are offered together. A command
+  that is also the name of a directory stays a command: both are offered.
+- A `Dispatch` table asks for file names where every handler that declares the field types it as a `Path`.
+- In bash, zsh, fish and nushell a field of any other type gets no file names, and neither does a program
+  with no schema.
+
+Three things differ between shells:
+
+- PowerShell offers file names by itself wherever a completer returns nothing. So there a `str` field, a
+  program with no schema and a line that nothing can follow get file names too, as they did before.
+- Behind `--out=`, with no space, only bash completes a file name. In zsh, fish, PowerShell and nushell,
+  write `--out`, a space, and the name.
+- The names are the shell's own, with its quoting. Beside names bash and nushell cannot mix their own list
+  in, so there the script lists the files and quotes them: bash with `printf %q`, nushell as it writes any
+  string. PowerShell's names lose the escapes it adds for its own providers, which a program would be handed
+  as text. A name that holds a newline is left out by bash and fish.
+
+`complete()` returns names only. File names never appear in its result.
 
 ## See also
 

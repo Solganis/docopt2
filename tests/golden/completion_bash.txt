@@ -18,7 +18,23 @@ _git_tool_completion() {
     fi
     local IFS=$'\n'
     local words="${typed[*]}"
-    local reply; reply="$(_DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" 2>/dev/null | cut -f1)"
-    COMPREPLY=( $(compgen -W "$reply" -- "$current") )
+    local reply; reply="$(_DOCOPT2_COMPLETE=2 _DOCOPT2_WORDS="$words" "${COMP_WORDS[0]}" 2>/dev/null)"
+    COMPREPLY=( $(compgen -W "$(cut -f1 <<< "$reply")" -- "$current") )
+    if [[ $reply == $'\t'* ]]; then
+        local -a files=()
+        local file
+        while IFS= read -r file; do
+            [[ -e ${file/#\~\//$HOME/} || -L $file ]] && files+=("$file")
+        done <<< "$(compgen -f -- "$current")"
+        if [[ ${#COMPREPLY[@]} -eq 0 ]]; then
+            type compopt &>/dev/null && compopt -o filenames
+            COMPREPLY=( "${files[@]}" )
+        else
+            for file in "${files[@]}"; do
+                [[ -d $file ]] && file+=/
+                COMPREPLY+=( "$(printf '%q' "$file")" )
+            done
+        fi
+    fi
 }
 complete -F _git_tool_completion git-tool

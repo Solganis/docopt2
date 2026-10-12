@@ -1,5 +1,14 @@
 function _git_tool_completion
     set -l tokens (commandline -opc)
-    env _DOCOPT2_COMPLETE=1 _DOCOPT2_WORDS=(string join \n -- $tokens[2..-1] | string collect) $tokens[1]
+    set -l reply (env _DOCOPT2_COMPLETE=2 _DOCOPT2_WORDS=(string join \n -- $tokens[2..-1] | string collect) $tokens[1])
+    string match -v -- \t'*' $reply
+    if string match -q -- \t'*' $reply
+        for file in (__fish_complete_path (commandline -ct))
+            set -l name (string split -m1 \t -- $file)[1]
+            if string match -q -- '~*' $name; or test -e $name; or test -L $name
+                echo $file
+            end
+        end
+    end
 end
 complete -c git-tool -f -a '(_git_tool_completion)'

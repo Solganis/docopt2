@@ -163,12 +163,13 @@ def _is_pydantic(schema: type[Any]) -> bool:
     return callable(getattr(schema, "model_validate", None))
 
 
-def _declared(schemas: Sequence[type[Any]]) -> dict[str, list[Any]]:
+def _declared(schemas: Sequence[type[Any]], *, as_written: bool = False) -> dict[str, list[Any]]:
     """The annotations each field name is declared with across ``schemas``, read as declaring nothing where they
     do not resolve.
 
     A pydantic model takes an argv text by rules of its own, a ``Literal[1]`` refuses the text ``1``. So only
-    its closed sets of strings are read as closed, where its rules and this module's agree.
+    its closed sets of strings are read as closed, where its rules and this module's agree: any other of its
+    annotations is handed back as ``str``, unless ``as_written`` asks for what the model says.
     """
     declared: dict[str, list[Any]] = {}
     for schema in schemas:
@@ -177,12 +178,36 @@ def _declared(schemas: Sequence[type[Any]]) -> dict[str, list[Any]]:
             fields = _field_names(schema, hints)
         except Exception:  # a Tab press must not raise into the shell, whatever the annotations do
             continue
+        reads_alone = _is_pydantic(schema) and not as_written
         for name in fields:
             annotation = _unwrap_annotation(hints[name])
-            if _is_pydantic(schema) and not all(isinstance(value, str) for value in _closed_values(annotation)):
+            if reads_alone and not all(isinstance(value, str) for value in _closed_values(annotation)):
                 annotation = str
             declared.setdefault(name, []).append(annotation)
     return declared
+
+
+def _is_path(annotation: Any, path: Any) -> bool:
+    """Whether ``annotation`` is the type ``path``: alone, through ``Annotated``, as a member of a union, or as
+    the element of a list."""
+    if hasattr(annotation, "__metadata__"):
+        return _is_path(get_args(annotation)[0], path)
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is types.UnionType or origin is Union:
+        return any(_is_path(arg, path) for arg in args)
+    if origin is list:
+        return bool(args) and _is_path(args[0], path)
+    return annotation is path
+
+
+def field_paths(schemas: Sequence[type[Any]]) -> set[str]:
+    """The fields that every schema declaring them types as a ``pathlib.Path``."""
+    path = getattr(sys.modules.get("pathlib"), "Path", _UNPARSEABLE)  # a class is no annotation before its module
+    return {
+        name
+        for name, declarations in _declared(schemas, as_written=True).items()
+        if all(_is_path(annotation, path) for annotation in declarations)
+    }
 
 
 def field_takes(schema: type[Any]) -> Callable[[str, object], bool]:
