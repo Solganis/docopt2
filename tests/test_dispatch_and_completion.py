@@ -294,7 +294,7 @@ def test_complete_offers_nothing_when_an_option_and_command_are_exclusive_and_th
     assert_that(complete("Usage: prog (cmd | -a)\n\nOptions:\n  -a\n", ["-a", ""])).is_equal_to([])
 
 
-def _exhaustively_walked(children, left, *, optional, block, in_repetition):
+def _exhaustively_walked(children, left, *, optional, block, in_repetition, steps):
     """`_frontier_seq` with the skip-branch prune switched OFF: an optional child always forks in two.
 
     This is the reference the pruned walk must match. The prune drops a floated child's skip-branch, on
@@ -308,16 +308,18 @@ def _exhaustively_walked(children, left, *, optional, block, in_repetition):
         yield left, (), False
         return
     head, rest = children[0], children[1:]
-    for remaining, frontier, blocks in _frontier(head, left, block=block, in_repetition=in_repetition):
+    for remaining, frontier, blocks in _frontier(head, left, block=block, in_repetition=in_repetition, steps=steps):
         if blocks:
             yield remaining, frontier, True
         else:
             for tail_remaining, tail_frontier, tail_blocks in _exhaustively_walked(
-                rest, remaining, optional=optional, block=block, in_repetition=in_repetition
+                rest, remaining, optional=optional, block=block, in_repetition=in_repetition, steps=steps
             ):
                 yield tail_remaining, frontier + tail_frontier, tail_blocks
     if optional:
-        yield from _exhaustively_walked(rest, left, optional=optional, block=block, in_repetition=in_repetition)
+        yield from _exhaustively_walked(
+            rest, left, optional=optional, block=block, in_repetition=in_repetition, steps=steps
+        )
 
 
 _FRONTIER_GRAMMARS = [

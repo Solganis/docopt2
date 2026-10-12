@@ -283,8 +283,6 @@ def _usage_findings(doc: str) -> list[Diagnostic]:
         pattern = parse_pattern(formal_tokens(usage), read)
     except DocoptLanguageError as refused:
         return [refused.diagnostic or Diagnostic(summary=str(refused))]
-    except RecursionError:
-        return [Diagnostic(summary="the usage pattern nests too deeply to parse")]
     warnings: list[Diagnostic] = []
     declared: list[tuple[Option, Span, Span]] = []
     described: list[tuple[Option, list[tuple[str, int]]]] = []

@@ -47,8 +47,27 @@ _WORDS_ENV = "_DOCOPT2_WORDS"
 # --- the resolver: which tokens may legally come next -------------------------------------------
 
 
+class _Steps:
+    """How many more nodes a walk may visit.
+
+    A cap on what a walk yields bounds no time where it yields little: after a word nothing takes, `[-vvv]...`
+    over 22 flags tried every subset of them for ten seconds and yielded no path at all.
+    """
+
+    def __init__(self, left: int | None = None) -> None:
+        self.left = MATCH_LIMIT if left is None else left
+
+    def spend(self) -> bool:
+        self.left -= 1
+        return self.left >= 0
+
+    def share(self, among: int) -> _Steps:
+        """A budget of its own for one of ``among`` alternatives still to walk: an equal part of what is left."""
+        return _Steps(max(self.left, 0) // among)
+
+
 def _frontier(
-    node: Pattern, left: list[Pattern], *, block: bool, in_repetition: bool = False
+    node: Pattern, left: list[Pattern], *, block: bool, in_repetition: bool = False, steps: _Steps | None = None
 ) -> Iterator[tuple[list[Pattern], tuple[Pattern, ...], bool]]:
     """Yield ``(remaining, frontier, blocks)`` per partial-consumption path; a token sequence is a
     valid prefix iff some path leaves ``remaining == []``.
@@ -60,8 +79,12 @@ def _frontier(
     (``block=False``) floats past it to reach later options. A present positional that fails is dead.
 
     ``in_repetition`` marks that this node is being expanded as a ``OneOrMore`` child, which gates the
-    skip-branch prune in ``_frontier_seq`` - see there.
+    skip-branch prune in ``_frontier_seq`` - see there. ``steps`` is the budget of the whole walk: a walk that
+    has spent it ends, with the paths it found so far.
     """
+    steps = steps or _Steps()
+    if not steps.spend():
+        return
     if isinstance(node, LeafPattern):
         position, matched = node.single_match(left)
         if matched is not None and position is not None:
@@ -72,46 +95,52 @@ def _frontier(
             yield left, (node,), block  # unfilled positional/command (only options, if any, remain)
         return
     if isinstance(node, Either):
-        for child in node.children:
-            yield from _frontier(child, left, block=block, in_repetition=in_repetition)
+        # Each alternative walks on a share: `([-vvv]... | later)` spent the whole budget on its first one, and
+        # `later`, which a cap on paths had let through, was never offered.
+        for position, child in enumerate(node.children):
+            part = steps.share(len(node.children) - position)
+            granted = part.left
+            yield from _frontier(child, left, block=block, in_repetition=in_repetition, steps=part)
+            steps.left -= granted - max(part.left, 0)
         return
     if isinstance(node, OneOrMore):
-        for remaining, frontier, blocks in _frontier(node.children[0], left, block=block, in_repetition=True):
+        once = _frontier(node.children[0], left, block=block, in_repetition=True, steps=steps)
+        for remaining, frontier, blocks in once:
             yield remaining, frontier, blocks
             if not frontier and len(remaining) < len(left):  # consumed one and progressed: may repeat
-                yield from _frontier(node, remaining, block=block, in_repetition=in_repetition)
+                yield from _frontier(node, remaining, block=block, in_repetition=in_repetition, steps=steps)
         return
-    if isinstance(node, (Optional, OptionsShortcut)):
-        yield from _frontier_seq(node.children, left, optional=True, block=block, in_repetition=in_repetition)
-        return
-    children = cast("Required", node).children
-    yield from _frontier_seq(children, left, optional=False, block=block, in_repetition=in_repetition)
+    children = node.children if isinstance(node, (Optional, OptionsShortcut)) else cast("Required", node).children
+    optional = isinstance(node, (Optional, OptionsShortcut))
+    yield from _frontier_seq(children, left, optional=optional, block=block, in_repetition=in_repetition, steps=steps)
 
 
 def _frontier_seq(
-    children: list[Pattern], left: list[Pattern], *, optional: bool, block: bool, in_repetition: bool
+    children: list[Pattern], left: list[Pattern], *, optional: bool, block: bool, in_repetition: bool, steps: _Steps
 ) -> Iterator[tuple[list[Pattern], tuple[Pattern, ...], bool]]:
     if not children:
         yield left, (), False
         return
     head, rest = children[0], children[1:]
     floated = False
-    for remaining, frontier, blocks in _frontier(head, left, block=block, in_repetition=in_repetition):
+    for remaining, frontier, blocks in _frontier(head, left, block=block, in_repetition=in_repetition, steps=steps):
         if blocks:  # an unfilled required positional; stop, do not advance past it
             yield remaining, frontier, True
             continue
         if len(remaining) == len(left) and all(isinstance(leaf, Option) for leaf in frontier):
             floated = True  # head took nothing and put only options ahead (an option alone always does)
         for tail_remaining, tail_frontier, tail_blocks in _frontier_seq(  # advance, carrying its frontier
-            rest, remaining, optional=optional, block=block, in_repetition=in_repetition
+            rest, remaining, optional=optional, block=block, in_repetition=in_repetition, steps=steps
         ):
+            if not steps.spend():  # a path handed up costs a step at each level it passes: long paths are not free
+                return
             yield tail_remaining, frontier + tail_frontier, tail_blocks
     # An optional child may be skipped. The skip is pruned where head floated: the take-branch holds the same
     # paths with head's options on top. Not inside a OneOrMore, whose re-entry needs the skip's empty frontier
     # (`[-a <name>]...`), and `floated` leaves out a head that puts a command or a positional ahead
     # (`[go] <env>`). Unpruned, `[options]` over 25 flags forked into 2**25 paths and a Tab took over a second.
-    if optional and not (floated and not in_repetition):
-        yield from _frontier_seq(rest, left, optional=optional, block=block, in_repetition=in_repetition)
+    if optional and not (floated and not in_repetition) and steps.left >= 0:
+        yield from _frontier_seq(rest, left, optional=optional, block=block, in_repetition=in_repetition, steps=steps)
 
 
 class _Typed(Argument):
@@ -160,7 +189,7 @@ def _taking_all(pattern: Pattern, leaves: list[Pattern]) -> Iterator[tuple[Patte
     The `--` separator is left out: read as a positional nothing matches, it would kill every path.
     """
     typed = [leaf for leaf in leaves if not (type(leaf) is Argument and leaf.value == "--")]
-    paths = itertools.islice(_frontier(pattern, typed, block=False), MATCH_LIMIT)
+    paths = _frontier(pattern, typed, block=False)
     return (frontier for remaining, frontier, _blocks in paths if remaining == [])
 
 
@@ -199,7 +228,7 @@ def _resolve(
     # Command pass: the typed positionals only (options and `--` stripped), positionals blocking so
     # only the next command in order is offered. Bounded, so an exponential-skip pattern cannot hang.
     positionals: list[Pattern] = [leaf for leaf in base if type(leaf) is Argument and leaf.value != "--"]
-    command_paths = itertools.islice(_frontier(pattern, positionals, block=True), MATCH_LIMIT)
+    command_paths = _frontier(pattern, positionals, block=True)
     command_frontiers = [frontier for remaining, frontier, _b in command_paths if remaining == []]
     if not command_frontiers:
         return [], False  # the typed positionals cannot be consumed - not a valid prefix, nothing to complete

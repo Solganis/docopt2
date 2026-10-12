@@ -584,10 +584,7 @@ def docopt(
 
     argument_defaults = parse_argument_defaults(doc)
     options = parse_defaults(doc)
-    try:
-        pattern = parse_pattern(formal_tokens(usage), options)
-    except RecursionError:
-        raise language_error(Diagnostic(summary="the usage pattern nests too deeply to parse")) from None
+    pattern = parse_pattern(formal_tokens(usage), options)
     # the same five arguments at each of the three reads, spelled out: as one tuple they cost 220 ns more per parse
     try:
         tokens = Tokens(argv, usage=usage, exit_code=exit_code)

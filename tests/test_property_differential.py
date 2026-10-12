@@ -273,3 +273,31 @@ def test_a_well_formed_usage_agrees_with_the_original_on_every_sampled_argv(doc)
             assert_that(dict(docopt(doc, argv, help=False, complete=False))).described_as(
                 f"{doc!r} {argv}"
             ).is_equal_to(dict(expected))
+
+
+@pytest.mark.parametrize("doc", _AGREEMENT_DOCS)
+def test_a_usage_with_windows_line_ends_is_read_as_the_original_reads_it(doc):
+    # a usage text loaded as bytes on Windows: the original reads it, and so must a header that stands alone
+    windows = doc.replace("\n", "\r\n")
+    agreed = 0
+    for argv in generate_examples(doc, count=40, seed=1):
+        try:
+            expected = _pristine.docopt(windows, argv, help=False)
+        except SystemExit:
+            continue
+        assert_that(dict(docopt(windows, argv, help=False, complete=False))).described_as(
+            f"{windows!r} {argv}"
+        ).is_equal_to(dict(expected))
+        assert_that(dict(docopt(doc, argv, help=False, complete=False))).is_equal_to(dict(expected))
+        agreed += 1
+    assert_that(agreed).is_greater_than(0)
+
+
+@pytest.mark.parametrize("blank", ["\r", "\x0c", "\x0b", "\xa0", "\u2028", " \t "], ids=repr)
+def test_a_header_alone_on_its_line_is_one_whatever_blank_ends_it_as_the_original_reads_it(blank):
+    # pasted from a page, `Options:` often ends in a no-break space: read as no header, every option went undeclared
+    options = "  -v, --verbose  Loud.\n  --port=<n>  Port [default: 80].\n"
+    doc = f"Usage:{blank}\n  prog [options] <x>\n\nOptions:{blank}\n{options}"
+    expected = dict(_pristine.docopt(doc, ["-v", "a"], help=False))
+    assert_that(expected).is_equal_to({"--verbose": True, "--port": "80", "<x>": "a"})
+    assert_that(dict(docopt(doc, ["-v", "a"], help=False, complete=False))).is_equal_to(expected)

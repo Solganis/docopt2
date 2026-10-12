@@ -772,7 +772,10 @@ def parse_shorts(tokens: Tokens, options: list[Option]) -> list[Pattern]:
 def parse_pattern(source: str | Tokens, options: list[Option]) -> Required:
     """Parse a formal usage string (or pre-spanned ``Tokens``) into a Required pattern tree."""
     tokens = source if isinstance(source, Tokens) else Tokens.from_pattern(source)
-    result = parse_expr(tokens, options)
+    try:
+        result = parse_expr(tokens, options)
+    except RecursionError:  # here and not in docopt(): the stub, the examples and the tree parse a usage too
+        raise language_error(Diagnostic(summary="the usage pattern nests too deeply to parse")) from None
     return Required(*result)
 
 
@@ -1092,7 +1095,7 @@ def _section_pattern(name: str) -> re.Pattern[str]:
     not_a_header = r"(?!(?:usage|options|arguments)\s*:)"
     flush = r"(?:(?:[ \t].*(?:\n|$))+|(?:" + not_a_header + r"\S.*(?:\n|$))+)?"
     inline = r"[^\n]*" + name + r"[ \t]*\S[^\n]*\n?" + indented  # keyword then pattern text on one line
-    bare = r"[^\n]*" + name + r"[ \t]*\n?" + flush  # keyword alone on its line; body follows, any indent
+    bare = r"[^\n]*" + name + r"[^\S\n]*\n?" + flush  # keyword alone on its line, whatever blank ends it
     return re.compile(r"^(" + inline + r"|" + bare + r")", re.IGNORECASE | re.MULTILINE)
 
 

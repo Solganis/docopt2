@@ -18,8 +18,8 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 import docopt2
-from docopt2 import DocoptExit, DocoptLanguageError
-from docopt2._completion import _frontier
+from docopt2 import DocoptExit, DocoptLanguageError, _completion
+from docopt2._completion import _frontier, _Steps
 from docopt2._parser import (
     MATCH_LIMIT,
     MatchBudget,
@@ -132,6 +132,93 @@ _hostile_argv = st.lists(
 @pytest.mark.parametrize("name", sorted(_ENTRY_POINTS))
 def test_a_hostile_docstring_never_makes_an_entry_point_raise_a_foreign_error(name, doc, argv):
     _drive(name, doc, argv)
+
+
+_TOO_DEEP = ["usage: prog " + opening * 400 + "<x>" + closing * 400 for opening, closing in ("[]", "()")]
+
+
+@pytest.mark.parametrize("doc", _TOO_DEEP, ids=["optional", "required"])
+@pytest.mark.parametrize("name", sorted(_ENTRY_POINTS))
+def test_a_usage_nested_too_deeply_is_refused_as_a_usage_by_every_entry_point_that_parses_it(name, doc):
+    try:
+        _ENTRY_POINTS[name](doc, ["x"])
+        said = "returned"
+    except DocoptLanguageError as refused:
+        said = str(refused).splitlines()[0]
+    except RecursionError:
+        said = "RecursionError leaked"
+    assert_that(said).is_in("returned", "error: the usage pattern nests too deeply to parse")
+    parses_it = {"docopt", "generate_stub", "generate_examples", "generate_completion", "parse_tree", "check_compat"}
+    assert_that(said == "returned").is_equal_to(name not in parses_it)
+
+
+def _refusal(doc: str) -> str | None:
+    """The error ``docopt()`` raises for ``doc`` as a usage, as it prints. None where the doc parses."""
+    try:
+        docopt2.docopt(doc, [], help=False, complete=False)
+    except DocoptLanguageError as refused:
+        return str(refused)
+    except SystemExit:
+        return None
+    return None
+
+
+_NESTS_TOO_DEEPLY = "error: the usage pattern nests too deeply to parse"
+
+
+def _options(doc: str) -> list[tuple[object, ...]]:
+    return [(o.short, o.long, o.argcount, o.value, o.env, o.config_key) for o in parse_defaults(doc)]
+
+
+def _broken_law(doc: str) -> str | None:
+    """The law ``doc`` breaks, or None. Mirrors _hold_the_laws in fuzz/fuzz_docopt.py, which holds them over what
+    coverage finds."""
+    refusal = _refusal(doc)
+    errors = [found.render() for found in docopt2.check(doc) if found.level == "error"]
+    if _NESTS_TOO_DEEPLY in (refusal, *errors):
+        return None  # how deep is too deep depends on the stack the parser was called from: no law at that edge
+    if errors != ([] if refusal is None else [refusal]):
+        return "check() reports an error exactly where docopt() refuses the usage"
+    if refusal is None:
+        formatted = docopt2.format_usage(doc)
+        if _refusal(formatted) is not None:
+            return "a usage that parses still parses once formatted"
+        if _options(formatted) != _options(doc):
+            return "formatting changes no option"
+        if docopt2.format_usage(formatted) != formatted:
+            return "formatting twice is formatting once"
+    return None
+
+
+@settings(max_examples=400, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(doc=_hostile_doc)
+def test_a_hostile_docstring_keeps_the_laws_the_fuzzer_holds(doc):
+    assert_that(_broken_law(doc)).is_none()
+
+
+def test_the_laws_are_waived_for_a_usage_nested_too_deeply_and_for_nothing_that_only_says_so(monkeypatch):
+    assert_that(_refusal(_TOO_DEEP[0])).is_equal_to(_NESTS_TOO_DEEPLY)
+    quoting = "Usage: prog (nests too deeply"
+    assert_that(_refusal(quoting)).contains("unclosed `(`", "nests too deeply").is_not_equal_to(_NESTS_TOO_DEEPLY)
+    assert_that(_broken_law(quoting)).is_none()
+    # with a check() that goes blind, the first law is broken for that usage and waived for the deep one
+    monkeypatch.setattr(docopt2, "check", lambda _doc: [])
+    assert_that(_broken_law(quoting)).is_equal_to("check() reports an error exactly where docopt() refuses the usage")
+    assert_that(_broken_law(_TOO_DEEP[0])).is_none()
+
+
+@pytest.mark.parametrize(
+    ("format_usage", "law"),
+    [
+        (lambda doc: doc.replace("[options]", "[options"), "a usage that parses still parses once formatted"),
+        (lambda doc: doc.replace("--opt=<v>", "--opt"), "formatting changes no option"),
+        (lambda doc: doc + " ", "formatting twice is formatting once"),
+    ],
+)
+def test_each_law_of_the_formatter_is_one_a_wrong_formatter_breaks(monkeypatch, format_usage, law):
+    monkeypatch.setattr(docopt2, "format_usage", format_usage)
+    doc = "Usage: prog [options]\n\nOptions:\n  --opt=<v>  Value [default: 7]."
+    assert_that(_broken_law(doc)).is_equal_to(law)
 
 
 def _frontier_paths(doc: str) -> int:
@@ -257,3 +344,80 @@ def test_the_match_budget_raises_once_its_ceiling_is_spent():
     argv = parse_argv(tokens, list(options))  # options_first / negative_numbers / allow_abbrev keep defaults
     with pytest.raises(_MatchBudgetExceededError), MatchBudget(100):
         next(pattern.matches(argv, []), None)
+
+
+def _walk(doc, typed):
+    """The paths the completion walk yields for ``typed``, and the steps it spent of its budget."""
+    options = parse_defaults(doc)
+    pattern = parse_pattern(formal_usage(single_usage_section(doc)), options)
+    expand_options_shortcut(pattern, options)
+    steps = _Steps()
+    paths = list(_frontier(pattern, parse_argv(Tokens(list(typed)), list(options)), block=False, steps=steps))
+    return paths, MATCH_LIMIT - steps.left
+
+
+def test_the_completion_walk_ends_where_it_yields_nothing_too():
+    # after a word nothing takes, `[-rrr]...` tried every subset of its flags: 9.8 s for 22 of them, and no path
+    doc = "usage: prog [-" + "r" * 22 + "]... expected"
+    paths, spent = _walk(doc, ["wrong"])
+    assert_that([remaining for remaining, _frontier_of_it, _blocks in paths if remaining == []]).is_empty()
+    # the budget is spent whole, and the walk winds up within a few steps of it
+    assert_that(spent).is_between(MATCH_LIMIT, MATCH_LIMIT + 1000)
+    assert_that(docopt2.complete(doc, ["wrong", ""])).is_empty()
+    assert_that(docopt2.complete(doc, [""])).is_equal_to(["-r", "expected"])
+
+
+def test_a_path_handed_up_costs_the_walk_its_length():
+    # seventy stacked flags: 200,000 steps of visiting alone yielded paths that took a Tab 7 s to carry upward
+    paths, spent = _walk("usage: prog [-" + "r" * 70 + "]...", [])
+    assert_that(spent).is_between(MATCH_LIMIT, MATCH_LIMIT + 1000)
+    assert_that(sum(len(frontier) for _remaining, frontier, _blocks in paths)).is_less_than(MATCH_LIMIT)
+    assert_that(docopt2.complete("usage: prog [-" + "r" * 70 + "]...", [""])).is_equal_to(["-r"])
+
+
+def test_a_real_usage_spends_a_thousandth_of_the_budget():
+    for path in _CORPUS:
+        if path.stem == "many_flags":
+            continue  # twenty-five flags: see the next test
+        doc = path.read_text(encoding="utf-8")
+        for example in docopt2.generate_examples(doc, count=5, seed=1):
+            assert_that(_walk(doc, example[:-1])[1]).described_as(f"{path.stem} {example}").is_less_than(
+                MATCH_LIMIT // 100
+            )
+
+
+def test_a_walk_cut_at_the_budget_answers_as_one_given_ten_times_more(monkeypatch):
+    # each option typed doubles the walk of twenty-five flags: with thirteen typed it spends the whole budget
+    doc = (Path(__file__).parent / "corpus" / "many_flags.txt").read_text(encoding="utf-8")
+    longest = max(docopt2.generate_examples(doc, count=4, seed=1), key=len)
+    prefixes = [[*longest[:cut], ""] for cut in (0, 8, 15, 20, len(longest))]
+    spent = [_walk(doc, words[:-1])[1] for words in prefixes]
+    assert_that([steps >= MATCH_LIMIT for steps in spent]).is_equal_to([False, False, True, True, True])
+    answers = [docopt2.complete(doc, words) for words in prefixes]
+    monkeypatch.setattr(_completion, "MATCH_LIMIT", MATCH_LIMIT * 10)
+    assert_that([docopt2.complete(doc, words) for words in prefixes]).is_equal_to(answers)
+
+
+_STACKED = "[-" + "r" * 17 + "]..."
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        f"Usage: prog ({_STACKED} | later)",
+        f"Usage: prog (later | {_STACKED})",
+        f"Usage:\n  prog {_STACKED}\n  prog later <x>",
+        f"Usage: prog {_STACKED} later",
+    ],
+)
+def test_an_alternative_beside_one_that_spends_its_share_of_the_walk_is_still_offered(doc):
+    # on a budget of its own the first alternative spent all of it, and `later` was never reached
+    assert_that(docopt2.complete(doc, [""])).is_equal_to(["-r", "later"])
+
+
+def test_a_walk_out_of_budget_winds_up_at_once_however_wide_the_usage():
+    words = " ".join(f"[w{n}]" for n in range(60))
+    assert_that(_walk(f"Usage: prog {_STACKED} {words}", [])[1] - MATCH_LIMIT).is_between(0, 1)
+    # an alternative winds up on its own share: a few steps each, and never a budget each
+    alternatives = " | ".join(f"{_STACKED} c{n}" for n in range(40))
+    assert_that(_walk(f"Usage: prog ({alternatives})", [])[1] - MATCH_LIMIT).is_between(0, 40 * 20)
