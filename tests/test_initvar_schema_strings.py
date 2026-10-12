@@ -24,7 +24,8 @@ def test_an_init_only_field_written_as_a_string_annotation_is_bound_where_typing
     expected = (
         {"host": "h", "address": "h:81"}
         if sys.version_info >= (3, 11)
-        else "TypeError: Forward references must evaluate to types. Got dataclasses.InitVar[int]."
+        else "DocoptLanguageError: the annotations of schema `_Server` do not resolve: "
+        "Forward references must evaluate to types. Got dataclasses.InitVar[int]."
     )
     assert_that(_Server.__annotations__["port"]).is_equal_to("InitVar[int]")
     try:

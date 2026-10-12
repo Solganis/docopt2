@@ -86,7 +86,7 @@ _TYPES = {
     "list[Literal['5']]": (list[Literal["5"]], "5", _all(str)),
     "Literal[0, 1]": (Literal[0, 1], "1", lambda value: type(value) is int and value in (0, 1)),
     "Literal[True]": (Literal[True], "True", lambda value: value is True),
-    "Literal[False]": (Literal[False], "", lambda value: value is False),
+    "Literal[False]": (Literal[False], "False", lambda value: value is False),
     "Literal[3]": (Literal[3], "3", lambda value: type(value) is int and value == 3),
     "Literal[1, False]": (Literal[1, False], "1", lambda value: value is False or (type(value) is int and value == 1)),
     "Literal[False] | str": (Literal[False] | str, "5", lambda value: value is False or type(value) is str),
@@ -250,7 +250,7 @@ def test_every_way_a_schema_is_unfit_is_found_at_once_with_the_element_it_is_abo
                 "error",
                 "field `stop` does not fit usage element `stop`",
                 [("stop", "typed as str")],
-                "the element yields `False`, which is no str",
+                "a str field maps to a text, but the usage element yields the flag False; use bool or int",
                 None,
             ),
             (
@@ -605,7 +605,7 @@ def test_where_no_member_takes_a_text_the_member_that_could_hold_a_text_says_why
     assert_that(lines).contains("   = note: `abc` is not a valid int")
     lines = _lines(_SHAPES, ["5", "--flag", "abc"])
     assert_that(lines[0]).is_equal_to("error: invalid value for `--flag`")
-    assert_that(lines).contains("   = note: `abc` is not a valid bool | int | None")
+    assert_that(lines).contains("   = note: `abc` is not a valid bool | int")
 
 
 def test_where_every_member_refuses_the_shape_it_is_the_schema_that_is_at_fault():
@@ -632,4 +632,4 @@ def _lines(doc, argv, schema=None):
 def test_a_text_that_no_member_of_a_union_takes_is_refused_by_the_name_of_the_whole_union():
     with pytest.raises(DocoptExit) as refused:
         docopt(_WIDE, ["--k", "abc"], schema=_Wide, complete=False, help=False)
-    assert_that(str(refused.value).splitlines()).contains("   = note: `abc` is not a valid int | float | None")
+    assert_that(str(refused.value).splitlines()).contains("   = note: `abc` is not a valid int | float")

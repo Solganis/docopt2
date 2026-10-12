@@ -88,7 +88,7 @@ def _summary(doc, argv, schema, **settings):
 def test_a_refused_value_is_pointed_at_where_it_was_typed(argv, key, start, under):
     line = argv if isinstance(argv, str) else " ".join(argv)
     assert_that(_summary(_DOC, argv, _Args)).is_equal_to(f"error: invalid value for `{key}`")
-    label = "expected int" if key == "--level" else "expected int | None"
+    label = "expected int"
     assert_that(_shown(_DOC, argv, _Args, "in the arguments:")).is_equal_to((line, start, under, label))
 
 
@@ -134,7 +134,7 @@ class _Turns:
         # two repeated positionals that take turns: the third token is the second `<a>`, the second is a `<b>`
         (_PAIRS, ["1", "x", "x", "y"], _Pairs, ("1 x x y", 4, "x", "expected int")),
         (_PAIRS, ["1", "x", "2", "1"], _Pairs, ("1 x 2 1", 6, "1", "expected one of `x`, `y`")),
-        (_EITHER, ["a", "b"], _Either, ("a b", 2, "b", "expected int | None")),
+        (_EITHER, ["a", "b"], _Either, ("a b", 2, "b", "expected int")),
         # the first way the usage reads the line gives `b` to `<x>` and leaves a token over: a later one takes all
         (_TURNS, ["a", "b", "5x"], _Turns, ("a b 5x", 4, "5x", "expected int")),
     ],
@@ -247,7 +247,7 @@ def test_a_value_with_no_place_to_show_gets_no_snippet_of_the_arguments(doc, arg
             None,
             [],
             "in the environment:",
-            ("REFUSED_PORT=http", 13, "http", "expected int | None"),
+            ("REFUSED_PORT=http", 13, "http", "expected int"),
         ),
         (
             "REFUSED_LEVELS",
@@ -263,7 +263,7 @@ def test_a_value_with_no_place_to_show_gets_no_snippet_of_the_arguments(doc, arg
             {"server": {"port": "http"}},
             [],
             "in the config:",
-            ("server.port = http", 14, "http", "expected int | None"),
+            ("server.port = http", 14, "http", "expected int"),
         ),
         # the same text in the argv is another element's value: it is not what was refused
         (
@@ -272,7 +272,7 @@ def test_a_value_with_no_place_to_show_gets_no_snippet_of_the_arguments(doc, arg
             None,
             ["http"],
             "in the environment:",
-            ("REFUSED_PORT=http", 13, "http", "expected int | None"),
+            ("REFUSED_PORT=http", 13, "http", "expected int"),
         ),
     ],
 )
@@ -406,7 +406,7 @@ def test_an_empty_default_has_no_text_to_show():
     assert_that(_summary(doc, [], _Port)).is_equal_to("error: invalid value for `--port`")
     assert_that(_shown(doc, [], _Port, "as the default:")).is_none()
     assert_that(_shown(doc, [], _Port, "in the usage:")).is_equal_to(
-        ("Usage: app [--port=<p>]", 12, "--port=<p>", "typed as int | None")
+        ("Usage: app [--port=<p>]", 12, "--port=<p>", "typed as int")
     )
 
 
@@ -432,7 +432,7 @@ def test_a_handler_table_names_the_environment_too(monkeypatch):
     ("argv", "under", "usage_label", "note"),
     [
         (["--level", "1", "--level", "x"], "x", "typed as list[int]", "   = note: `x` is not a valid int"),
-        (["--port", "x"], "x", "typed as int | None", "   = note: `x` is not a valid int | None"),
+        (["--port", "x"], "x", "typed as int", "   = note: `x` is not a valid int"),
     ],
 )
 def test_the_usage_element_is_labelled_with_the_type_of_the_field_and_the_value_with_its_own(
@@ -520,10 +520,10 @@ class _Wrapped:
     ("key", "raw", "expected"),
     [
         ("plain", ["1", "x", "y"], ("x", 1, "int", "list[int]")),
-        ("beside_none", ["x"], ("x", 0, "int", "list[int] | None")),
+        ("beside_none", ["x"], ("x", 0, "int", "list[int]")),
         ("annotated", ["1", "2", "x"], ("x", 2, "int", "list[int]")),
         # how a union with None is spelled differs between Python versions: the spelling of this one is taken
-        ("annotated_beside_none", ["1", "x"], ("x", 1, "int", str(Annotated[list[int], "why"] | None))),
+        ("annotated_beside_none", ["1", "x"], ("x", 1, "int", "list[int]")),
         ("scalar", "x", ("x", None, "int", "int")),
     ],
 )

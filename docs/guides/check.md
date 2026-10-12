@@ -233,7 +233,7 @@ for finding in check(doc, schema=Args):
 <span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog [--out=&lt;f&gt;] [--level=&lt;n&gt;]... [--verbose]</span>
 <span class="dt-fg">   |</span><span class="dt-fg">                                              </span><span class="dt-caret">^^^^^^^^^</span><span class="dt-label"> typed as str</span>
 <span class="dt-fg">   |</span>
-<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: the element yields `False`, which is no str</span></div>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: a str field maps to a text, but the usage element yields the flag False; use bool or int</span></div>
 
 These findings are at `"error"` level, after the warnings about the usage itself. There are four kinds:
 

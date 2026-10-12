@@ -204,13 +204,13 @@ A value that was never in the arguments is shown where it was written. Here the 
 <span class="dt-fg">   |</span>
 <span class="dt-fg">   |</span><span class="dt-dim">  in the environment:</span>
 <span class="dt-fg">   |</span><span class="dt-fg">    APP_PORT=http</span>
-<span class="dt-fg">   |</span><span class="dt-fg">             </span><span class="dt-caret">^^^^</span><span class="dt-label"> expected int | None</span>
+<span class="dt-fg">   |</span><span class="dt-fg">             </span><span class="dt-caret">^^^^</span><span class="dt-label"> expected int</span>
 <span class="dt-fg">   |</span>
 <span class="dt-fg">   |</span><span class="dt-dim">  in the usage:</span>
 <span class="dt-fg">   |</span><span class="dt-fg">    Usage: prog [--port=&lt;n&gt;]</span>
-<span class="dt-fg">   |</span><span class="dt-fg">                 </span><span class="dt-caret">^^^^^^^^^^</span><span class="dt-label"> typed as int | None</span>
+<span class="dt-fg">   |</span><span class="dt-fg">                 </span><span class="dt-caret">^^^^^^^^^^</span><span class="dt-label"> typed as int</span>
 <span class="dt-fg">   |</span>
-<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `http` is not a valid int | None</span></div>
+<span class="dt-fg">   = </span><span class="dt-note">note</span><span class="dt-fg">: `http` is not a valid int</span></div>
 
 A value from a `[config: ...]` key is shown the same way, as `server.port = http`. A `[default: ...]` that
 its own field refuses is shown as `[default: http]`. Of a default of several values the line is rebuilt

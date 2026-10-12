@@ -7,7 +7,7 @@ import os
 import re
 import sys
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any, ClassVar, TypeVar, cast, overload
+from typing import Any, ClassVar, Literal, TypeVar, cast, overload
 
 from docopt2._diagnostics import Caret, Diagnostic, Snippet, use_color
 from docopt2._errors import DocoptExit, language_error
@@ -323,7 +323,7 @@ def _coercion_diagnostic(
         snippets.append(Snippet(usage, "in the usage:", [caret]))
     # "one of `a`, `b`" reads as "is not one of ..."; a plain type reads as "is not a valid int".
     hint = None
-    if err.expected.startswith("one of "):
+    if err.expected.startswith(("one of ", "a combination of ")):
         reason = f"`{err.raw}` is not {err.expected}"
         choices = [match.group(1) for match in re.finditer(r"`([^`]+)`", err.expected)]
         suggestion = _closest(str(err.raw), choices)  # a mistyped choice gets a spell-checked "did you mean"
@@ -468,7 +468,7 @@ def docopt(
     complete: bool = ...,
     schema: type[SchemaT],
     config: Mapping[str, Any] | None = ...,
-    help_style: str = ...,
+    help_style: Literal["raw", "rich"] = ...,
 ) -> SchemaT: ...
 @overload
 def docopt(
@@ -487,7 +487,7 @@ def docopt(
     complete: bool = ...,
     schema: None = ...,
     config: Mapping[str, Any] | None = ...,
-    help_style: str = ...,
+    help_style: Literal["raw", "rich"] = ...,
 ) -> Arguments: ...
 def docopt(
     doc: str | None,
@@ -505,7 +505,7 @@ def docopt(
     complete: bool = True,
     schema: type[SchemaT] | None = None,
     config: Mapping[str, Any] | None = None,
-    help_style: str = "raw",
+    help_style: Literal["raw", "rich"] = "raw",
 ) -> Arguments | SchemaT:
     """Parse ``argv`` against the command-line interface described in ``doc``.
 
@@ -759,7 +759,7 @@ class Cli:
         exit_code: int = 1,
         complete: bool = True,
         config: Mapping[str, Any] | None = None,
-        help_style: str = "raw",
+        help_style: Literal["raw", "rich"] = "raw",
     ) -> CliT:
         """Parse ``argv`` against ``__cli_doc__`` and return a typed instance of the subclass."""
         return docopt(
@@ -783,6 +783,8 @@ class Cli:
 # bound=Cli, not "Cli": a string builds a ForwardRef, which on 3.14+ imports annotationlib and ast (1.3 of 11.3 ms)
 CliT = TypeVar("CliT", bound=Cli)
 _DispatchHandler = Callable[[Any], Any]
+# a TypeVar and not the alias: `on()` hands the handler back, and as the alias it came back as `(Any) -> Any`
+_HandlerT = TypeVar("_HandlerT", bound=_DispatchHandler)
 
 
 class Dispatch:
@@ -803,10 +805,10 @@ class Dispatch:
         self.doc: str = doc
         self._handlers: list[tuple[tuple[str, ...], _DispatchHandler, type[Any] | None]] = []
 
-    def on(self, *command_path: str, schema: type[Any] | None = None) -> Callable[[_DispatchHandler], _DispatchHandler]:
+    def on(self, *command_path: str, schema: type[Any] | None = None) -> Callable[[_HandlerT], _HandlerT]:
         """Register the decorated handler for ``command_path`` (empty path = fallback handler)."""
 
-        def register(handler: _DispatchHandler) -> _DispatchHandler:
+        def register(handler: _HandlerT) -> _HandlerT:
             self._handlers.append((command_path, handler, schema))
             return handler
 

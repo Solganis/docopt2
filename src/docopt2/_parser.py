@@ -812,15 +812,19 @@ def _usage_lines(pattern: Pattern) -> list[Pattern]:
 
 
 def always_required_names(pattern: Pattern) -> list[str]:
-    """Names EVERY usage line requires: the required leaves intersected over the alternatives.
+    """Names that every way through the usage requires, in the order it first writes them.
 
-    ``required_leaf_names`` stops at an ``Either``, and a multi-line usage *is* one, so it answers
-    "nothing" for the very case this question is asked about.
+    An alternation requires what each of its branches requires, wherever it stands: several usage lines are
+    one, and so is a ``|`` inside a line. ``required_leaf_names`` stops at an alternation and answers "nothing".
     """
-    lines = _usage_lines(pattern)
-    per_line = [set(required_leaf_names(line)) for line in lines]
-    common = set.intersection(*per_line)
-    return [name for name in required_leaf_names(lines[0]) if name in common]
+    if not isinstance(pattern, BranchPattern):
+        return [pattern.name] if pattern.name is not None else []
+    if isinstance(pattern, (Optional, OptionsShortcut)):
+        return []
+    of_each = [always_required_names(child) for child in pattern.children]
+    if isinstance(pattern, Either):
+        return [name for name in of_each[0] if all(name in names for names in of_each)] if of_each else []
+    return list(dict.fromkeys(name for names in of_each for name in names))
 
 
 def _unmet_target(node: Pattern) -> tuple[str, Span] | None:

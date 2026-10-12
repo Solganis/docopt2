@@ -84,7 +84,8 @@ docopt("Usage: prog <host> <port>", "127.0.0.1 8080", schema=Server, complete=Fa
 Same field declarations, but the result is a plain `dict` whose values are typed by the `TypedDict`.
 
 A `total=False` class, or per-field `NotRequired[...]`, marks a key that may be left out when its element is
-absent.
+absent. A key follows the class that declares it, so a `total=False` child leaves the keys of its parent
+required. A marker is read inside `Annotated[...]` too.
 
 ```python
 from typing import TypedDict
@@ -155,7 +156,7 @@ The supported set is closed:
 
 | Annotation | Coerced with | Note |
 | --- | --- | --- |
-| `str` | unchanged | the raw token |
+| `str` | unchanged | the raw token, never a flag or a count |
 | `int` | `int(value)` | also a repeatable flag's count |
 | `float` | `float(value)` | |
 | `bool` | truthiness of the flag | must map to a flag, not a value-bearing element |
@@ -163,8 +164,8 @@ The supported set is closed:
 | `T \| None` | `None` stays `None`, else coerce to `T` | for an optional element |
 | `T \| U` | the first member, left to right, that takes the value | so `int \| str` yields `5` for `5` and `'abc'` for `abc` |
 | `Annotated[T, ...]` | the metadata is dropped, `T` is coerced | as a validation library would attach it |
-| `Literal["a", "b"]` | the value, if it is one of the literals | a closed set of choices, validated |
-| `enum.Enum` subclass | `EnumType(value)` | matched by member value |
+| `Literal["a", "b"]` | the value, if it is one of the literals | a closed set of choices, validated. A number is read as a number, a bool by its name: `True` or `true` |
+| `enum.Enum` subclass | `EnumType(value)` | matched by member value, the text read as the type of that value. A `Flag` takes the number of a combination |
 | `pathlib.Path` | `Path(value)` | |
 | `decimal.Decimal` | `Decimal(value)` | |
 | `uuid.UUID` | `UUID(value)` | |
@@ -257,8 +258,10 @@ user one:
 - a field with no matching element
 - two elements colliding on one field
 - a non-optional field bound to an element that may be absent
-- an unsupported annotation
+- an unsupported annotation, or one that does not resolve
 - a `bool` field mapped to a value-bearing element rather than a flag
+- a `str` field mapped to a flag or to a counted flag
+- a schema that is no class of fields: a builtin, a `Protocol`, a class with its type arguments given
 
 Each of these is raised on the argv that reaches it. [`check(doc, schema=Args)`](check.md#checking-a-schema)
 lists them all before any argv exists.

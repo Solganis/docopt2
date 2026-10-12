@@ -7,7 +7,7 @@ import dataclasses
 import pydantic
 from typing_extensions import assert_type  # 3.10-safe; understood by all checkers
 
-from docopt2 import Arguments, Cli, docopt
+from docopt2 import Arguments, Cli, Dispatch, docopt
 
 
 @dataclasses.dataclass
@@ -49,3 +49,18 @@ class PydArgs(pydantic.BaseModel):
 
 pyd = docopt("Usage: prog <host> <port>", "h 80", schema=PydArgs)
 assert_type(pyd, PydArgs)
+
+
+# A handler comes back from `on()` as the function it is, not as `(Any) -> Any`.
+app = Dispatch("Usage: prog serve <host> <port>")
+
+
+@app.on("serve", schema=Args)
+def serve(arguments: Args) -> int:
+    return arguments.port
+
+
+assert_type(serve(Args(host="h", port=80)), int)
+
+# `help_style` is one of its two values to a checker too: a third is an error of each of them.
+docopt("Usage: prog", "", help_style="rich")

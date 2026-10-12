@@ -24,9 +24,7 @@ from docopt2._parser import (
 )
 from docopt2._stub import _key_shapes
 from docopt2._typed import (
-    _REFUSALS,
-    _attempt,
-    _coerce,
+    _asked,
     _field_names,
     _has_no_constructor,
     _is_optional,
@@ -36,6 +34,7 @@ from docopt2._typed import (
     _resolved_hints,
     _type_name,
     _unwrap_annotation,
+    unbindable,
 )
 
 if TYPE_CHECKING:
@@ -145,50 +144,32 @@ def _yields(yielded: LeafValue, given: bool, annotation: Any) -> list[Any]:
     return []
 
 
-def _holds(value: object, annotation: Any) -> bool:
-    """Whether ``value`` is what ``annotation`` says, as far as a class, a ``Literal`` or a union of them says."""
-    if hasattr(annotation, "__metadata__"):
-        return _holds(value, get_args(annotation)[0])
-    origin, args = get_origin(annotation), get_args(annotation)
-    if origin is types.UnionType or origin is Union:
-        return any(_holds(value, member) for member in args)
-    if origin is Literal:
-        return any(value == literal and type(value) is type(literal) for literal in args)  # `False` is no `0`
-    kind = origin or annotation  # of `list[int]` the list: Python 3.10 calls a parameterized generic a type
-    return not isinstance(kind, type) or isinstance(value, kind)
-
-
-def _handed(raw: object, annotation: Any) -> tuple[str, str]:
-    """What becomes of ``raw`` in a field of ``annotation``: `held`, `mistyped` or `refused`, and why."""
-    try:
-        bound = _coerce(raw, annotation)
-    except _REFUSALS:
-        return "refused", f"the element yields `{raw!r}`, which {_type_name(annotation)} does not take"
-    if _holds(bound, annotation):
-        return "held", ""
-    return "mistyped", f"the element yields `{raw!r}`, which is no {_type_name(annotation)}"
+def _turned_away(raw: object, annotation: Any) -> str | None:
+    """Why the binder turns ``raw`` away from a field of ``annotation``, or None where it takes it."""
+    refused = _asked(raw, annotation)[1]
+    if isinstance(refused, DocoptLanguageError):
+        raise refused
+    return None if refused is None else f"the element yields `{raw!r}`, which {_type_name(annotation)} does not take"
 
 
 def _misfit(yielded: LeafValue, given: bool, annotation: Any) -> str | None:
     """Why a field of ``annotation`` cannot hold what an element of this fixed value yields, or None.
 
     The binder's own coercion is asked, so an ``Enum`` of the schema is called with the values tried. A shape
-    it refuses, a list for an element that is not repeated, is a misfit whatever the value. So is a value it
-    hands over as another type. A value it refuses is a misfit only where it refuses every value the element
-    can yield: a text is the user's to correct. A counted flag typed with a closed set is judged by its
-    shape alone: the set is a limit the author put on the count.
+    it refuses, a list for an element that is not repeated or a flag for a field of text, is a misfit
+    whatever the value. A value it refuses is a misfit only where it refuses every value the element can
+    yield: a text is the user's to correct. A counted flag typed with a closed set is judged by its shape
+    alone: the set is a limit the author put on the count.
     """
     probes = _yields(yielded, given, annotation)
     if not probes:
-        shape = _attempt(["x"] if type(yielded) is list else "x", annotation)[1]
+        shape = _asked(["x"] if type(yielded) is list else "x", annotation)[1]
         return str(shape) if isinstance(shape, DocoptLanguageError) else None
     try:
-        told = [_handed(raw, annotation) for raw in probes]
+        refusals = [_turned_away(raw, annotation) for raw in probes]
     except DocoptLanguageError as shape:
         return str(shape)
-    mistyped = [why for what, why in told if what == "mistyped"]
-    refused = [why for what, why in told if what == "refused"]
-    return mistyped[0] if mistyped else refused[0] if len(refused) == len(told) else None
+    return refusals[0] if all(refusals) else None
 
 
 def _unfit(summary: str, usage: str = "", at: Span = None, label: str = "", **lines: str) -> Diagnostic:
@@ -199,6 +180,9 @@ def _unfit(summary: str, usage: str = "", at: Span = None, label: str = "", **li
 def _schema_findings(doc: str, schema: type[Any]) -> list[Diagnostic]:
     """Where ``schema`` disagrees with the usage, each a case in which binding some argv the usage accepts would
     raise or hand a field a value of another type, whatever the user typed."""
+    refused = unbindable(schema)
+    if refused is not None:
+        return [_unfit(refused)]
     name = schema.__name__
     if _is_pydantic(schema):
         unchecked = f"schema `{name}` is a pydantic model, which binds by rules of its own: it was not checked"

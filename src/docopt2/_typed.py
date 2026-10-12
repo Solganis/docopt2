@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import enum
 import functools
 import sys
@@ -149,7 +150,7 @@ def _closed_values(annotation: Any) -> list[Any]:
         return _closed_values(get_args(annotation)[0])
     origin, args = get_origin(annotation), get_args(annotation)
     if origin is types.UnionType or origin is Union:
-        return _closed_values(next((arg for arg in args if arg is not type(None)), str))
+        return [value for arg in args for value in _closed_values(arg)]
     if origin is list:
         return _closed_values(args[0]) if args else []
     if origin is Literal:
@@ -254,16 +255,26 @@ def _takes(text: object, annotation: Any) -> bool:
     return _coerces(text, annotation) or _coerces([text], annotation)
 
 
-# what a coercer raises for a value it refuses. AttributeError is `UUID(True)`, a flag handed to a type of texts
-_REFUSALS: Final = (ValueError, TypeError, ArithmeticError, AttributeError)
+# what a coercer raises for a value it refuses. AttributeError is `UUID(True)`, a flag handed to a type of texts,
+# LookupError the `_missing_` of an enum that looks its value up
+_REFUSALS: Final = (ValueError, TypeError, ArithmeticError, AttributeError, LookupError)
 
 
 def _attempt(value: Any, annotation: Any) -> tuple[Any, Exception | None]:
-    """``value`` coerced to ``annotation``, or why it was not."""
+    """``value`` coerced to ``annotation``, or why it was refused."""
     try:
         return _coerce(value, annotation), None
     except (*_REFUSALS, DocoptLanguageError) as refused:
         return None, refused
+
+
+def _asked(value: Any, annotation: Any) -> tuple[Any, Exception | None]:
+    """As ``_attempt``, for the check and a Tab press, which bind nothing: whatever a type of the author's raises
+    is a refusal there, where binding lets it through."""
+    try:
+        return _attempt(value, annotation)
+    except Exception as raised:  # an enum's own `_missing_` may raise anything
+        return None, raised
 
 
 def _coerce_each(values: list[Any], inner: Any) -> list[Any]:
@@ -295,17 +306,26 @@ def _coerce_union(value: Any, members: list[Any]) -> Any:
 
 
 def _coerces(value: Any, annotation: Any) -> bool:
-    return _attempt(value, annotation)[1] is None
+    return _asked(value, annotation)[1] is None
 
 
 _UNPARSEABLE = object()  # a sentinel distinct from every real choice, so a failed parse never matches
 
 
+_BOOLS: Final = {"True": True, "true": True, "False": False, "false": False}
+
+
 def _parsed_as(value: Any, target: type) -> Any:
-    """``value`` parsed to ``target``, or the ``_UNPARSEABLE`` sentinel when it cannot be."""
+    """``value`` parsed to ``target``, or the ``_UNPARSEABLE`` sentinel when it cannot be.
+
+    A bool is spelled and not parsed: ``bool("False")`` is True, as is the bool of any other text. It is spelled
+    as Python writes it or as a config file does, which is how a bool of a config reaches an option as a text.
+    """
+    if target is bool:
+        return _BOOLS.get(value, _UNPARSEABLE) if isinstance(value, str) else _UNPARSEABLE
     try:
         return target(value)
-    except (ValueError, TypeError):
+    except _REFUSALS:
         return _UNPARSEABLE
 
 
@@ -323,6 +343,43 @@ def _coerce_choice(value: Any, choices: Sequence[Any], select: Callable[[Any], A
         if _parsed_as(value, type(choice)) == choice:
             return select(choice)
     raise ValueError(message)
+
+
+def _member(kind: type[enum.Enum], value: Any) -> enum.Enum | None:
+    """The member ``kind`` makes of ``value``. None where it refuses, and where it hands back what is no member,
+    as a ``Flag`` of the ``EJECT`` boundary does."""
+    try:
+        made = kind(value)
+    except _REFUSALS:
+        return None
+    return made if isinstance(made, kind) else None
+
+
+def _coerce_enum(value: Any, kind: type[enum.Enum]) -> Any:
+    """``value`` as a member of ``kind``: as it stands, else read as the type of a member's value.
+
+    argv gives a text, and an ``IntEnum`` is keyed by a number. The members are tried in the order the enum
+    declares them. Where the text is the value of none, the enum itself is asked with each reading, so a
+    ``Flag`` takes the number of a combination, and an enum that refuses in its own way has refused.
+    """
+    member = _member(kind, value)
+    if member is not None:
+        return member
+    readings = []
+    for member in kind.__members__.values():  # of a Flag too, which iterates only its single bits
+        reading = _parsed_as(value, type(member.value))  # one member at a time: a later value is not read early
+        if reading is not _UNPARSEABLE and reading == member.value:
+            return member
+        readings.append(reading)
+    asked = [value]
+    for reading in readings:
+        if reading is _UNPARSEABLE or any(reading == one and type(reading) is type(one) for one in asked):
+            continue  # each reading of the value is put to the enum once: its `_missing_` may keep count
+        asked.append(reading)
+        member = _member(kind, reading)
+        if member is not None and type(member.value) is type(reading):  # the bool `False` is no member `0`
+            return member
+    raise ValueError(f"{value!r} is not a valid {kind.__name__}")
 
 
 def _spelled(annotation: Any) -> str:
@@ -363,16 +420,14 @@ def _coerce(value: Any, annotation: Any) -> Any:
             )
         return bool(value)
     if annotation is str:
+        if not isinstance(value, str):
+            yielded = "flag" if isinstance(value, bool) else "count"
+            raise DocoptLanguageError(
+                f"a str field maps to a text, but the usage element yields the {yielded} {value!r}; use bool or int"
+            )
         return value
     if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
-        try:
-            return annotation(value)  # a str-valued member matches the argv string directly
-        except ValueError:
-            # An int/float-valued enum (e.g. IntEnum) is keyed by a number, but argv is a string. Try the
-            # string parsed to each member value's type, then map the matched value back to its member.
-            member_values = [member.value for member in annotation]
-            message = f"{value!r} is not a valid {annotation.__name__}"
-            return annotation(_coerce_choice(value, member_values, lambda matched: matched, message))
+        return _coerce_enum(value, annotation)
     for builtin in _BUILTIN_SCALARS:
         if annotation is builtin:
             return builtin(value)
@@ -454,18 +509,23 @@ def _is_typeddict(schema: type[Any]) -> bool:
     return hasattr(schema, "__required_keys__")
 
 
-def _typeddict_optional_keys(schema: type[Any]) -> set[str]:
-    # From __total__ + per-field Required/NotRequired, not __optional_keys__ (misses stringized wrappers).
+def _marked_required(annotation: Any) -> bool | None:
+    """Whether a TypedDict annotation is marked ``Required`` (True) or ``NotRequired`` (False), through any
+    ``Annotated`` around the marker. None where it carries neither."""
     required_markers, not_required_markers = _optionality_markers()
-    total = getattr(schema, "__total__", True)
-    optional: set[str] = set()
-    for name, annotation in _resolved_hints(schema).items():
-        origin = get_origin(annotation)
-        if origin in required_markers:
-            continue
-        if origin in not_required_markers or not total:
-            optional.add(name)
-    return optional
+    while (origin := get_origin(annotation)) not in (*required_markers, *not_required_markers):
+        if not hasattr(annotation, "__metadata__"):
+            return None
+        annotation = get_args(annotation)[0]
+    return origin in required_markers
+
+
+def _typeddict_optional_keys(schema: type[Any]) -> set[str]:
+    # A marker is read from the resolved hint: `__optional_keys__` misses one written as a string. For a key with
+    # no marker it is right, and it knows what `__total__` does not: the totality of the class that declares the key.
+    by_totality = schema.__optional_keys__
+    marks = {name: _marked_required(annotation) for name, annotation in _resolved_hints(schema).items()}
+    return {name for name, marked in marks.items() if marked is False or (marked is None and name in by_totality)}
 
 
 def _omittable_fields(schema: type[Any], field_names: list[str]) -> set[str]:
@@ -490,11 +550,8 @@ def _unwrap_annotation(annotation: Any) -> Any:
     dataclasses = sys.modules.get("dataclasses")  # an InitVar cannot be an annotation before its module is imported
     if dataclasses is not None and isinstance(annotation, dataclasses.InitVar):
         annotation = annotation.type
-    required_markers, not_required_markers = _optionality_markers()
-    origin = get_origin(annotation)
-    if origin in required_markers or origin in not_required_markers:
-        annotation = get_args(annotation)[0]
-    if hasattr(annotation, "__metadata__"):
+    markers = [marker for kind in _optionality_markers() for marker in kind]
+    while get_origin(annotation) in markers or hasattr(annotation, "__metadata__"):  # in either order, any depth
         annotation = get_args(annotation)[0]
     return annotation
 
@@ -505,10 +562,20 @@ def _type_name(annotation: Any) -> str:
     A closed set of choices (a ``Literal`` or an ``Enum``) is rendered as ``one of `a`, `b`, `c```, so the
     diagnostic lists the valid values instead of a bare type name.
     """
+    if hasattr(annotation, "__metadata__"):
+        return _type_name(get_args(annotation)[0])
+    if get_origin(annotation) in (types.UnionType, Union):  # what a value can be: `None` is the absence of one
+        named = [_type_name(arg) for arg in get_args(annotation) if arg is not type(None)]
+        if len(named) > 1 and all(name.startswith("one of ") for name in named):  # closed sets, and no Flag
+            return "one of " + ", ".join(name.removeprefix("one of ") for name in named)
+        return " | ".join(named)
     if get_origin(annotation) is Literal:
         return "one of " + ", ".join(f"`{arg}`" for arg in get_args(annotation))
     if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
-        return "one of " + ", ".join(f"`{member.value}`" for member in annotation)
+        # by name and not by iterating: a Flag iterates its single bits alone. An alias goes by another name
+        members = [member for name, member in annotation.__members__.items() if member.name == name]
+        listed = ", ".join(f"`{member.value}`" for member in members)
+        return ("a combination of " if issubclass(annotation, enum.Flag) else "one of ") + listed
     if get_origin(annotation) is not None:  # a parameterized generic: keep its argument (list[int], not list)
         return str(annotation)
     return getattr(annotation, "__name__", str(annotation))
@@ -545,6 +612,25 @@ def _refusal(key: str, raw: Any, annotation: Any, refused: BaseException) -> _Co
     return _CoercionError(key, item, _type_name(element), at, declared)
 
 
+_HEAP_TYPE: Final = 1 << 9  # Py_TPFLAGS_HEAPTYPE: set on every class a `class` statement makes, on no builtin
+
+
+def unbindable(schema: Any) -> str | None:
+    """Why ``schema`` cannot be a schema at all, in words for its author. None where it can."""
+    origin = get_origin(schema)
+    if origin is not None:
+        written = f"{_spelled(origin)}[{', '.join(_spelled(argument) for argument in get_args(schema))}]"
+        return f"a schema is a class, and `{written}` is a class with its type arguments given"
+    if not isinstance(schema, type):
+        return f"a schema is a class, and `{schema!r}` is not one"
+    name = schema.__name__
+    if not schema.__flags__ & _HEAP_TYPE and getattr(builtins, name, None) is schema:
+        return f"a schema is a class that declares fields, and `{name}` is a builtin"
+    if getattr(schema, "_is_protocol", False):
+        return f"schema `{name}` is a Protocol, which describes a class and cannot be one"
+    return None
+
+
 def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
     """Bind a parsed docopt result onto ``schema``.
 
@@ -562,6 +648,9 @@ def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
             constructor to take its fields.
         DocoptExit: A user-supplied value cannot be coerced to the declared type.
     """
+    refused = unbindable(schema)
+    if refused is not None:
+        raise DocoptLanguageError(refused)
     # Reflective pydantic detection: pydantic is never imported, so it stays optional.
     validator = getattr(schema, "model_validate", None)
     if callable(validator):
@@ -575,7 +664,11 @@ def bind_schema(parsed: Mapping[str, Any], schema: type[SchemaT]) -> SchemaT:
             raise DocoptLanguageError(f"usage elements {existing!r} and {key!r} both map to field {field!r}")
         by_field[field] = (key, value)
 
-    hints = _resolved_hints(schema)
+    try:
+        hints = _resolved_hints(schema)
+    except Exception as unresolved:  # whatever evaluating the annotations of a user's class raises
+        refused = f"the annotations of schema `{schema.__name__}` do not resolve: {unresolved}"
+        raise DocoptLanguageError(refused) from unresolved
     field_names = _field_names(schema, hints)
     omittable = _omittable_fields(schema, field_names)
     values: dict[str, Any] = {}
