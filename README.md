@@ -5,9 +5,9 @@
     <img src="docs/assets/logo.png" alt="docopt2" width="200">
   </picture>
   <br>
-  <b>Typed successor to docopt. The usage message is the parser spec.</b>
+  <b>Typed successor to docopt. The usage message is the parser spec</b>
   <br>
-  A drop-in replacement for <a href="https://github.com/docopt/docopt">docopt</a> - a superset, not a rewrite.
+  A drop-in replacement for <a href="https://github.com/docopt/docopt">docopt</a> - a superset, not a rewrite
 </p>
 
 <p align="center">
@@ -39,61 +39,61 @@ The <a href="https://solganis.github.io/docopt2/">full documentation</a> walks t
 <tr>
 <td valign="top" width="50%">
 <a href="#typed-results"><b>Typed results</b></a><br>
-Pass a schema, get a typed result back - fields coerced to their types, never a <code>dict[str, Any]</code>.
+Pass a schema, get a typed result back - fields coerced to their types, never a <code>dict[str, Any]</code>
 </td>
 <td valign="top" width="50%">
 <a href="#diagnostics"><b>Rustc-style diagnostics</b></a><br>
-Errors point at the mistake: colored carets in your argv and the usage, plus the closest usage line.
+Errors point at the mistake: colored carets in your argv and the usage, plus the closest usage line
 </td>
 </tr>
 <tr>
 <td valign="top">
 <a href="#subcommand-dispatch"><b>Subcommand dispatch</b></a><br>
-Route each subcommand to its own handler - no <code>if args[...]</code> ladder.
+Route each subcommand to its own handler - no <code>if args[...]</code> ladder
 </td>
 <td valign="top">
 <a href="#shell-completion"><b>Shell completion</b></a><br>
-Tab-completion that knows your grammar: bash, zsh, fish, PowerShell, nushell.
+Tab-completion that knows your grammar: bash, zsh, fish, PowerShell, nushell
 </td>
 </tr>
 <tr>
 <td valign="top">
 <a href="#schema-codegen"><b>Schema codegen</b></a><br>
-Never hand-write the schema - <code>docopt2 stub</code> generates it from your usage, in three styles.
+Never hand-write the schema - <code>docopt2 stub</code> generates it from your usage, in three styles
 </td>
 <td valign="top">
 <a href="#layered-fallback"><b>Layered fallback</b></a><br>
-Resolve an option from <code>[env: VAR]</code> or <code>[config: key]</code> - CLI, then env, then config, then default.
+Resolve an option from <code>[env: VAR]</code> or <code>[config: key]</code> - CLI, then env, then config, then default
 </td>
 </tr>
 <tr>
 <td valign="top">
 <a href="#rich-help"><b>Self-documenting <code>--help</code></b></a><br>
-Opt into a colored, scoped help that shows where each value resolves from - env, config, default.
+Opt into a colored, scoped help that shows where each value resolves from - env, config, default
 </td>
 <td valign="top">
 <a href="#example-generation"><b>Example generation</b></a><br>
-Sample the argvs your usage accepts - for drift detection, fuzzing, and a Hypothesis strategy.
+Sample the argvs your usage accepts - for drift detection, fuzzing, and a Hypothesis strategy
 </td>
 </tr>
 <tr>
 <td valign="top">
 <a href="#usage-linter"><b>Static usage linter</b></a><br>
-Catch a broken usage before it ships - <code>docopt2 check</code> flags dead defaults and unusable options.
+Catch a broken usage before it ships - <code>docopt2 check</code> flags dead defaults and unusable options
 </td>
 <td valign="top">
 <a href="#usage-formatter"><b>Usage formatter</b></a><br>
-Keep the <code>Options:</code> block aligned - <code>docopt2 fmt</code> reformats it, the format half to <code>check</code>'s lint.
+Keep the <code>Options:</code> block aligned - <code>docopt2 fmt</code> reformats it, the format half to <code>check</code>'s lint
 </td>
 </tr>
 <tr>
 <td valign="top">
 <a href="#round-trip"><b>Round-trip codec</b></a><br>
-Turn a parsed result back into an argv that parses to it - <code>format_argv</code>, the inverse of <code>docopt</code>.
+Turn a parsed result back into an argv that parses to it - <code>format_argv</code>, the inverse of <code>docopt</code>
 </td>
 <td valign="top">
 <a href="#compat"><b>Compatibility checking</b></a><br>
-<code>docopt2 compat old new</code> reports the changes that would break callers - a breaking-change detector for your CLI.
+<code>docopt2 compat old new</code> reports the changes that would break callers - a breaking-change detector for your CLI
 </td>
 </tr>
 </table>
@@ -129,19 +129,19 @@ docopt2 reads the same usage DSL as docopt - the `Usage:` and `Options:` blocks 
 
 <table align="center">
 <tr><th>Syntax</th><th>Meaning</th></tr>
-<tr><td><code>command</code></td><td>A literal (sub)command, matched as-is.</td></tr>
-<tr><td><code>&lt;arg&gt;</code>, <code>ARG</code></td><td>A positional argument.</td></tr>
-<tr><td><code>-o</code>, <code>--option</code></td><td>An option (flag).</td></tr>
-<tr><td><code>--option=&lt;val&gt;</code></td><td>An option that takes a value.</td></tr>
-<tr><td><code>[ ]</code></td><td>Optional element(s).</td></tr>
-<tr><td><code>( )</code></td><td>Required group.</td></tr>
-<tr><td><code>a | b</code></td><td>Mutually exclusive: choose one.</td></tr>
-<tr><td><code>element...</code></td><td>Repeatable: one or more.</td></tr>
-<tr><td><code>[options]</code></td><td>Stands in for every option listed under <code>Options:</code>.</td></tr>
-<tr><td><code>--</code></td><td>Ends option parsing. The rest is positional.</td></tr>
-<tr><td><code>[default: &lt;val&gt;]</code></td><td>An option's default value, declared under <code>Options:</code>.</td></tr>
-<tr><td><code>[env: &lt;var&gt;]</code></td><td>An option's environment-variable fallback.</td></tr>
-<tr><td><code>[config: &lt;key&gt;]</code></td><td>An option's config-file fallback (CLI &gt; env &gt; config &gt; default).</td></tr>
+<tr><td><code>command</code></td><td>A literal (sub)command, matched as-is</td></tr>
+<tr><td><code>&lt;arg&gt;</code>, <code>ARG</code></td><td>A positional argument</td></tr>
+<tr><td><code>-o</code>, <code>--option</code></td><td>An option (flag)</td></tr>
+<tr><td><code>--option=&lt;val&gt;</code></td><td>An option that takes a value</td></tr>
+<tr><td><code>[ ]</code></td><td>Optional element(s)</td></tr>
+<tr><td><code>( )</code></td><td>Required group</td></tr>
+<tr><td><code>a | b</code></td><td>Mutually exclusive: choose one</td></tr>
+<tr><td><code>element...</code></td><td>Repeatable: one or more</td></tr>
+<tr><td><code>[options]</code></td><td>Stands in for every option listed under <code>Options:</code></td></tr>
+<tr><td><code>--</code></td><td>Ends option parsing. The rest is positional</td></tr>
+<tr><td><code>[default: &lt;val&gt;]</code></td><td>An option's default value, declared under <code>Options:</code></td></tr>
+<tr><td><code>[env: &lt;var&gt;]</code></td><td>An option's environment-variable fallback</td></tr>
+<tr><td><code>[config: &lt;key&gt;]</code></td><td>An option's config-file fallback (CLI &gt; env &gt; config &gt; default)</td></tr>
 </table>
 
 The legend covers the essentials. Precedence and edge cases are in the [full usage grammar](https://solganis.github.io/docopt2/guides/usage-dsl/).
